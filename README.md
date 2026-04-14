@@ -187,6 +187,8 @@ How an autonomous agent perceives and uses your `elemm` landmarks in a real conv
 
 ![Agent Interaction Demo](assets/interaction_demo.png)
 
+> **Note the intelligence:** In this example, the agent technically requires a JWT token for the next action. When the user provides simple credentials instead, the agent autonomously understands the context, performs the login, and proceeds with the `add_to_cart` call. He nailed it.
+
 ---
 
 ## License
