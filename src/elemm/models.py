@@ -18,6 +18,7 @@ class AIAction(BaseModel):
     type: str
     description: str
     instructions: Optional[str] = None
+    remedy: Optional[str] = None # Instructions for the AI on how to handle errors
     method: str
     url: str
     tags: List[str] = ["default"]

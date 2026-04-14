@@ -218,6 +218,7 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             tags=route.tags if route.tags else ["default"],
             description=description or "No description provided.",
             instructions=meta.get("instructions"),
+            remedy=meta["extra"].get("remedy"),
             method=method,
             url=url,
             parameters=actual_parameters if actual_parameters else None,
