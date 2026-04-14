@@ -172,7 +172,7 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                     if "Header" in default_type_str or "Header" in default_str:
                         is_header = True
                         # Protection (Critic Point 2): Mark sensitive headers as protocol-managed
-                        if name.lower() in ["authorization", "x-api-key", "token"]:
+                        if name.lower() in ["authorization", "x-api-key", "api-key", "token", "auth"]:
                             p_managed = "protocol"
                             
                         # Check if Header is required

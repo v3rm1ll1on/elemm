@@ -1,8 +1,15 @@
 # elemm (Landmark Protocol)
 
-**The Universal AI-Native Backend Bridge. Turn any API into a navigable map for autonomous agents.**
+**The Universal AI-Native Backend Bridge. Turn any API into native AI tools in seconds.**
 
-`elemm` is a high-performance framework for FastAPI that transforms standard REST endpoints into "AI Landmarks". It optimizes your API for autonomous agents (like Claude or GPT via MCP), enabling them to discover, understand, and interact with your backend with zero-shot precision.
+`elemm` is a high-performance framework centered around the **Model Context Protocol (MCP)**. It transforms standard REST endpoints into "AI Landmarks", enabling autonomous agents (like Claude or GPT) to discover and interact with your backend with zero-shot precision.
+
+---
+
+### Core Strengths:
+*   **Plug-and-play MCP Support**: Instantly compatible with Claude Desktop and Cursor.
+*   **Automated Discovery**: Auto-detects landmarks, schemas, and dependencies.
+*   **AI-Native Safety**: Built-in protection against hallucinations and security exposures.
 
 ---
 
@@ -16,19 +23,77 @@ pip install elemm
 ### 2. Implementation
 ```python
 from elemm import FastAPIProtocolManager
-from fastapi import FastAPI, Header
+from fastapi import FastAPI, Header, Depends
+from pydantic import BaseModel
 
 app = FastAPI()
-ai = FastAPIProtocolManager(agent_welcome="Welcome to System-X.")
+ai = FastAPIProtocolManager(agent_welcome="Welcome to the Support-OS.")
 
-@ai.landmark(id="get_status", type="read", description="Check system health.")
-@app.get("/status")
-async def health(auth_token: str = Header(..., description="Your API Token")):
-    return {"status": "nominal"}
+class Ticket(BaseModel):
+    title: str
+    priority: int = 1
 
-# Register the protocol
+@ai.landmark(id="get_categories", type="navigation")
+@app.get("/categories")
+async def list_cats():
+    return ["Tech", "Billing", "General"]
+
+@ai.landmark(id="create_ticket", type="write", remedy="If 400, ask for a clearer title.")
+@app.post("/tickets")
+async def create(ticket: Ticket, auth: str = Header(...)):
+    return {"id": "123", "status": "created"}
+
+# Register and bind
 app.include_router(ai.get_router())
 ai.bind_to_app(app)
+```
+
+---
+
+## Why elemm? (OpenAPI vs. Landmark Manifest)
+
+Standard `openapi.json` is built for humans and documentation. It is full of HTTP-noise that confuses LLMs. `elemm` produces a "Hardened Manifest" optimized for action.
+
+| Feature | Standard OpenAPI | elemm Landmark |
+| :--- | :--- | :--- |
+| **Noise Level** | High (Responses, Content-Types, etc.) | Low (Action-First) |
+| **Tool Calling** | Complex paths & methods | Unique Action-IDs |
+| **Security** | AI must handle tokens (Risky) | Protocol Managed (Safe) |
+| **Error Handling** | Generic 4xx/5xx | Functional `remedy` instructions |
+| **Context** | Exposes internal fields (Request/Sess) | Clean Context-Isolation |
+
+### Comparison Example: `create_ticket`
+
+#### Standard `openapi.json` (Noisy)
+```json
+"/tickets": {
+  "post": {
+    "summary": "Create",
+    "operationId": "create_tickets_post",
+    "parameters": [{ "name": "auth", "in": "header", "required": true, "schema": { "type": "string" } }],
+    "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Ticket" } } } },
+    "responses": { "200": { "description": "Successful Response", "content": { "application/json": {} } } }
+  }
+}
+```
+
+#### `llm-landmarks.json` (Optimized)
+```json
+{
+  "id": "create_ticket",
+  "type": "write",
+  "description": "No description provided.",
+  "remedy": "If 400, ask for a clearer title.",
+  "method": "POST",
+  "url": "/tickets",
+  "parameters": [
+    { "name": "auth", "type": "string", "required": true, "managed_by": "protocol" }
+  ],
+  "payload": [
+    { "name": "title", "type": "string", "required": true },
+    { "name": "priority", "type": "integer", "required": false, "default": 1 }
+  ]
+}
 ```
 
 ---
@@ -62,7 +127,6 @@ Specific "Rules of Engagement" for this action. Useful for enforcing business lo
 
 ### `hidden` (boolean, default: False)
 If set to `True`, the landmark is registered in your code but **excluded from the AI manifest**. 
-*   **Why use this?** For security (preventing AI from seeing sensitive endpoints) or during maintenance when an endpoint should be temporarily disabled for agents without changing the routing logic.
 
 ---
 
@@ -73,6 +137,24 @@ If set to `True`, the landmark is registered in your code but **excluded from th
 *   **Instant Integration**: Works with Claude Desktop, Cursor, and other MCP-compatible agents.
 *   **Auto-Sync**: Your AI tools are always in sync with your latest API deployment.
 *   **Bridge Logic**: See `examples/mcp_bridge.py` for a ready-to-use bridge implementation.
+
+### Claude Desktop Integration
+
+To connect your Landmarks to Claude, add the following to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "landmarks": {
+      "command": "python3",
+      "args": ["/pfad/zu/deinem/repo/examples/mcp_bridge.py"],
+      "env": {
+        "LANDMARK_URLS": "http://localhost:8000"
+      }
+    }
+  }
+}
+```
 
 ---
 
