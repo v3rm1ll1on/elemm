@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "elemm"
+version = "0.1.0"
+authors = [
+  { name="Siddy", email="siddy@example.com" },
+]
+description = "A protocol for autonomous LLM agents to navigate web applications via semantic landmarks."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Framework :: FastAPI",
+]
+dependencies = [
+    "fastapi",
+    "pydantic>=2.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/v3rm1ll1on/ai-landmarks"
+"Bug Tracker" = "https://github.com/v3rm1ll1on/ai-landmarks/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
