@@ -65,44 +65,51 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
         # Automatic payload detection
         payload = meta["extra"].get("payload")
         
-        # Falls kein manueller Payload, suchen wir in der Route
         if not payload:
             model = None
+            
+            # 1. Check official FastAPI body_field
             if route.body_field:
                 model = getattr(route.body_field, "annotation", None) or \
                         getattr(route.body_field, "type_", None)
-            else:
-                # Fallback: Scanne alle Parameter nach Pydantic Models (für FastAPI Kompatibilität)
+            
+            # 2. Check body_params in dependencies
+            if not model and hasattr(route, "dependant") and route.dependant.body_params:
                 for param in route.dependant.body_params:
                     model = getattr(param, "annotation", None) or getattr(param, "type_", None)
                     if model: break
+            
+            # 3. Fallback: Direct inspection of the endpoint signature
+            if not model:
+                sig = inspect.signature(route.endpoint)
+                for name, param in sig.parameters.items():
+                    ann = param.annotation
+                    # Check if it looks like a Pydantic model
+                    if hasattr(ann, "model_json_schema") or hasattr(ann, "schema"):
+                        model = ann
+                        break
 
             if model:
-                schema = model.model_json_schema() if hasattr(model, "model_json_schema") else (model.schema() if hasattr(model, "schema") else None)
-                if schema:
-                    properties = schema.get("properties", {})
-                    required_fields = schema.get("required", [])
-                    
-                payload = []
-                for field_name, field_info in properties.items():
-                    # Handle anyOf/oneOf for Optional types
-                    raw_type = field_info.get("type")
-                    if not raw_type:
-                        options = field_info.get("anyOf") or field_info.get("oneOf")
-                        if options:
-                            for opt in options:
-                                if opt.get("type") and opt.get("type") != "null":
-                                    raw_type = opt.get("type")
-                                    break
-                    
-                    p_type = map_type({"type": raw_type or "string"})
-                    payload.append(ActionParam(
-                        name=field_name,
-                        description=field_info.get("description", f"Field {field_name}"),
-                        type=p_type,
-                        required=field_name in required_fields,
-                        default=field_info.get("default")
-                    ))
+                try:
+                    schema = model.model_json_schema() if hasattr(model, "model_json_schema") else (model.schema() if hasattr(model, "schema") else None)
+                    if schema:
+                        properties = schema.get("properties", {})
+                        required_fields = schema.get("required", [])
+                        
+                        payload = []
+                        for field_name, field_info in properties.items():
+                            p_type = map_type(field_info)
+                            payload.append(ActionParam(
+                                name=field_name,
+                                description=field_info.get("description", f"Field {field_name}"),
+                                type=p_type,
+                                required=field_name in required_fields,
+                                default=field_info.get("default"),
+                                min_value=field_info.get("minimum") or field_info.get("ge"),
+                                max_value=field_info.get("maximum") or field_info.get("le")
+                            ))
+                except Exception as e:
+                    logger.warning(f"Could not extract schema from model {model}: {e}")
 
         # Parameter detection
         params = meta["extra"].get("params") or {}
@@ -149,7 +156,7 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             url=url,
             parameters=actual_parameters if actual_parameters else None,
             headers=headers if headers else None,
-            payload=payload,  # Wir nehmen jetzt direkt was wir extrahiert haben
+            payload=payload,
             required_auth=meta["extra"].get("required_auth"),
             response_schema=self._extract_response_schema(route),
             hidden=meta["extra"].get("hidden", False)
