@@ -1,13 +1,23 @@
 from typing import List, Dict, Any, Optional, Callable
 from .models import AIAction, AIProtocolManifest
 
+DEFAULT_PROTOCOL_INSTRUCTIONS = (
+    "You are an autonomous web agent. This manifest defines 'actions' you can call like functions. "
+    "DECISION RULES: "
+    "1. The 'parameters' field is a SCHEMA. Each key inside is an argument name. "
+    "2. NEVER send the schema objects themselves as values. Send only the actual content (e.g., q='Apple'). "
+    "3. Optional fields (required: false) are truly optional for you—use them only if they serve the goal. "
+    "4. Strictly follow the 'instructions' provided at the action level."
+)
+
 class BaseAIProtocolManager:
     """
     Framework-agnostic core logic for managing LLM Landmarks.
     """
-    def __init__(self, agent_welcome: str, version: str = "v1-lmlmm"):
+    def __init__(self, agent_welcome: str, version: str = "v1-lmlmm", protocol_instructions: Optional[str] = None):
         self.version = version
         self.agent_welcome = agent_welcome
+        self.protocol_instructions = protocol_instructions or DEFAULT_PROTOCOL_INSTRUCTIONS
         self.actions: List[AIAction] = []
         self.openapi_url: Optional[str] = None
 
@@ -44,6 +54,7 @@ class BaseAIProtocolManager:
         manifest = AIProtocolManifest(
             version=self.version,
             agent_welcome=self.agent_welcome,
+            protocol_instructions=self.protocol_instructions,
             openapi_url=self.openapi_url,
             actions=self.actions
         )

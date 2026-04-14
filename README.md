@@ -37,23 +37,20 @@ app = FastAPI()
 
 # 1. Initialize the Manager
 ai = FastAPIProtocolManager(
-    agent_welcome="Welcome to the SmartHome OS. You are an indoor climate specialist.",
+    agent_welcome="Welcome to the SmartHome OS.",
     version="2.0-stable"
 )
 
-class LightOrder(BaseModel):
-    brightness: int # Ranges from 0 to 100
-    color_temp: str = "warm"
+class CartItem(BaseModel):
+    product_id: int
+    quantity: int
 
 # 2. Mark your routes as Landmarks
-@app.post("/lights/{room_id}")
-@ai.landmark(
-    id="set_room_lighting",
-    type="write",
-    instructions="Always report the new brightness level to the user."
-)
-def set_lights(room_id: str, order: LightOrder):
-    return {"status": "dimmed", "room": room_id}
+@app.post("/cart/add")
+@ai.landmark(id="add_to_cart", type="write")
+def add(item: CartItem):
+    # The agent automatically sees 'product_id' and 'quantity' in the manifest
+    pass
 
 # 3. Mount the Discovery Manifest (at /.well-known/llm-landmarks.json)
 app.include_router(ai.get_router())
@@ -64,26 +61,19 @@ ai.bind_to_app(app)
 
 ---
 
-## Core Concepts
+## Pro Features
 
-### The @landmark Decorator
-This is where you tell the agent *how* to use the tool.
-*   `id`: A unique, snake_case identifier for the tool.
-*   `type`: Categorize the action (e.g., `read`, `write`, `navigation`).
-*   `instructions`: Specific behavioral guidelines for the LLM when using *this* tool.
-*   `description`: If omitted, `elemm` uses the function's docstring.
+### 1. Customizing Agent Behavior
+Different models (GPT-4o, Claude 3.5, etc.) react differently to instructions. You can override the global protocol instructions to fine-tune your agent's reasoning:
 
-### Automatic Argument Detection
-You don't need to define parameters manually. `elemm` inspects your function signature:
-*   **Path/Query Params**: Automatically identified and typed.
-*   **Payloads**: If you use a Pydantic `BaseModel`, its entire schema is extracted recursively.
-*   **Optionality**: Correctly identifies optional fields and default values.
+```python
+ai = FastAPIProtocolManager(
+    agent_welcome="...",
+    protocol_instructions="CRITICAL: Never ever send nested objects for flat parameters!"
+)
+```
 
----
-
-## Advanced Usage
-
-### Manual Parameter Overrides
+### 2. Manual Parameter Overrides
 If you need to provide more context to the AI than your code provides:
 
 ```python
@@ -99,40 +89,26 @@ def search_api(q: str, limit: int = 5):
     ...
 ```
 
-### Model Context Protocol (MCP) Export
+### 3. Model Context Protocol (MCP) Export
 `elemm` is the perfect source for MCP Tools. You can generate a full tool-box with one line:
 
 ```python
 # Returns a list of dicts compatible with MCP tool definitions
 mcp_tool_box = ai.get_mcp_tools()
-
-# These can be served via an MCP Server to any LLM client.
 ```
-
-### Response Schema Prediction
-`elemm` looks at your `response_model` to tell the agent what the JSON output will look like. This drastically reduces "parsing hallucinations" by the LLM.
 
 ---
 
-## The Manifest Format
-Your application will serve a standardized JSON at `/.well-known/llm-landmarks.json`:
+## Core Concepts
 
-```json
-{
-  "version": "v1-lmlmm",
-  "agent_welcome": "...",
-  "actions": [
-    {
-      "id": "set_room_lighting",
-      "method": "POST",
-      "url": "/lights/{room_id}",
-      "parameters": [...],
-      "payload": [...],
-      "instructions": "..."
-    }
-  ]
-}
-```
+### The @landmark Decorator
+This is where you tell the agent *how* to use the tool.
+*   `id`: A unique identifies.
+*   `type`: e.g., `read`, `write`, `navigation`.
+*   `instructions`: Specific behavioral guidelines.
+
+### Automatic Argument Detection
+You don't need to define parameters manually. `elemm` inspects your function signature and Pydantic models automatically.
 
 ---
 

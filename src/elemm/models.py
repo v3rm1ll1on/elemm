@@ -28,13 +28,6 @@ class AIAction(BaseModel):
 class AIProtocolManifest(BaseModel):
     version: str = "v1-lmlmm"
     agent_welcome: str
-    protocol_instructions: str = (
-        "You are an autonomous web agent. This manifest defines 'actions' you can call like functions. "
-        "DECISION RULES: "
-        "1. The 'parameters' field is a SCHEMA. Each key inside is an argument name. "
-        "2. NEVER send the schema objects themselves as values. Send only the actual content (e.g., q='Apple'). "
-        "3. Optional fields (required: false) are truly optional for you—use them only if they serve the goal. "
-        "4. Strictly follow the 'instructions' provided at the action level."
-    )
+    protocol_instructions: Optional[str] = None
     openapi_url: Optional[str] = None
     actions: List[AIAction]
