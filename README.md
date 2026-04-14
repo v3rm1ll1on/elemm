@@ -192,4 +192,4 @@ How an autonomous agent perceives and uses your `elemm` landmarks in a real conv
 ---
 
 ## License
-MIT License. Created by v3rm1ll1on.
+GNU General Public License v3.0. Created by Marc Stöcker.
