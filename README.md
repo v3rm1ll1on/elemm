@@ -106,5 +106,30 @@ This is where you tell the agent *how* to use the tool.
 
 ---
 
+## Examples & Integration
+
+You can find complete examples in the `examples/` directory:
+*   `mcp_bridge.py`: A standalone Model Context Protocol (MCP) server that turns any Landmark-enabled API into native AI tools.
+*   `llm-landmarks.json`: A blueprint of the manifest produced by `elemm`.
+
+### Claude Desktop Integration
+To use your landmarks in Claude, add the following to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "landmarks": {
+      "command": "python3",
+      "args": ["/path/to/elemm/examples/mcp_bridge.py"],
+      "env": {
+        "LANDMARK_URLS": "http://localhost:8000"
+      }
+    }
+  }
+}
+```
+
+---
+
 ## License
 MIT License. Created by the AI Evolution Team.

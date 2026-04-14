@@ -1,0 +1,48 @@
+{
+  "protocol": "elemm",
+  "version": "2.5-autonomous",
+  "agent_welcome": "Welcome to the Synth-Genesis OS Example.",
+  "protocol_instructions": "Always verify items before purchase.",
+  "actions": [
+    {
+      "id": "get_profile",
+      "type": "read",
+      "description": "Get your user profile. Requires JWT.",
+      "method": "GET",
+      "url": "/auth/profile",
+      "tags": ["auth", "user"],
+      "parameters": [
+        {
+          "name": "authorization",
+          "description": "Bearer <token>",
+          "type": "string",
+          "required": true,
+          "managed_by": "protocol"
+        }
+      ],
+      "context_dependencies": ["request", "session"]
+    },
+    {
+      "id": "add_to_cart",
+      "type": "write",
+      "description": "Add an item to your persistent cart.",
+      "method": "POST",
+      "url": "/cart",
+      "tags": ["shop"],
+      "payload": [
+        {
+          "name": "product_id",
+          "description": "ID of the product",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "quantity",
+          "description": "Number of items",
+          "type": "integer",
+          "default": 1
+        }
+      ]
+    }
+  ]
+}
