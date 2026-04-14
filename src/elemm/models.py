@@ -10,6 +10,8 @@ class ActionParam(BaseModel):
     example: Optional[Any] = None
     min_value: Optional[float] = None
     max_value: Optional[float] = None
+    options: Optional[List[Any]] = None
+    managed_by: Optional[str] = None # e.g., "protocol", "user", "environment"
 
 class AIAction(BaseModel):
     id: str
@@ -18,10 +20,12 @@ class AIAction(BaseModel):
     instructions: Optional[str] = None
     method: str
     url: str
+    tags: List[str] = ["default"]
     parameters: Optional[List[ActionParam]] = None
     headers: Optional[Dict[str, str]] = None
     payload: Optional[Union[Dict[str, Any], List[ActionParam]]] = None
     required_auth: Optional[str] = None
+    context_dependencies: Optional[List[str]] = None
     response_schema: Optional[Dict[str, Any]] = None
     hidden: bool = False
 
