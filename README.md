@@ -181,5 +181,13 @@ Standard OpenAPI documentation is often too noisy for LLMs. `elemm` provides a h
 
 ---
 
+## Agent in Action
+
+How an autonomous agent perceives and uses your `elemm` landmarks in a real conversation:
+
+![Agent Interaction Demo](assets/interaction_demo.png)
+
+---
+
 ## License
 MIT License. Created by v3rm1ll1on.
