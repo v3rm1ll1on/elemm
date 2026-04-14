@@ -111,6 +111,7 @@ This is where you tell the agent *how* to use the tool.
 You can find complete examples in the `examples/` directory:
 *   `mcp_bridge.py`: A standalone Model Context Protocol (MCP) server that turns any Landmark-enabled API into native AI tools.
 *   `llm-landmarks.json`: A blueprint of the manifest produced by `elemm`.
+*   `claude_desktop_config.json`: A template for your Claude Desktop configuration.
 
 ### Claude Desktop Integration
 To use your landmarks in Claude, add the following to your `claude_desktop_config.json`:
