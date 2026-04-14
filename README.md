@@ -1,132 +1,121 @@
-# elemm -- AI Landmarks for Autonomous Agents
+# 🪐 elemm (Landmark Protocol)
 
-> **Turn your Web API into a self-describing playground for AI Agents.**
+**The Bridge between Autonomous Agents and your API.**
 
-`elemm` (AI Landmarks) is a smart bridging protocol that exposes your backend functionality as a set of discoverable "Landmarks". It enables autonomous agents (GPT-4, Claude, local models) to understand, navigate, and control your system without manual API documentation or custom tool coding.
-
----
-
-## Key Features
-
-*   **Automatic Route Discovery**: Scans your FastAPI app and extracts all necessary metadata.
-*   **Automatic Header Detection**: Detects `fastapi.Header` parameters and exports them as landmarks, allowing agents to handle authentication (JWT, API-Keys) natively.
-*   **Context Injection (Managed Context)**: Identifies internal dependencies (`Request`, `session_id`, `db`) and signals them as `context_dependencies` so the protocol bridge can handle them transparently without bothering the LLM.
-*   **Zero-Config Pydantic Support**: Automatically converts Pydantic models (including nested lists and complex schemas) into AI-readable action payloads.
-*   **Semantic Guiding**: Hard-code behavioral instructions (HIL, constraints, tone) directly into your endpoints.
-*   **MCP Ready**: Export your landmarks as native Model Context Protocol (MCP) tools for instant compatibility with Claude Desktop, Cursor, and Aevo.
-*   **Response Prediction**: Tells the agent what to expect in the JSON response before the call is made.
+`elemm` is a high-performance framework for FastAPI that transforms standard REST endpoints into "AI Landmarks". It enables autonomous agents (like Claude via MCP) to discover, understand, and navigate your API with zero-shot precision.
 
 ---
 
-## Installation
+## ⚡ TL;DR: Quick Start
 
+### 1. Install
 ```bash
-# Since we are in development, use editable install:
-pip install -e /home/siddy/ai_web_protocoll/ai_landmarks_pkg
+pip install elemm
 ```
 
----
-
-## Quickstart (FastAPI)
-
-`elemm` integrates seamlessly with FastAPI to provide automatic discovery.
-
+### 2. Decorate your FastAPI Routes
 ```python
-from fastapi import FastAPI, Header, Depends
-from pydantic import BaseModel
 from elemm import FastAPIProtocolManager
+from fastapi import FastAPI, Header
 
 app = FastAPI()
+ai = FastAPIProtocolManager(agent_welcome="Welcome to System-X.")
 
-# 1. Initialize the Manager
-ai = FastAPIProtocolManager(
-    agent_welcome="Welcome to the Synth-Genesis OS.",
-    version="2.5-autonomous"
-)
+@ai.landmark(id="get_status", type="read", description="Check system health.")
+@app.get("/status")
+async def health(auth: str = Header(..., description="API-Key")):
+    return {"status": "nominal"}
 
-class CartItem(BaseModel):
-    product_id: str
-    quantity: int = 1
-
-# 2. Mark your routes as Landmarks
-# Note: Header and Depends are handled automatically!
-@app.post("/cart")
-@ai.landmark(id="add_to_cart", type="write", description="Add an item to your persistent cart.")
-async def add_to_cart(
-    item: CartItem, 
-    authorization: str = Header(..., description="Bearer <token>")
-):
-    return {"status": "success"}
-
-# 3. Use Context Injection
-# Internal fields like session_id are recognized and moved to context_dependencies
-@app.get("/profile")
-@ai.landmark(id="get_profile", type="read")
-async def profile(session_id: str): 
-    # session_id stays invisible to the LLM but visible to the Bridge!
-    return {"user": "Peter Meier"}
-
-# 4. Mount and Bind
+# Register the protocol
 app.include_router(ai.get_router())
 ai.bind_to_app(app)
 ```
 
+### 3. Done!
+Your AI-readable manifest is now live at: `http://localhost:8000/.well-known/llm-landmarks.json`
+
 ---
 
-## Advanced Architecture
+## 🛡️ Enterprise-Ready Hardening
 
-### 1. Automatic Header & Auth Mapping
-`elemm` detects when a parameter is a Header. The manifest then describes this parameter correctly, and compatible bridges (like `landmark_addon`) automatically map these parameters back to HTTP Headers during the request execution.
+Unlike generic OpenAPI generators, `elemm` is built for **Safety and Precision**:
 
-### 2. Context Dependency Management
-Instead of exposing technical boilerplate to the LLM, `elemm` categorizes parameters:
-*   **Landmark Parameters**: Active fields the LLM must decide on.
-*   **Context Dependencies**: Fields the system needs but the protocol bridge handles (e.g., `session_id`, `request_id`).
+*   **Managed Parameters:** Sensitive headers (Authorization, API-Keys) are automatically marked as `managed_by: protocol`. The AI knows it shouldn't "hallucinate" these values.
+*   **Context Injection:** Internal fields (FastAPI `Request`, `Session`) are automatically detected and moved to `context_dependencies`. They never clutter the AI's input schema.
+*   **Strict Type Extraction:** Full support for Pydantic V2 Enums, Descriptions, and Examples.
+*   **Discovery Debugging:** Detailed startup logs show exactly which landmarks were registered.
+*   **Tags & Scaling:** Inherits FastAPI tags to categorize landmarks for large-scale APIs.
 
-### 3. Model Context Protocol (MCP) Export
-`elemm` is the perfect source for MCP Tools. Generate a full tool-box with one line:
+---
 
-```python
-# Returns a list of dicts compatible with MCP tool definitions
-mcp_tool_box = ai.get_mcp_tools()
+## 🚀 Use Cases: The Power of Landmarks
+
+`elemm` is not just for shops. It’s for any system that needs an "AI interface":
+
+### 🏠 1. Autonomous Smart Home
+Register your IoT endpoints as landmarks.
+*   **Action:** `set_temperature`, `toggle_lights`.
+*   **Benefit:** A voice-agent can discover new smart devices in your home instantly via the manifest.
+
+### 🏦 2. Financial Compliance & Ops
+Turn complex banking APIs into navigable actions.
+*   **Action:** `get_transaction_history`, `flag_fraudulent_activity`.
+*   **Benefit:** AI auditors can follow "Landmark" instructions to perform 24/7 compliance checks.
+
+### 🏥 3. Medical Data Pipelines
+Expose patient data securely to diagnostic agents.
+*   **Action:** `query_lab_results`.
+*   **Benefit:** The `context_dependencies` ensure that PHI (Protected Health Information) is managed by the protocol/backend, not the LLM.
+
+### 🎮 4. Dynamic Game Worlds
+Let AI-NPCs interact with the world via REST.
+*   **Action:** `open_vault_door`, `trade_item`.
+*   **Benefit:** The manifest acts as the "Rulebook" for NPCs to interact logically with the game engine.
+
+---
+
+## 🔌 MCP & Claude Integration
+
+Use the included `examples/mcp_bridge.py` to connect `elemm` to **Claude Desktop**.
+
+Add this to your `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "my-ai-system": {
+      "command": "python3",
+      "args": ["/path/to/elemm/examples/mcp_bridge.py"],
+      "env": { "LANDMARK_URLS": "http://localhost:8000" }
+    }
+  }
+}
 ```
 
 ---
 
-## Core Concepts
-
-### The @landmark Decorator
-This is where you tell the agent *how* to use the tool.
-*   `id`: A unique identifies.
-*   `type`: `read`, `write`, `navigation`, `discovery`.
-*   `instructions`: Specific behavioral guidelines (e.g. "Always check stock before buying").
-
-### Automatic Argument Detection
-`elemm` inspects your function signature and Pydantic models automatically. It resolves `Annotated`, `Field`, and `Optional` types to create the most accurate JSON Schema for the Agent.
-
----
-
-## Examples & Integration
-
-You can find complete examples in the `examples/` directory:
-*   `mcp_bridge.py`: A standalone Model Context Protocol (MCP) server that turns any Landmark-enabled API into native AI tools.
-*   `llm-landmarks.json`: A blueprint of the manifest produced by `elemm`.
-*   `claude_desktop_config.json`: A template for your Claude Desktop configuration.
-
-### Claude Desktop Integration
-To use your landmarks in Claude, add the following to your `claude_desktop_config.json`:
+## 📜 Example Manifest (`llm-landmarks.json`)
 
 ```json
 {
-  "mcpServers": {
-    "landmarks": {
-      "command": "python3",
-      "args": ["/path/to/elemm/examples/mcp_bridge.py"],
-      "env": {
-        "LANDMARK_URLS": "http://localhost:8000"
-      }
+  "protocol": "elemm",
+  "version": "2.5-autonomous",
+  "actions": [
+    {
+      "id": "get_status",
+      "type": "read",
+      "description": "Check system health.",
+      "method": "GET",
+      "url": "/status",
+      "parameters": [
+        {
+          "name": "auth",
+          "description": "API-Key",
+          "type": "string",
+          "managed_by": "protocol"
+        }
+      ]
     }
-  }
+  ]
 }
 ```
 
