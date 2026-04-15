@@ -1,41 +1,41 @@
-# 🤖 elemm vs. Classic MCP: Ein Vergleich
+# 🤖 elemm vs. Classic MCP: A Comparison
 
-Stell dir vor, du hast zwei Kisten mit Lego-Steinen und willst, dass ein Roboter daraus ein Haus baut.
-
----
-
-## 🔴 Die normale Kiste (Classic MCP)
-**Wie es ohne elemm läuft:**
-
-Stell dir vor, du hast die Lego-Anleitung verloren. Damit dein Roboter weiß, was er tun soll, musst du ihm für jeden einzelnen Stein einen Zettel schreiben:
-*   *"Der rote Stein ist für das Dach."*
-*   *"Diesen blauen Stein darfst du nur benutzen, wenn es nicht regnet."*
-*   *"Wenn der grüne Stein klemmt, dann drück erst den gelben."*
-
-**Das Problem:** Wenn du einen Stein gegen einen größeren austauschst, musst du sofort zu deinem Roboter laufen und den Zettel umschreiben. Vergisst du das, versucht der Roboter den alten Stein einzubauen und alles bricht zusammen. Du schreibst also alles doppelt: Einmal die Bauanleitung und einmal die Zettel für den Roboter. 
-
-**Zu finden in:** [`./classic_mcp`](./classic_mcp)
+Imagine you have two boxes of Lego bricks and you want a robot to build a house for you.
 
 ---
 
-## 🟢 Die Zauber-Kiste (elemm MCP)
-**Wie es mit elemm läuft:**
+## 🔴 The Normal Box (Classic MCP)
+**How it works without elemm:**
 
-In dieser Kiste sind **Zauber-Steine**. Du musst dem Roboter gar keine Zettel mehr schreiben. Er fragt einfach jeden Stein: *"Hey Stein, was kannst du?"* – und der Stein antwortet ihm:
-*   *"Ich bin ein Dachstein, setz mich oben drauf!"*
-*   *"Ich klebe nur, wenn du vorher diesen anderen Stein benutzt."*
-*   *"Wenn ich hinfalle, dann heb mich einfach wieder auf."*
+Imagine you lost the Lego instruction manual. For your robot to know what to do, you have to write a separate note for every single brick:
+*   *"The red brick is for the roof."*
+*   *"You can only use this blue brick if it's not raining."*
+*   *"If the green brick gets stuck, press the yellow one first."*
 
-**Der Vorteil:** Wenn du einen Stein änderst, weiß der Stein das sofort selbst. Der Roboter fragt ihn einfach neu und weiß Bescheid. Du musst nie wieder Zettel schreiben. Du baust einfach nur – und der Roboter versteht dich von ganz allein.
+**The Problem:** If you swap a brick for a bigger one, you have to run back to your robot and rewrite the note. If you forget, the robot tries to use the old brick, and everything collapses. You are writing everything twice: once for the building (your API) and once for the robot (the MCP server).
 
-**Zu finden in:** [`./elemm_mcp`](./elemm_mcp)
+**Found in:** [`./classic_mcp`](./classic_mcp)
 
 ---
 
-### Was du in den Beispielen findest:
+## 🟢 The Magic Box (elemm MCP)
+**How it works with elemm:**
 
-1.  **api.py**: Die Lego-Steine (Deine API).
-2.  **mcp_server.py**: Die Brücke (Damit der Roboter die Steine greifen kann).
-3.  **client_demo.py**: Der Roboter (Das LLM), der versucht die Aktionen auszuführen.
+In this box, the bricks are **Magic Bricks**. You don't have to write notes for the robot anymore. The robot simply asks each brick: *"Hey brick, what can you do?"* – and the brick answers:
+*   *"I'm a roof brick, put me on top!"*
+*   *"I only stick if you use this other brick first."*
+*   *"If I fall down, just pick me up again."*
 
-**Schau dir die `client_demo.py` an:** Im klassischen Teil siehst du einen riesigen "Zettelhaufen" (System Prompt). Im elemm-Teil ist dieser Zettelhaufen leer – weil die Steine (Tools) selbst sprechen können!
+**The Advantage:** If you change a brick, the brick knows its new job immediately. The robot just asks again and understands. You never have to write notes again. You just build – and the robot understands you automatically.
+
+**Found in:** [`./elemm_mcp`](./elemm_mcp)
+
+---
+
+### What's inside these examples:
+
+1.  **api.py**: The Lego Bricks (Your API).
+2.  **mcp_server.py**: The Bridge (So the robot can grab the bricks).
+3.  **client_demo.py**: The Robot (The LLM/Agent) trying to perform actions.
+
+**Check out the `client_demo.py` files:** In the classic example, you'll see a huge "pile of notes" (System Prompt). In the elemm example, this pile is empty – because the bricks (Tools) can speak for themselves!
