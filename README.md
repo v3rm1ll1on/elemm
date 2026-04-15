@@ -23,11 +23,13 @@ pip install elemm
 ### 2. Implementation
 ```python
 from elemm import FastAPIProtocolManager
-from fastapi import FastAPI, Header, Depends
+from fastapi import FastAPI, Depends
+from fastapi.security import HTTPBearer
 from pydantic import BaseModel
 
 app = FastAPI()
 ai = FastAPIProtocolManager(agent_welcome="Welcome to the Support-OS.")
+auth_scheme = HTTPBearer()
 
 class Ticket(BaseModel):
     title: str
@@ -40,13 +42,28 @@ async def list_cats():
 
 @ai.landmark(id="create_ticket", type="write", remedy="If 400, ask for a clearer title.")
 @app.post("/tickets")
-async def create(ticket: Ticket, auth: str = Header(...)):
+async def create(ticket: Ticket, token: str = Depends(auth_scheme)):
     return {"id": "123", "status": "created"}
 
 # Register and bind
 app.include_router(ai.get_router())
 ai.bind_to_app(app)
 ```
+
+### 3. Advanced: Multiple Auth Schemes
+`elemm` detects any dependency that inherits from `SecurityBase`. You can mix and match different schemes like API Keys and OAuth2:
+
+```python
+from fastapi.security import APIKeyHeader
+
+api_key_scheme = APIKeyHeader(name="X-Admin-Key", description="Admin access only")
+
+@ai.landmark(id="wipe_logs", type="write", instructions="High-security action.")
+@app.delete("/admin/logs")
+async def delete_logs(key: str = Depends(api_key_scheme)):
+    return {"status": "logs cleared"}
+```
+`elemm` will automatically mark the `X-Admin-Key` as `managed_by: protocol` in the manifest.
 
 ---
 
@@ -58,7 +75,8 @@ Standard `openapi.json` is built for humans and documentation. It is full of HTT
 | :--- | :--- | :--- |
 | **Noise Level** | High (Responses, Content-Types, etc.) | Low (Action-First) |
 | **Tool Calling** | Complex paths & methods | Unique Action-IDs |
-| **Security** | AI must handle tokens (Risky) | Protocol Managed (Safe) |
+| **Security** | AI must handle tokens (Risky/Noisy) | **Automated Security Detection** (Native Support for HTTPBearer, OAuth2, APIKey) |
+| **Managed Auth** | Manual configuration needed | **Zero-Config**: Auto-detects `SecurityBase` |
 | **Error Handling** | Generic 4xx/5xx | Functional `remedy` instructions |
 | **Context** | Exposes internal fields (Request/Sess) | Clean Context-Isolation |
 
@@ -175,8 +193,8 @@ Essentially, if it has an API, `elemm` makes it AI-Native.
 
 Standard OpenAPI documentation is often too noisy for LLMs. `elemm` provides a hardened abstraction layer:
 
-*   **Managed Parameters**: sensitive headers (e.g., `Authorization`) are automatically marked as `managed_by: protocol`, preventing AI hallucinations.
-*   **Context Injection**: Technical fields (e.g., `Request`, `Session`) are automatically moved to a context scope, keeping the agent's input clean.
+*   **Rocksolid Security**: Native support for FastAPI `SecurityBase`. Sensitive schemes (HTTPBearer, APIKey) are automatically detected and marked as `managed_by: protocol`.
+*   **Context Injection**: Technical fields (e.g., `Request`, `Session`) and internal dependencies are automatically moved to a context scope, keeping the agent's input clean.
 *   **Pydantic V2 Support**: Deep extraction of Enums, nested models, and field metadata.
 
 ---

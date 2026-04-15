@@ -1,6 +1,7 @@
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, params
 from fastapi.routing import APIRoute
-from typing import List, Dict, Any, Optional, Union
+from fastapi.security.base import SecurityBase
+from typing import List, Dict, Any, Optional, Union, Tuple
 import inspect
 import logging
 
@@ -158,43 +159,55 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                     context_deps.append(name)
                     continue
                 
-                # Check for dependencies
-                is_header = False
+                # Metadata detection
                 p_description = f"Parameter {name}"
                 p_required = param.default == inspect.Parameter.empty
                 p_managed = None
-                
-                if param.default != inspect.Parameter.empty:
-                    default_str = str(param.default)
-                    default_type_str = str(type(param.default))
-                    
-                    # If it's a Header, we want to keep it!
-                    if "Header" in default_type_str or "Header" in default_str:
-                        is_header = True
-                        # Protection (Critic Point 2): Mark sensitive headers as protocol-managed
-                        if name.lower() in ["authorization", "x-api-key", "api-key", "token", "auth"]:
-                            p_managed = "protocol"
-                            
-                        # Check if Header is required
-                        # Supports Ellipsis and PydanticUndefined
-                        header_default = getattr(param.default, "default", None)
-                        if getattr(param.default, "required", False) is True or \
-                           header_default is Ellipsis or \
-                           str(header_default) == "PydanticUndefined":
-                            p_required = True
-                        if getattr(param.default, "description", None):
-                            p_description = param.default.description
-                        else:
-                            p_description = f"Parameter {name} (Header)"
-                            
-                    # If it's a normal Dependency (Depends), we skip it (it's internal logic)
-                    elif "Depends" in default_type_str or "Depends" in default_str:
-                        # We could also treat these as context deps if they follow certain patterns
-                        if "get_current_user" in default_str or "auth" in default_str.lower():
-                            context_deps.append(name)
-                        continue
-                
                 p_type = "string"
+                is_header = False
+                
+                # 1. Check for explicit Header parameters
+                if isinstance(param.default, params.Header):
+                    is_header = True
+                    # Protection (Critic Point 2): Mark sensitive headers as protocol-managed
+                    if name.lower() in ["authorization", "x-api-key", "api-key", "token", "auth"]:
+                        p_managed = "protocol"
+                    
+                    if param.default.description:
+                        p_description = param.default.description
+                    else:
+                        p_description = f"Parameter {name} (Header)"
+                    
+                    # Check if Header is required
+                    if param.default.default is Ellipsis or str(param.default.default) == "PydanticUndefined":
+                        p_required = True
+                
+                # 2. Check for Security/Depends dependencies
+                elif isinstance(param.default, (params.Depends, params.Security)):
+                    dependency = param.default.dependency
+                    
+                    # Inspect if the dependency is a Security Scheme (like HTTPBearer, APIKeyHeader)
+                    is_security = isinstance(dependency, SecurityBase) or \
+                                 (inspect.isclass(dependency) and issubclass(dependency, SecurityBase))
+                    
+                    if is_security:
+                        # Auto-detect Auth requirements
+                        context_deps.append(name)
+                        p_managed = "protocol"
+                        # We try to extract the auth type (e.g., 'bearer', 'api-key')
+                        auth_type = "bearer" if "bearer" in str(type(dependency)).lower() else "api-key"
+                        meta["extra"]["required_auth"] = auth_type
+                        continue 
+                    
+                    # Standard dependencies that look like auth should also be context-only
+                    if "get_current_user" in str(dependency) or "auth" in str(dependency).lower():
+                        context_deps.append(name)
+                        continue
+                    
+                    # If it's not a security scheme, we might want to skip it as it's internal logic
+                    context_deps.append(name)
+                    continue
+
                 if param.annotation == int: p_type = "integer"
                 elif param.annotation == float: p_type = "number"
                 elif param.annotation == bool: p_type = "boolean"
