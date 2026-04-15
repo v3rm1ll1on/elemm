@@ -73,8 +73,9 @@ class BaseAIProtocolManager:
         # Apply LLM Noise Reduction (if agent_view requested and not internal)
         if agent_view and not is_internal_group:
             # Exclude fields that are technical noise for the LLM
+            # We keep 'method' and 'url' because they are essential for technical discovery
             exclude_fields = {
-                "method", "url", "groups", "global_access", 
+                "groups", "global_access", 
                 "tags", "hidden", "headers", "context_dependencies",
                 "required_auth"
             }
