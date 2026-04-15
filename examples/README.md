@@ -1,41 +1,32 @@
-# 🤖 elemm vs. Classic MCP: A Comparison
+# elemm vs. Classic MCP: Technical Comparison
 
-Imagine you have two boxes of Lego bricks and you want a robot to build a house for you.
-
----
-
-## 🔴 The Normal Box (Classic MCP)
-**How it works without elemm:**
-
-Imagine you lost the Lego instruction manual. For your robot to know what to do, you have to write a separate note for every single brick:
-*   *"The red brick is for the roof."*
-*   *"You can only use this blue brick if it's not raining."*
-*   *"If the green brick gets stuck, press the yellow one first."*
-
-**The Problem:** If you swap a brick for a bigger one, you have to run back to your robot and rewrite the note. If you forget, the robot tries to use the old brick, and everything collapses. You are writing everything twice: once for the building (your API) and once for the robot (the MCP server).
-
-**Found in:** [`./classic_mcp`](./classic_mcp)
+This directory showcases the architectural differences between manual MCP tool-mapping and the **elemm Landmark Protocol** using the "Nexus-Corp Resource API" as a real-world scenario.
 
 ---
 
-## 🟢 The Magic Box (elemm MCP)
-**How it works with elemm:**
+## 🔴 [Classic MCP Implementation](./classic_mcp)
+**The Manual Mapping Approach**
 
-In this box, the bricks are **Magic Bricks**. You don't have to write notes for the robot anymore. The robot simply asks each brick: *"Hey brick, what can you do?"* – and the brick answers:
-*   *"I'm a roof brick, put me on top!"*
-*   *"I only stick if you use this other brick first."*
-*   *"If I fall down, just pick me up again."*
+In this scenario, the API is "unaware" of the AI. The developer must build and maintain a separate MCP server that acts as a hardcoded translator.
 
-**The Advantage:** If you change a brick, the brick knows its new job immediately. The robot just asks again and understands. You never have to write notes again. You just build – and the robot understands you automatically.
-
-**Found in:** [`./elemm_mcp`](./elemm_mcp)
+*   **Schema Replication**: Every Pydantic model (`Resource`, `Location`, `Status`) must be manually recreated as a JSON Schema in the MCP server.
+*   **High Coupling**: Any change in the API (e.g., adding a field or changing a constraint) requires a synchronized update in the MCP server code, or the tools will break.
+*   **External Logic (Prop Eng)**: Business rules and error-handling instructions (e.g., *"Only set OFFLINE during maintenance"*) must be fed to the LLM via large System Prompts, consuming significant context tokens.
 
 ---
 
-### What's inside these examples:
+## 🟢 [elemm MCP Implementation](./elemm_mcp)
+**The Landmark Protocol Approach**
 
-1.  **api.py**: The Lego Bricks (Your API).
-2.  **mcp_server.py**: The Bridge (So the robot can grab the bricks).
-3.  **client_demo.py**: The Robot (The LLM/Agent) trying to perform actions.
+The API is "AI-native" and describes itself via the Landmark manifest. The MCP bridge is purely generic and requires zero knowledge of the underlying business logic.
 
-**Check out the `client_demo.py` files:** In the classic example, you'll see a huge "pile of notes" (System Prompt). In the elemm example, this pile is empty – because the bricks (Tools) can speak for themselves!
+*   **Auto-Discovery**: The bridge dynamically fetches the `llm-landmarks.json` manifest. Schemas, Enums, and field descriptions are extracted automatically from the FastAPI code.
+*   **Zero-Maintenance Bridge**: You can add dozens of new endpoints or complex models to the API; the `mcp_server.py` remains static and never needs to be touched.
+*   **Embedded Logic**: Instructions (`remedy`, `instructions`, `type`) are part of the tool metadata. The LLM receives guidance exactly when it inspects the tool, eliminating the need for bloated System Prompts.
+
+---
+
+### File Structure
+1.  **`api.py`**: The core service. Compare how Landmarks are defined inline vs. ignored.
+2.  **`mcp_server.py`**: The bridge. Notice the ~150 lines of boilerplate in the classic version vs. the generic logic in the elemm version.
+3.  **`client_demo.py`**: The execution layer. Watch how the classic version requires a manual `SYSTEM_PROMPT` to function reliably.
