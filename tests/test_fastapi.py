@@ -106,3 +106,6 @@ def test_mcp_export(app):
     assert "color" in create_tool["inputSchema"]["properties"]
     # Internal context deps like 'request' should NOT be in MCP schema
     assert "request" not in create_tool["inputSchema"]["properties"]
+    
+    # Check if remedy is included in description
+    assert "Remedy/Error-Handling" in create_tool["description"]

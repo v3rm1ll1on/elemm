@@ -30,3 +30,20 @@ The API is "AI-native" and describes itself via the Landmark manifest. The MCP b
 1.  **`api.py`**: The core service. Compare how Landmarks are defined inline vs. ignored.
 2.  **`mcp_server.py`**: The bridge. Notice the ~150 lines of boilerplate in the classic version vs. the generic logic in the elemm version.
 3.  **`client_demo.py`**: The execution layer. Watch how the classic version requires a manual `SYSTEM_PROMPT` to function reliably.
+
+---
+
+## 🧪 Testing & Validation
+
+These examples are fully functional but require an LLM environment to see them in action. 
+
+### Local Testing with Ollama
+1.  **Install Ollama** and pull a model: `ollama run gemma4:latest`.
+2.  **Start the API**: `python examples/elemm_mcp/api.py`.
+3.  **Run the demo**: `python examples/elemm_mcp/client_demo.py`.
+
+The `client_demo.py` acts as a minimal agent that talks to the MCP bridge. You can use it to verify that your landmarks are correctly discovered and executed.
+
+> [!NOTE]  
+> If you encounter `ModuleNotFoundError`, ensure you have installed the requirements:  
+> `pip install ".[examples]"`

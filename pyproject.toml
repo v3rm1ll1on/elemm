@@ -24,6 +24,13 @@ dependencies = [
     "pydantic>=2.0",
 ]
 
+[project.optional-dependencies]
+examples = [
+    "uvicorn",
+    "httpx",
+    "mcp>=0.1.0",
+]
+
 [project.urls]
 "Homepage" = "https://github.com/v3rm1ll1on/elemm"
 "Bug Tracker" = "https://github.com/v3rm1ll1on/elemm/issues"
