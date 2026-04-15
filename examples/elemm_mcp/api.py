@@ -51,9 +51,15 @@ async def get_resource(id: str):
     if not res: raise HTTPException(404)
     return res
 
-@ai.landmark(id="deploy_resource", type="write", remedy="If 422, check if sector ID exists.")
+@ai.landmark(
+    id="deploy_resource", 
+    type="write", 
+    remedy="If 422 error occurs, it means the Sector ID is invalid. Valid sectors are S-1 to S-10. Call list_types to verify."
+)
 @app.post("/resources")
 async def create_resource(res: Resource):
+    if "AREA-51" in str(res.location.sector):
+        raise HTTPException(status_code=422, detail="Invalid Sector Access")
     RESOURCES.append(res.dict())
     return {"status": "created", "id": res.id}
 

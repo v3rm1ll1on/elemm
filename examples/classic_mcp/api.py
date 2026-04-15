@@ -48,6 +48,8 @@ async def get_resource(id: str):
 
 @app.post("/resources")
 async def create_resource(res: Resource):
+    if "AREA-51" in str(res.location.sector):
+        raise HTTPException(status_code=422, detail="Invalid Sector Access")
     RESOURCES.append(res.dict())
     return {"status": "created", "id": res.id}
 

@@ -116,7 +116,10 @@ async def main():
         await server.run(read_stream, write_stream, InitializationOptions(
             server_name="nexus-legacy-bridge",
             server_version="0.1.0",
-            capabilities=server.get_capabilities(notification_options=NotificationOptions())
+            capabilities=server.get_capabilities(
+                notification_options=NotificationOptions(),
+                experimental_capabilities={}
+            )
         ))
 
 if __name__ == "__main__":

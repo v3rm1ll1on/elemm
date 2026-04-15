@@ -13,6 +13,12 @@
 
 ---
 
+## Documentation
+- [Real-World Use Cases & Advantages](USE_CASES.md) - Why elemm is superior to static OpenAPI.
+- [Examples & MCP Integration](examples/README.md) - Side-by-side comparison (Classic vs. elemm).
+
+---
+
 ## Quick Start
 
 ### 1. Installation

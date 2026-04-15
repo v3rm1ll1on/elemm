@@ -35,8 +35,9 @@ async def handle_list_tools() -> list[types.Tool]:
             props[p["name"]] = {
                 "type": p.get("type", "string"), 
                 "description": p.get("description", ""),
-                "enum": p.get("options") # Pass Enums to the AI!
             }
+            if p.get("options"):
+                props[p["name"]]["enum"] = p["options"]
             if p.get("required"): required.append(p["name"])
 
         tools.append(types.Tool(
@@ -68,7 +69,10 @@ async def main():
         await server.run(read_stream, write_stream, InitializationOptions(
             server_name="elemm-bridge",
             server_version="0.3.1",
-            capabilities=server.get_capabilities(notification_options=NotificationOptions())
+            capabilities=server.get_capabilities(
+                notification_options=NotificationOptions(),
+                experimental_capabilities={}
+            )
         ))
 
 if __name__ == "__main__":
