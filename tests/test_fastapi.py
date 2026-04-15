@@ -108,4 +108,4 @@ def test_mcp_export(app):
     assert "request" not in create_tool["inputSchema"]["properties"]
     
     # Check if remedy is included in description
-    assert "Remedy/Error-Handling" in create_tool["description"]
+    assert "Remedy:" in create_tool["description"]

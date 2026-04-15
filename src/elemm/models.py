@@ -18,9 +18,12 @@ class AIAction(BaseModel):
     type: str
     description: str
     instructions: Optional[str] = None
-    remedy: Optional[str] = None # Instructions for the AI on how to handle errors
-    method: str
-    url: str
+    remedy: Optional[str] = None
+    groups: List[str] = []
+    opens_group: Optional[str] = None
+    global_access: bool = False
+    method: Optional[str] = None
+    url: Optional[str] = None
     tags: List[str] = ["default"]
     parameters: Optional[List[ActionParam]] = None
     headers: Optional[Dict[str, str]] = None

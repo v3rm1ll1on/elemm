@@ -24,16 +24,36 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
 
     def _setup_well_known(self):
         @self.router.api_route("/.well-known/llm-landmarks.json", methods=["GET", "HEAD"])
-        async def get_protocol():
-            return self.get_manifest()
+        async def get_protocol(group: Optional[str] = None):
+            return self.get_manifest(group=group)
 
     def bind_to_app(self, app: FastAPI):
         """
         Scans all routes in the FastAPI app and registers those marked with @landmark.
+        Also scans app.openapi_tags to generate navigation landmarks.
         """
         if self.debug:
             print(f"\n[elemm] 🔍 Starting Landmark discovery for app: {app.title}")
             
+        # 1. Automatic Navigation via openapi_tags
+        tags_meta = getattr(app, "openapi_tags", []) or []
+        for tm in tags_meta:
+            tag_name = tm.get("name")
+            tag_desc = tm.get("description", f"Access module: {tag_name}")
+            if tag_name:
+                self.register_action(
+                    id=f"explore_{tag_name.lower().replace(' ', '_')}",
+                    type="navigation",
+                    description=tag_desc,
+                    instructions=f"Call this to discover tools related to {tag_name}.",
+                    method="GET",
+                    url=f"/.well-known/llm-landmarks.json?group={tag_name}",
+                    opens_group=tag_name,
+                    groups=[] # Navigation tools are always in Root
+                )
+                if self.debug:
+                    print(f"  [Discovery] Created Navigation Landmark for Tag: {tag_name}")
+
         count = 0
         for route in app.routes:
             if isinstance(route, APIRoute):
@@ -224,11 +244,17 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
         # Headers detection
         headers = meta["extra"].get("headers") or {}
         
+        # Group extraction logic
+        # Priority: Landmark 'groups' -> Landmark 'tags' -> FastAPI 'tags'
+        groups = meta["extra"].get("groups") or meta["extra"].get("tags") or (route.tags if route.tags else [])
+
         # Action Registration
         self.register_action(
             id=meta["id"],
             type=meta["type"],
             tags=route.tags if route.tags else ["default"],
+            groups=groups,
+            opens_group=meta["extra"].get("opens_group"),
             description=description or "No description provided.",
             instructions=meta.get("instructions"),
             remedy=meta["extra"].get("remedy"),
@@ -240,7 +266,8 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             required_auth=meta["extra"].get("required_auth"),
             context_dependencies=context_deps if context_deps else None,
             response_schema=self._extract_response_schema(route.response_model),
-            hidden=meta["extra"].get("hidden", False)
+            hidden=meta["extra"].get("hidden", False),
+            global_access=meta["extra"].get("global_access", False)
         )
 
     def _extract_response_schema(self, model: Any) -> Dict[str, str]:

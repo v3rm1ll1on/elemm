@@ -152,3 +152,9 @@ cython_debug/
 
 # MacOS
 .DS_Store
+
+# elemm specific
+*experiment_ollama.py
+experiment_results.md
+landmark_mcp.json
+examples/navigation_demo/test_cache/

@@ -7,7 +7,8 @@ DEFAULT_PROTOCOL_INSTRUCTIONS = (
     "1. The 'parameters' field is a SCHEMA. Each key inside is an argument name. "
     "2. NEVER send the schema objects themselves as values. Send only the actual content (e.g., q='Apple'). "
     "3. Optional fields (required: false) are truly optional for you—use them only if they serve the goal. "
-    "4. Strictly follow the 'instructions' provided at the action level."
+    "4. Strictly follow the 'instructions' provided at the action level. "
+    "5. CONTEXT HYGIENE: If a tool you need is missing, look for 'navigation' landmarks. They allow you to 'drill-down' into specialized modules with more tools."
 )
 
 class BaseAIProtocolManager:
@@ -40,37 +41,77 @@ class BaseAIProtocolManager:
     def register_action(self, **kwargs):
         """
         Manually register an action in the manifest.
-        Useful for non-automatic frameworks or special cases.
         """
-        if kwargs.get("hidden"):
-            return
         action = AIAction(**kwargs)
         self.actions.append(action)
 
-    def get_manifest(self) -> Dict[str, Any]:
+    def get_manifest(self, group: Optional[str] = None, agent_view: bool = True) -> Dict[str, Any]:
         """
-        Returns the full protocol manifest as a dictionary.
+        Returns the protocol manifest as a dictionary, optionally filtered by group.
+        If group is None, returns only entries without specific groups (Entry Points).
+        If agent_view is True, filters out 'noise' fields for the LLM.
         """
+        filtered_actions = []
+        is_internal_group = (group == "_INTERNAL_ALL_")
+
+        for action in self.actions:
+            if action.hidden and not is_internal_group:
+                continue
+            
+            # Filter by group logic
+            if is_internal_group:
+                filtered_actions.append(action)
+                continue
+
+            if group:
+                if group in action.groups:
+                    filtered_actions.append(action)
+            else:
+                if not action.groups or action.global_access:
+                    filtered_actions.append(action)
+
+        # Apply LLM Noise Reduction (if agent_view requested and not internal)
+        if agent_view and not is_internal_group:
+            # Exclude fields that are technical noise for the LLM
+            exclude_fields = {
+                "method", "url", "groups", "global_access", 
+                "tags", "hidden", "headers", "context_dependencies",
+                "required_auth"
+            }
+            
+            cleaned_actions = []
+            for action in filtered_actions:
+                action_dict = action.model_dump(exclude=exclude_fields, exclude_none=True)
+                cleaned_actions.append(action_dict)
+            
+            manifest_data = {
+                "version": self.version,
+                "agent_welcome": self.agent_welcome,
+                "protocol_instructions": self.protocol_instructions,
+                "actions": cleaned_actions
+            }
+            return {k: v for k, v in manifest_data.items() if v is not None}
+
         manifest = AIProtocolManifest(
             version=self.version,
             agent_welcome=self.agent_welcome,
             protocol_instructions=self.protocol_instructions,
             openapi_url=self.openapi_url,
-            actions=self.actions
+            actions=filtered_actions
         )
         return manifest.model_dump(exclude_none=True)
 
-    def get_mcp_tools(self) -> List[Dict[str, Any]]:
+    def get_mcp_tools(self, group: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Export all registered landmarks as MCP-compatible tool definitions.
-        Useful for integrating with Claude Desktop, Cursor, and other MCP clients.
+        Export registered landmarks as MCP-compatible tool definitions, optionally filtered by group.
         """
         mcp_tools = []
-        for action in self.actions:
-            # Check if it's hidden or not eligible for MCP
-            if action.hidden:
-                continue
+        
+        # We reuse the logic from get_manifest but with agent_view=False to get all data
+        manifest_data = self.get_manifest(group=group, agent_view=False)
+        actions = [AIAction(**a) for a in manifest_data.get("actions", [])]
 
+        for action in actions:
             properties = {}
             required_fields = []
 
@@ -112,7 +153,7 @@ class BaseAIProtocolManager:
                 "description": (
                     f"{action.description}\n\n"
                     f"Agent Instructions: {action.instructions or 'Follow API semantics.'}\n"
-                    f"Remedy/Error-Handling: {action.remedy or 'If error occurs, check parameters and try again.'}"
+                    f"Remedy: {action.remedy or 'If error occurs, check parameters and try again.'}"
                 ),
                 "inputSchema": {
                     "type": "object",
