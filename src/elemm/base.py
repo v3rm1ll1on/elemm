@@ -109,7 +109,11 @@ class BaseAIProtocolManager:
 
             mcp_tools.append({
                 "name": action.id,
-                "description": f"{action.description}\n\nAgent Instructions: {action.instructions or 'Follow API semantics.'}",
+                "description": (
+                    f"{action.description}\n\n"
+                    f"Agent Instructions: {action.instructions or 'Follow API semantics.'}\n"
+                    f"Remedy/Error-Handling: {action.remedy or 'If error occurs, check parameters and try again.'}"
+                ),
                 "inputSchema": {
                     "type": "object",
                     "properties": properties,

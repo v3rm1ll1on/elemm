@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "nexus-classic": {
+      "command": "python3",
+      "args": [
+        "/PFAD/ZU/DIESEM/ORDNER/mcp_server.py"
+      ]
+    }
+  }
+}
