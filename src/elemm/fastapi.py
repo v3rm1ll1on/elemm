@@ -52,6 +52,9 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
         self.app = app
         self.app_root_path = getattr(app, "root_path", "").rstrip("/")
 
+        # 0. Include our internal router for the .well-known endpoints
+        app.include_router(self.router)
+
         # 1. Register Agent-Repair-Kit (Exception Handler for LLM self-healing)
         @app.exception_handler(RequestValidationError)
         async def elemm_validation_exception_handler(request: Request, exc: RequestValidationError):
