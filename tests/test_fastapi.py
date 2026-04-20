@@ -108,3 +108,19 @@ def test_mcp_export(app):
     
     # Check if remedy is included in description
     assert "Remedy:" in create_tool["description"]
+
+def test_http_endpoint_registration(app):
+    from fastapi.testclient import TestClient
+    client = TestClient(app.app)
+    
+    response = client.get("/.well-known/llm-landmarks.json")
+    assert response.status_code == 200
+    
+    data = response.json()
+    assert data["version"] == app.version
+    assert "actions" in data
+    
+    # Verify actions are present in the JSON response
+    action_ids = [a["id"] for a in data["actions"]]
+    assert "get_item" in action_ids
+    assert "create_item" in action_ids
