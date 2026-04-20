@@ -91,8 +91,10 @@ class BaseAIProtocolManager:
                 # We use LandmarkNotFoundError to avoid leaking existence of the endpoint to unauthorized users
                 raise LandmarkNotFoundError("Invalid internal access key.")
 
+        is_authorized = (self.internal_access_key and internal_key == self.internal_access_key)
+        
         for action in self.actions:
-            if action.hidden and not is_internal_group:
+            if action.hidden and not is_authorized:
                 continue
             
             # Read-only filtering (Security Feature)
