@@ -158,3 +158,5 @@ cython_debug/
 experiment_results.md
 landmark_mcp.json
 examples/navigation_demo/test_cache/
+scratch/
+test_log.txt
