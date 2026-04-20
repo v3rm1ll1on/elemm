@@ -1,4 +1,4 @@
-# Elemm Reference: Decorators & Options 📜
+# Elemm Reference: Decorators & Options
 
 Elemm bietet eine intuitive API, um FastAPI-Routen als AI Landmarks zu markieren. Dabei übernimmt das Framework im Hintergrund die schwere Arbeit der Schema-Extraktion.
 
@@ -45,10 +45,10 @@ Signalisiert der KI, dass dieser Landmark eine neue logische Gruppe öffnet. Wir
 
 Elemm extrahiert mehr als nur den Funktionsnamen. Folgende Features sind vollautomatisch aktiv:
 
-### 1. Enum-Support 💡
+### 1. Enum-Support
 Wenn du Python `Enum` Typen in deinen Argumenten nutzt, erkennt Elemm diese automatisch und mappt sie auf `options` im Manifest. Die KI sieht exakt, welche Werte erlaubt sind.
 
-### 2. Response Schema Extraction 📦
+### 2. Response Schema Extraction
 Elemm inspiziert das `response_model` deiner FastAPI-Route. Die KI erhält eine strukturierte Vorstellung davon, was das Tool zurückgeben wird, was die Reasoning-Qualität enorm steigert.
 
 ### 3. Nested Models

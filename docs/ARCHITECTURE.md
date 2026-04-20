@@ -1,4 +1,4 @@
-# Elemm Architecture: Hierarchical Navigation 🗺️
+# Elemm Architecture: Hierarchical Navigation
 
 Elemm verwandelt eine flache API in eine strukturierte Welt aus Landmarks.
 
@@ -19,7 +19,7 @@ Elemm inspiziert die `openapi_tags` deines FastAPI-Objekts. Wenn eine Route eine
 
 ---
 
-## Token Hygiene & Best Practices 💎
+## Token Hygiene & Best Practices
 
 Die hierarchische Struktur spart massiv Token, da nur relevante Tools geladen werden. Aber Vorsicht bei der Nutzung von `global_access=True`:
 

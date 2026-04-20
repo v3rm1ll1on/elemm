@@ -1,4 +1,4 @@
-# Elemm Security: Shielding & Read-Only 🛡️
+# Elemm Security: Shielding & Read-Only
 
 Elemm wirkt als Schutzschild, indem es technische Komplexität vor der KI verbirgt und kritische Kanäle überwacht.
 
@@ -21,7 +21,7 @@ Wichtig für die KI: Diese Felder werden nicht einfach gelöscht. Im Manifest we
 
 ---
 
-## 2. Das "Backdoor"-Feature für Audits 🚪
+## 2. Das "Backdoor"-Feature für Audits
 
 Manchmal müssen Administratoren oder interne Audit-Agenten Zugriff auf Dinge haben, die vor "normalen" KIs versteckt sind (Tools mit `hidden=True`).
 

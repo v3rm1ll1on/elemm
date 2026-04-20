@@ -1,4 +1,4 @@
-# Elemm Resilience: The Agent-Repair-Kit 🩹
+# Elemm Resilience: The Agent-Repair-Kit
 
 Autonomous agents are prone to errors (hallucinations, typos, formatting issues). Traditional APIs return raw HTTP errors, which often lead to "Agent Loops" where the AI repeats the same mistake.
 
@@ -38,7 +38,7 @@ When a validation fails, Elemm returns a specialized JSON:
 
 ---
 
-## 2. Advanced Noise Detection 🔊
+## 2. Advanced Noise Detection
 
 Often, AI agents hallucinate extra parameters that are not in the API (e.g., trying to send a `confirmation: true` flag to a POST request).
 

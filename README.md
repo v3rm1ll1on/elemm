@@ -1,4 +1,4 @@
-# Elemm (Landmark Protocol) 🚀
+# Elemm (Landmark Protocol)
 
 **The Universal AI-Native Backend Bridge. Turn any API into resilient, autonomous AI tools in seconds.**
 
@@ -6,7 +6,7 @@
 
 ---
 
-## 🏗️ Why Elemm? (The Problem with Flat APIs)
+## Why Elemm? (The Problem with Flat APIs)
 
 Traditional APIs (OpenAPI/Swagger) are built for humans. When you feed a 200-endpoint Swagger file to an LLM:
 1.  **Context Overload**: The agent drowns in noise (HTTP codes, headers, internal types).
@@ -36,21 +36,21 @@ For deep dives into the protocol's power, see our specialized guides:
 
 ---
 
-## ✨ Key Features
+## Key Features
 
-### 1. Agent-Repair-Kit (Self-Healing) 🩹
+### 1. Agent-Repair-Kit (Self-Healing)
 Elemm is the first protocol that actively talks back to the AI when things go wrong. 
 - **Automated Remedies**: If a validation fails (422), Elemm injects your custom `remedy` instructions into the error response.
 - **Noise Detection**: It explicitly warns the agent if it's hallucinating parameters that don't exist in the manifest.
 - **Instructional Loops**: The AI receives a "behebbar" (fixable) JSON that guides it back to the successful call.
 
-### 2. Hierarchical Navigation (Context Hygiene) 🗺️
+### 2. Hierarchical Navigation (Context Hygiene)
 Stop loading the full API at once. Elemm uses a "Drill-Down" flow:
 - **Signposts**: The agent only sees the "Main Entries" (e.g., `explore_logistics`, `explore_billing`).
 - **Module Loading**: Only when the agent enters a module are the specific tools revealed.
 - **Token Efficiency**: This reduces the active context size by up to 90%.
 
-### 3. Managed Security (Auto-Shield) 🛡️
+### 3. Managed Security (Auto-Shield)
 Elemm auto-detects `HTTPBearer`, `APIKey`, and `OAuth2` dependencies. 
 - Technical credentials are **hidden** from the agent.
 - The protocol marks them as `managed_by: protocol`.
@@ -58,7 +58,7 @@ Elemm auto-detects `HTTPBearer`, `APIKey`, and `OAuth2` dependencies.
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Installation
 ```bash
@@ -98,7 +98,7 @@ ai.bind_to_app(app)
 
 ---
 
-## 🛠️ Decorator Reference
+## Decorator Reference
 
 Use the decorators that fit your naming convention – they are all functionally identical aliases of `@ai.landmark`:
 
@@ -115,7 +115,7 @@ Use the decorators that fit your naming convention – they are all functionally
 
 ---
 
-## 🔌 Native MCP Support
+## Native MCP Support
 
 Elemm isn't just a manifest; it's a bridge. Use the built-in MCP Server to connect your entire API directly to **Claude Desktop**, **Cursor**, or **LibreChat**.
 
@@ -135,7 +135,7 @@ Add this to your `claude_desktop_config.json`:
 
 ---
 
-## 🏛️ Architecture & Resilience
+## Architecture & Resilience
 
 Elemm is built for scale. 
 - **Reverse Proxy Support**: Automatically respects `root_path` (Nginx/Traefik).
