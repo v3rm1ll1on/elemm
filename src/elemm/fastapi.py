@@ -18,8 +18,8 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
     FastAPI-specific implementation of the Landmark Protocol.
     Supports automatic discovery of routes via .bind_to_app(app).
     """
-    def __init__(self, agent_welcome: str, version: str = "v1-lmlmm", openapi_url: str = "/api/openapi.json", protocol_instructions: Optional[str] = None, debug: bool = False):
-        super().__init__(agent_welcome, version, protocol_instructions)
+    def __init__(self, agent_welcome: str, version: str = "v1-lmlmm", openapi_url: str = "/api/openapi.json", protocol_instructions: Optional[str] = None, debug: bool = False, internal_access_key: Optional[str] = None):
+        super().__init__(agent_welcome, version, protocol_instructions, internal_access_key=internal_access_key)
         self.openapi_url = openapi_url
         self.debug = debug
         self.app_root_path = ""
@@ -27,11 +27,20 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
         self._setup_well_known()
 
     def _setup_well_known(self):
+        from fastapi import Header
         @self.router.api_route("/.well-known/llm-landmarks.json", methods=["GET", "HEAD"])
-        async def get_protocol(group: Optional[str] = None, read_only: bool = False):
+        async def get_protocol(
+            group: Optional[str] = None, 
+            read_only: bool = False,
+            x_elemm_internal_key: Optional[str] = Header(None, alias="X-Elemm-Internal-Key")
+        ):
             try:
-                return self.get_manifest(group=group, read_only=read_only)
+                return self.get_manifest(group=group, read_only=read_only, internal_key=x_elemm_internal_key)
             except Exception as e:
+                from .exceptions import LandmarkNotFoundError
+                if isinstance(e, LandmarkNotFoundError):
+                    return JSONResponse(status_code=404, content={"detail": str(e)})
+                
                 logger.error(f"Error generating landmark manifest: {e}", exc_info=True)
                 return {"error": "Internal error generating manifest", "version": self.version}
 

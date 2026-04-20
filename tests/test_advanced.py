@@ -5,6 +5,7 @@ from enum import Enum
 from pydantic import BaseModel
 from elemm import Elemm
 from elemm.models import ActionParam
+from elemm.exceptions import LandmarkNotFoundError
 
 class Status(str, Enum):
     ACTIVE = "active"
@@ -43,8 +44,19 @@ def test_global_access_and_filtering():
     assert "normal_tool" in group_ids
     assert "hidden_tool" not in group_ids # Hidden!
 
-    # Internal All View
-    all_manifest = manager.get_manifest(group="_INTERNAL_ALL_", agent_view=False)
+    # 4. Internal All View (unauthorized)
+    with pytest.raises(LandmarkNotFoundError, match="Internal access is not configured"):
+        manager.get_manifest(group="_INTERNAL_ALL_", agent_view=False)
+
+    # Configure key
+    manager.internal_access_key = "secret123"
+
+    # Internal All View (wrong key)
+    with pytest.raises(LandmarkNotFoundError, match="Invalid internal access key"):
+        manager.get_manifest(group="_INTERNAL_ALL_", agent_view=False, internal_key="wrong")
+
+    # Internal All View (correct key)
+    all_manifest = manager.get_manifest(group="_INTERNAL_ALL_", agent_view=False, internal_key="secret123")
     all_ids = [a["id"] for a in all_manifest["actions"]]
     assert "hidden_tool" in all_ids
     assert len(all_ids) == 3

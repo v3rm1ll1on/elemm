@@ -4,9 +4,12 @@ from enum import Enum
 from typing import List, Optional, Dict
 from elemm import Elemm
 
-app = FastAPI(title="Nexus-Corp elemm-API")
-# 1. Initialize elemm - it will handle all complexity automatically
-ai = Elemm(agent_welcome="Nexus-OS AI core online.")
+app = FastAPI(title="Nexus-Corp Elemm-API")
+# 1. Initialize Elemm - handles discovery, security shielding, and self-healing.
+ai = Elemm(
+    agent_welcome="Nexus-OS AI Core online. Systems operational.",
+    protocol_instructions="Focus on the Logistics and Power modules first."
+)
 
 class ResourceStatus(str, Enum):
     ACTIVE = "active"
