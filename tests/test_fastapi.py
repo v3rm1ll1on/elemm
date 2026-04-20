@@ -11,7 +11,7 @@ class Color(str, Enum):
 
 class Item(BaseModel):
     id: str = Field(..., description="Unique item ID")
-    name: str = Field(..., example="Gadget v1")
+    name: str = Field(..., json_schema_extra={"example": "Gadget v1"})
     color: Color = Color.RED
 
 def get_current_user():

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, FastAPI, params
+from fastapi import APIRouter, FastAPI, params, Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from fastapi.security.base import SecurityBase
 from typing import List, Dict, Any, Optional, Union, Tuple
@@ -36,9 +38,15 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
     def bind_to_app(self, app: FastAPI):
         """
         Scans all routes in the FastAPI app and registers those marked with @landmark.
-        Also scans app.openapi_tags to generate navigation landmarks.
+        Also automatically registers the Agent-Repair-Kit to improve AI resilience.
         """
+        self.app = app
         self.app_root_path = getattr(app, "root_path", "").rstrip("/")
+
+        # 1. Register Agent-Repair-Kit (Exception Handler for LLM self-healing)
+        @app.exception_handler(RequestValidationError)
+        async def elemm_validation_exception_handler(request: Request, exc: RequestValidationError):
+            return await self._agent_repair_handler(request, exc)
         
         # Ensure our manifest's openapi_url also respects the root_path if it's relative
         if self.openapi_url and self.openapi_url.startswith("/") and not self.openapi_url.startswith(self.app_root_path + "/"):
@@ -54,8 +62,11 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             tag_desc = tm.get("description", f"Access module: {tag_name}")
             if tag_name:
                 try:
+                    tag_id = tag_name.lower().replace(" ", "_").replace("&", "and")
+                    tag_id = "".join(c for c in tag_id if c.isalnum() or c == "_")
+                    
                     self.register_action(
-                        id=f"explore_{tag_name.lower().replace(' ', '_')}",
+                        id=f"explore_{tag_id}",
                         type="navigation",
                         description=tag_desc,
                         instructions=f"Call this to discover tools related to {tag_name}.",
@@ -146,7 +157,13 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                 try:
                     schema = model.model_json_schema() if hasattr(model, "model_json_schema") else (model.schema() if hasattr(model, "schema") else None)
                     if schema:
-                        properties = schema.get("properties", {})
+                        properties = schema.get("properties")
+                        if not properties and "$ref" in schema:
+                            # Handle Circular Refs (top-level $ref to $defs)
+                            ref_name = schema["$ref"].split("/")[-1]
+                            properties = schema.get("$defs", {}).get(ref_name, {}).get("properties", {})
+                        
+                        if not properties: properties = {}
                         required_fields = schema.get("required", [])
                         defs = schema.get("$defs", schema.get("definitions", {}))
                         
@@ -301,6 +318,61 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             hidden=meta["extra"].get("hidden", False),
             global_access=meta["extra"].get("global_access", False)
         )
+
+    async def _agent_repair_handler(self, request: Request, exc: RequestValidationError):
+        """Enriches validation errors with landmark 'remedy' instructions to help LLMs self-correct."""
+        path_template = ""
+        if "route" in request.scope:
+            path_template = getattr(request.scope["route"], "path", "")
+        
+        method = request.method
+        matched_action = None
+        for action in self.actions:
+            if action.url == path_template and action.method == method:
+                matched_action = action
+                break
+        
+        errors = exc.errors()
+        if not matched_action:
+            # Fallback to standard FastAPI format for non-landmark routes
+            return JSONResponse(status_code=422, content={"detail": errors})
+
+        response_body = {
+            "status": "error",
+            "error_type": "validation_failed",
+            "managed_by": "elemm",
+            "message": "The AI Agent sent an invalid request according to the landmark protocol.",
+            "details": errors,
+        }
+
+        if matched_action.remedy:
+            response_body["remedy"] = matched_action.remedy
+            response_body["instruction"] = "Follow the 'remedy' above to fix your parameters and try again."
+        
+        # Noise Detection Heuristic
+        try:
+            received_params = []
+            if method in ["POST", "PUT", "PATCH"]:
+                body = await request.json()
+                if isinstance(body, dict):
+                    received_params = list(body.keys())
+            
+            allowed_params = []
+            if matched_action.parameters:
+                allowed_params += [p.name for p in matched_action.parameters]
+            if matched_action.payload:
+                if isinstance(matched_action.payload, list):
+                    allowed_params += [p.name for p in matched_action.payload]
+                elif isinstance(matched_action.payload, dict):
+                    allowed_params += list(matched_action.payload.keys())
+            
+            spurious = [p for p in received_params if p not in allowed_params]
+            if spurious:
+                response_body["noise_warning"] = f"Action does not support these parameters: {spurious}. Stick to the manifest."
+        except Exception:
+            pass
+
+        return JSONResponse(status_code=422, content=response_body)
 
     def _extract_response_schema(self, model: Any) -> Dict[str, str]:
         if not model: return {}

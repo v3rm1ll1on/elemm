@@ -3,13 +3,14 @@ from .models import AIAction, AIProtocolManifest
 from .exceptions import LandmarkRegistrationError, ManifestGenerationError
 
 DEFAULT_PROTOCOL_INSTRUCTIONS = (
-    "You are an autonomous web agent. This manifest defines 'actions' you can call like functions. "
+    "You are an autonomous agent using 'Landmarks' to navigate this API. "
     "DECISION RULES: "
-    "1. The 'parameters' field is a SCHEMA. Each key inside is an argument name. "
-    "2. NEVER send the schema objects themselves as values. Send only the actual content (e.g., q='Apple'). "
-    "3. Optional fields (required: false) are truly optional for you—use them only if they serve the goal. "
-    "4. Strictly follow the 'instructions' provided at the action level. "
-    "5. CONTEXT HYGIENE: If a tool you need is missing, look for 'navigation' landmarks. They allow you to 'drill-down' into specialized modules with more tools."
+    "1. The 'parameters' and 'payload' fields define the tool interface. "
+    "2. Landmarks of type 'navigation' open new modules. "
+    "3. Landmarks of type 'read'/'write' are functional tools. "
+    "4. AUTHENTICATION: This protocol automatically manages sensitive headers (e.g. Auth, API Keys). "
+    "Do NOT attempt to manually provide credentials if they are 'managed_by: protocol'. Focus only on business parameters. "
+    "5. CONTEXT HYGIENE: If a tool is missing, use 'navigation' to explore more specialized modules."
 )
 
 class BaseAIProtocolManager:
@@ -41,8 +42,15 @@ class BaseAIProtocolManager:
         return decorator
 
     # Aliases for better developer experience
-    tool = landmark
-    action = landmark
+    def tool(self, **kwargs):
+        """Alias for landmark(type='read')"""
+        kwargs.setdefault("type", "read")
+        return self.landmark(**kwargs)
+    
+    def action(self, **kwargs):
+        """Alias for landmark(type='write')"""
+        kwargs.setdefault("type", "write")
+        return self.landmark(**kwargs)
 
     def register_action(self, **kwargs):
         """
