@@ -1,71 +1,59 @@
 # Elemm Reference: Decorators & Options 📜
 
-Elemm provides a clean, intuitive API for marking your FastAPI routes as AI Landmarks.
+Elemm bietet eine intuitive API, um FastAPI-Routen als AI Landmarks zu markieren. Dabei übernimmt das Framework im Hintergrund die schwere Arbeit der Schema-Extraktion.
 
 ---
 
-## The Core Decorators
+## Die Decorator-Aliase (DX-Power)
 
-Elemm provides three identical aliases. Use whichever fits your project's naming convention:
+Elemm bietet drei spezialisierte Decorators. Der Hauptunterschied liegt im **vorkonfigurierten Standard-Typ**:
 
-- **`@ai.landmark(...)`**: The precise term for semantic navigation. Best for core architecture.
-- **`@ai.tool(...)`**: Familiar for developers using OpenAI Tools or LangChain.
-- **`@ai.action(...)`**: Standard terminology for API developers. Best for "Write" operations.
+| Decorator | Default `type` | Empfohlene Nutzung |
+| :--- | :--- | :--- |
+| **`@ai.tool(id=...)`** | `"read"` | Für reine Informationsabfragen (Search, Get, List). |
+| **`@ai.action(id=...)`** | `"write"` | Für zustandsverändernde Aktionen (Create, Update, Delete). |
+| **`@ai.landmark(id=...)`** | *None* | Generisch. Erfordert manuelle Angabe von `type`. |
 
 ```python
-# All of these are equivalent:
-@ai.landmark(id="search")
-@ai.tool(id="search")
-@ai.action(id="search")
+# Beispiel für automatische Typisierung:
+@ai.tool(id="get_user") # Automatisch type="read"
+@ai.action(id="delete_user") # Automatisch type="write"
 ```
 
 ---
 
-## Parameter Reference
+## Parameter-Referenz (Deep Dive)
 
 ### `id` (string, Required)
-The unique identifier for the action. This is the "Function Name" the AI uses.
-- *Tip:* Use snake_case. Elemm sanitizes these for you if they come from tags.
+Die eindeutige Kennung des Tools. Elemm sanitiert diese automatisch (z.B. werden Sonderzeichen in Unterstriche umgewandelt).
 
-### `type` (string, Required)
-Categorizes the action. This influences how navigation and filtering work.
-- `read`: For fetching data (GET-style).
-- `write`: For modifying data (POST/PUT/DELETE). Stripped in Read-Only mode.
-- `navigation`: For signposts that open new modules.
-
-### `description` (string, Optional)
-The semantic instruction for the AI. 
-- *Fallback:* If omitted, the function's **docstring** is automatically used.
-- *Tip:* Be concise but descriptive. This is the agent's primary guide.
-
-### `instructions` (string, Optional)
-Specific "Rules of Engagement" for this action. 
-- *Use Case:* Enforcing business logic like "Ask the user for confirmation BEFORE calling this." 
+### `type` (string)
+Definiert die Natur der Aktion. 
+- `read`: Informationsbeschaffung.
+- `write`: Datenänderung (wird im Read-Only Modus ausgefiltert).
+- `navigation`: Signposts für neue Ebenen.
 
 ### `remedy` (string, Optional)
-The self-healing instruction for error recovery.
-- *Revealed:* Only shown during a 422 Validation Error. See [REPAIR_KIT.md](REPAIR_KIT.md).
+Spezifische Korrekturanweisung bei Validierungsfehlern. Siehe [REPAIR_KIT.md](REPAIR_KIT.md).
 
-### `global_access` (boolean, Default: `False`)
-If `True`, this landmark is visible in the Root manifest AND every sub-group manifest.
-- *Use Case:* Search tools, help desks, or system status checks.
-
-### `hidden` (boolean, Default: `False`)
-If `True`, the tool is registered in your code but excluded from the public AI manifest.
-- *Use Case:* Sensitive internal endpoints that should not be discovered by agents.
+### `opens_group` (string, Optional)
+Signalisiert der KI, dass dieser Landmark eine neue logische Gruppe öffnet. Wird primär für die automatische Navigation genutzt.
 
 ---
 
-## The Elemm Class Reference
+## Automatisierte Features (The "Magic")
 
-### `Elemm(agent_welcome=..., version=..., protocol_instructions=...)`
-The main manager class. (Alias for `FastAPIProtocolManager`).
+Elemm extrahiert mehr als nur den Funktionsnamen. Folgende Features sind vollautomatisch aktiv:
 
-- `agent_welcome`: The first message the agent sees.
-- `protocol_instructions`: Global rules for the entire API (overrides defaults).
-- `debug`: If `True`, prints discovery logs to the console.
+### 1. Enum-Support 💡
+Wenn du Python `Enum` Typen in deinen Argumenten nutzt, erkennt Elemm diese automatisch und mappt sie auf `options` im Manifest. Die KI sieht exakt, welche Werte erlaubt sind.
 
-### Methods
-- `bind_to_app(app: FastAPI)`: Scans all routes and registers landmarks. Includes the Agent-Repair-Kit.
-- `get_router()`: Returns the APIRouter for `/.well-known/llm-landmarks.json`.
-- `get_manifest()`: Returns the raw manifest dictionary.
+### 2. Response Schema Extraction 📦
+Elemm inspiziert das `response_model` deiner FastAPI-Route. Die KI erhält eine strukturierte Vorstellung davon, was das Tool zurückgeben wird, was die Reasoning-Qualität enorm steigert.
+
+### 3. Nested Models
+Dank Pydantic-Integration werden auch tief geschachtelte Modelle korrekt (flach oder strukturiert) für das Manifest aufbereitet, inklusive Beschreibungen und Constraints (`ge`, `le`, `pattern`).
+
+### 4. Global Access vs. Context
+- **`global_access=True`**: Landmark ist in der Root-Ebene UND in jedem Sub-Manifest sichtbar.
+- **`hidden=True`**: Landmark ist im Code registriert, aber für die KI unsichtbar (außer über die interne Audit-Gruppe `_INTERNAL_ALL_`).
