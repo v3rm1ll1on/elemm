@@ -3,7 +3,7 @@
     "nexus-classic": {
       "command": "python3",
       "args": [
-        "/PFAD/ZU/DIESEM/ORDNER/mcp_server.py"
+        "/path/to/this/folder/mcp_server.py"
       ]
     }
   }

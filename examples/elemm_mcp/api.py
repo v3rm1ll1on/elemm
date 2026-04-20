@@ -2,11 +2,11 @@ from fastapi import FastAPI, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from enum import Enum
 from typing import List, Optional, Dict
-from elemm import FastAPIProtocolManager
+from elemm import Elemm
 
 app = FastAPI(title="Nexus-Corp elemm-API")
 # 1. Initialize elemm - it will handle all complexity automatically
-ai = FastAPIProtocolManager(agent_welcome="Nexus-OS AI core online.")
+ai = Elemm(agent_welcome="Nexus-OS AI core online.")
 
 class ResourceStatus(str, Enum):
     ACTIVE = "active"
@@ -34,7 +34,7 @@ RESOURCES = [
     }
 ]
 
-@ai.landmark(id="query_resources", type="read")
+@ai.tool(id="query_resources", type="read")
 @app.get("/resources", response_model=List[Resource])
 async def list_resources(
     type: Optional[str] = None, 
@@ -44,14 +44,14 @@ async def list_resources(
     """List and filter corp resources."""
     return RESOURCES
 
-@ai.landmark(id="get_resource_detail", type="read")
+@ai.tool(id="get_resource_detail", type="read")
 @app.get("/resources/{id}", response_model=Resource)
 async def get_resource(id: str):
     res = next((r for r in RESOURCES if r["id"] == id), None)
     if not res: raise HTTPException(404)
     return res
 
-@ai.landmark(
+@ai.action(
     id="deploy_resource", 
     type="write", 
     remedy="If 422 error occurs, it means the Sector ID is invalid. Valid sectors are S-1 to S-10. Call list_types to verify."
@@ -60,15 +60,15 @@ async def get_resource(id: str):
 async def create_resource(res: Resource):
     if "AREA-51" in str(res.location.sector):
         raise HTTPException(status_code=422, detail="Invalid Sector Access")
-    RESOURCES.append(res.dict())
+    RESOURCES.append(res.model_dump())
     return {"status": "created", "id": res.id}
 
-@ai.landmark(id="modify_status", type="write", instructions="Only change to OFFLINE during maintenance.")
+@ai.action(id="modify_status", type="write", instructions="Only change to OFFLINE during maintenance.")
 @app.patch("/resources/{id}/status")
 async def update_status(id: str, status: ResourceStatus):
     return {"status": "updated"}
 
-@ai.landmark(id="list_types", type="navigation")
+@ai.tool(id="list_types", type="navigation")
 @app.get("/categories")
 async def list_categories():
     return ["Power", "Compute", "Storage", "Logistics"]

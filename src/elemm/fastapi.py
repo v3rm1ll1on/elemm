@@ -2,6 +2,7 @@ from fastapi import APIRouter, FastAPI, params
 from fastapi.routing import APIRoute
 from fastapi.security.base import SecurityBase
 from typing import List, Dict, Any, Optional, Union, Tuple
+from enum import Enum
 import inspect
 import logging
 
@@ -19,21 +20,32 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
         super().__init__(agent_welcome, version, protocol_instructions)
         self.openapi_url = openapi_url
         self.debug = debug
+        self.app_root_path = ""
         self.router = APIRouter()
         self._setup_well_known()
 
     def _setup_well_known(self):
         @self.router.api_route("/.well-known/llm-landmarks.json", methods=["GET", "HEAD"])
-        async def get_protocol(group: Optional[str] = None):
-            return self.get_manifest(group=group)
+        async def get_protocol(group: Optional[str] = None, read_only: bool = False):
+            try:
+                return self.get_manifest(group=group, read_only=read_only)
+            except Exception as e:
+                logger.error(f"Error generating landmark manifest: {e}", exc_info=True)
+                return {"error": "Internal error generating manifest", "version": self.version}
 
     def bind_to_app(self, app: FastAPI):
         """
         Scans all routes in the FastAPI app and registers those marked with @landmark.
         Also scans app.openapi_tags to generate navigation landmarks.
         """
+        self.app_root_path = getattr(app, "root_path", "").rstrip("/")
+        
+        # Ensure our manifest's openapi_url also respects the root_path if it's relative
+        if self.openapi_url and self.openapi_url.startswith("/") and not self.openapi_url.startswith(self.app_root_path + "/"):
+            self.openapi_url = f"{self.app_root_path}{self.openapi_url}"
+
         if self.debug:
-            print(f"\n[elemm] 🔍 Starting Landmark discovery for app: {app.title}")
+            print(f"\n[elemm] 🔍 Starting Landmark discovery for app: {app.title} (root_path: '{self.app_root_path}')")
             
         # 1. Automatic Navigation via openapi_tags
         tags_meta = getattr(app, "openapi_tags", []) or []
@@ -41,28 +53,34 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             tag_name = tm.get("name")
             tag_desc = tm.get("description", f"Access module: {tag_name}")
             if tag_name:
-                self.register_action(
-                    id=f"explore_{tag_name.lower().replace(' ', '_')}",
-                    type="navigation",
-                    description=tag_desc,
-                    instructions=f"Call this to discover tools related to {tag_name}.",
-                    method="GET",
-                    url=f"/.well-known/llm-landmarks.json?group={tag_name}",
-                    opens_group=tag_name,
-                    groups=[] # Navigation tools are always in Root
-                )
-                if self.debug:
-                    print(f"  [Discovery] Created Navigation Landmark for Tag: {tag_name}")
+                try:
+                    self.register_action(
+                        id=f"explore_{tag_name.lower().replace(' ', '_')}",
+                        type="navigation",
+                        description=tag_desc,
+                        instructions=f"Call this to discover tools related to {tag_name}.",
+                        method="GET",
+                        url=f"{self.app_root_path}/.well-known/llm-landmarks.json?group={tag_name}",
+                        opens_group=tag_name,
+                        groups=[] # Navigation tools are always in Root
+                    )
+                    if self.debug:
+                        print(f"  [Discovery] Created Navigation Landmark for Tag: {tag_name}")
+                except Exception as e:
+                    logger.error(f"Failed to create navigation landmark for tag {tag_name}: {e}")
 
         count = 0
         for route in app.routes:
             if isinstance(route, APIRoute):
-                landmark_meta = getattr(route.endpoint, "_llm_landmark", None)
-                if landmark_meta:
-                    self._register_from_route(route, landmark_meta)
-                    count += 1
-                    if self.debug:
-                        print(f"  [Landmark] Registered '{landmark_meta['id']}' -> {route.methods} {route.path}")
+                try:
+                    landmark_meta = getattr(route.endpoint, "_llm_landmark", None)
+                    if landmark_meta:
+                        self._register_from_route(route, landmark_meta)
+                        count += 1
+                        if self.debug:
+                            print(f"  [Landmark] Registered '{landmark_meta['id']}' -> {route.methods} {route.path}")
+                except Exception as e:
+                    logger.error(f"Failed to register landmark from route {route.path}: {e}")
         
         if self.debug:
             print(f"[elemm] ✅ Discovery complete. Total landmarks: {count}\n")
@@ -74,16 +92,19 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
         description = meta["description"] or route.endpoint.__doc__ or route.description or route.summary or ""
         description = description.strip()
 
-        def map_type(field_info: Dict[str, Any]) -> str:
-            raw_type = field_info.get("type")
-            if not raw_type:
-                options = field_info.get("anyOf") or field_info.get("oneOf")
-                if options:
-                    for opt in options:
-                        if opt.get("type") and opt.get("type") != "null":
-                            raw_type = opt.get("type")
-                            break
+        def map_type(annotation: Any) -> str:
+            # Handle Optional/Union (get the first non-None type)
+            origin = getattr(annotation, "__origin__", None)
+            if origin is Union:
+                args = getattr(annotation, "__args__", [])
+                annotation = next((a for a in args if a != type(None)), annotation)
             
+            raw_type = str(getattr(annotation, "__name__", annotation)).lower()
+            
+            # If it's a dict from JSON schema processing
+            if isinstance(annotation, dict):
+                raw_type = annotation.get("type", "string")
+
             mapping = {
                 "str": "string", "string": "string",
                 "int": "integer", "integer": "integer",
@@ -92,7 +113,7 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                 "list": "array", "array": "array",
                 "dict": "object", "object": "object"
             }
-            return mapping.get(raw_type, raw_type or "string")
+            return mapping.get(raw_type, "string")
 
         # Automatic payload detection
         payload = meta["extra"].get("payload")
@@ -228,9 +249,19 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                     context_deps.append(name)
                     continue
 
-                if param.annotation == int: p_type = "integer"
-                elif param.annotation == float: p_type = "number"
-                elif param.annotation == bool: p_type = "boolean"
+                p_type = map_type(param.annotation)
+                p_options = None
+                
+                # Enum detection
+                enum_type = param.annotation
+                # Handle Optional[Enum]
+                origin = getattr(enum_type, "__origin__", None)
+                if origin is Union:
+                    args = getattr(enum_type, "__args__", [])
+                    enum_type = next((a for a in args if a != type(None)), enum_type)
+                
+                if inspect.isclass(enum_type) and issubclass(enum_type, Enum):
+                    p_options = [e.value for e in enum_type]
                 
                 actual_parameters.append(ActionParam(
                     name=name,
@@ -238,7 +269,8 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                     type=p_type,
                     required=p_required,
                     managed_by=p_managed,
-                    default=None if p_required else (None if is_header else param.default)
+                    options=p_options,
+                    default=None if p_required else (param.default.default if is_header else param.default)
                 ))
 
         # Headers detection
@@ -301,3 +333,6 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
 
     def get_router(self) -> APIRouter:
         return self.router
+
+# Official cool alias
+Elemm = FastAPIProtocolManager

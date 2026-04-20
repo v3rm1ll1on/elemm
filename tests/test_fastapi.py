@@ -2,7 +2,7 @@ import pytest
 from fastapi import FastAPI, Header, Depends, Request
 from pydantic import BaseModel, Field
 from enum import Enum
-from elemm import FastAPIProtocolManager
+from elemm import Elemm
 
 class Color(str, Enum):
     RED = "red"
@@ -20,20 +20,20 @@ def get_current_user():
 @pytest.fixture
 def app():
     app = FastAPI(title="Test App")
-    ai = FastAPIProtocolManager(agent_welcome="Test Welcome", debug=True)
+    ai = Elemm(agent_welcome="Test Welcome", debug=True)
     
     @app.get("/items/{item_id}")
-    @ai.landmark(id="get_item", type="read")
+    @ai.tool(id="get_item", type="read")
     async def get_item(item_id: str, x_api_key: str = Header(..., description="API Key Header")):
         return {"item_id": item_id}
 
     @app.post("/items")
-    @ai.landmark(id="create_item", type="write", instructions="Verify color before creating.")
+    @ai.action(id="create_item", type="write", instructions="Verify color before creating.")
     async def create_item(item: Item, request: Request, user: str = Depends(get_current_user)):
         return {"status": "created"}
 
     @app.get("/secure")
-    @ai.landmark(id="secure_action", type="read")
+    @ai.tool(id="secure_action", type="read")
     async def secure_action(authorization: str = Header(None)):
         return {"secure": True}
 
@@ -41,7 +41,6 @@ def app():
     return ai
 
 def test_discovery_basic(app):
-    manifest = app.get_manifest()
     actions = {a.id: a for a in app.actions}
     
     assert "get_item" in actions

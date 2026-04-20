@@ -57,38 +57,42 @@ async def call_landmark(base_url: str, action: Dict[str, Any], arguments: Dict[s
 # Dynamische Registrierung der Tools beim Start
 async def initialize():
     urls = os.environ.get("LANDMARK_URLS", "http://localhost:8004").split(",")
+    read_only = os.environ.get("LANDMARK_READ_ONLY", "false").lower() == "true"
     
     for base_url in urls:
         base_url = base_url.strip()
         if not base_url: continue
         
         try:
-            manifest = await fetch_manifest(base_url)
-            print(f"Lade Landmarks von {base_url}...")
+            # Manifest abrufen (optional im Read-Only Modus)
+            url_with_params = base_url
+            if read_only:
+                url_with_params = f"{base_url.rstrip('/')}/?read_only=true"
+                
+            manifest = await fetch_manifest(url_with_params)
+            print(f"Lade Landmarks von {base_url} (Read-Only: {read_only})...")
             
             for action in manifest.get("actions", []):
                 if action.get("hidden"): continue
                 
-                action_id = action["id"]
-                # Wir erzeugen eine lokale Kopie der Action für den Closure
-                current_action = action
-                current_base = base_url
+                # Wir nutzen eine Factory-Funktion, um den Scope (Closure) für jedes Tool sauber zu trennen
+                def create_tool(act, base):
+                    @mcp.tool(name=act["id"])
+                    async def landmark_tool(**kwargs):
+                        return await call_landmark(base, act, kwargs)
+                    
+                    # Dokumentation patchen
+                    doc = act.get("description", "Landmark Action")
+                    if act.get("instructions"):
+                        doc += f"\n\nRules: {act['instructions']}"
+                    if act.get("remedy"):
+                        doc += f"\n\nRemedy: {act['remedy']}"
+                    
+                    landmark_tool.__doc__ = doc
+                    return landmark_tool
 
-                @mcp.tool(name=action_id)
-                async def landmark_tool(ctx_action=current_action, ctx_base=current_base, **kwargs):
-                    """
-                    Dynamisch generiertes Landmark-Tool.
-                    """
-                    # Wir nutzen den Docstring der Action für die KI-Beschreibung
-                    return await call_landmark(ctx_base, ctx_action, kwargs)
-
-                # Wir müssen den Docstring und die Beschreibung manuell patchen, 
-                # da FastMCP sie normalerweise aus der Funktionssignatur zieht.
-                landmark_tool.__doc__ = action.get("description", "Landmark Action")
-                if action.get("instructions"):
-                    landmark_tool.__doc__ += f"\nRules: {action['instructions']}"
-                
-                print(f"  -> Tool '{action_id}' registriert.")
+                create_tool(action, base_url)
+                print(f"  -> Tool '{action['id']}' registriert.")
                 
         except Exception as e:
             print(f"Fehler beim Laden von {base_url}: {e}")

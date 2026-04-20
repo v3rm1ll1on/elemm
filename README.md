@@ -10,8 +10,9 @@
 *   **Plug-and-play MCP Support**: Instantly compatible with Claude Desktop and Cursor.
 *   **AI-Native Navigation (v0.4.0)**: Built-in context hygiene via hierarchical "Drill-Down" discovery.
 *   **Automated Discovery**: Auto-detects landmarks, schemas, and dependencies.
-*   **Managed Security**: Native support for HTTPBearer, OAuth2, and APIKeys.
-*   **Self-Healing**: Robust `remedy` instructions for autonomous error correction.
+*   **Managed Security**: Native support for HTTPBearer, OAuth2, and APIKeys with **Dynamic Read-Only** filtering.
+*   **Self-Healing**: Robust `remedy` instructions and **hardened error recovery**.
+*   **Universal Decorators**: Use `@ai.landmark`, `@ai.tool`, or `@ai.action` depending on your preference.
 
 ---
 
@@ -36,8 +37,10 @@ async def deploy(battery_id: str):
 *   **Module Level**: Specialized tools are selectively loaded only when the AI "enters" a module.
 *   **Global Access**: Critical tools (like search) can be marked with `global_access=True` to remain visible everywhere.
 
-### Hardened Security
-Standard OpenAPI is noisy. `elemm` auto-detects security schemes and marks them as `managed_by: protocol`, so the AI knows exactly which headers are required without HTTP clutter.
+### Hardened Security & Read-Only Mode
+Standard OpenAPI is noisy. `elemm` auto-detects security schemes and marks them as `managed_by: protocol`. 
+
+**New (v0.4.1):** You can now serve a **Read-Only Manifest** by adding `?read_only=true` to your well-known URL. This automatically strips all `write` actions, protecting your data from unintended AI modifications.
 
 ---
 
@@ -56,33 +59,36 @@ pip install elemm
 
 ### 2. Implementation
 ```python
-from elemm import FastAPIProtocolManager
+from elemm import Elemm
 from fastapi import FastAPI, Depends
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel
 
 app = FastAPI()
-ai = FastAPIProtocolManager(agent_welcome="Welcome to the Support-OS.")
+ai = Elemm(agent_welcome="Welcome to the Support-OS.")
 auth_scheme = HTTPBearer()
 
 class Ticket(BaseModel):
     title: str
     priority: int = 1
 
-@ai.landmark(id="get_categories", type="navigation")
+@ai.tool(id="get_categories", type="navigation")
 @app.get("/categories")
 async def list_cats():
     return ["Tech", "Billing", "General"]
 
-@ai.landmark(id="create_ticket", type="write", remedy="If 400, ask for a clearer title.")
+@ai.action(id="create_ticket", type="write", remedy="If 400, ask for a clearer title.")
 @app.post("/tickets")
 async def create(ticket: Ticket, token: str = Depends(auth_scheme)):
     return {"id": "123", "status": "created"}
 
 # Register and bind
-app.include_router(ai.get_router())
-ai.bind_to_app(app)
+app.include_router(ai.get_router()) # Exposes /.well-known/llm-landmarks.json
+ai.bind_to_app(app) # Auto-discovers all @landmark/@tool/@action routes
 ```
+
+### 3. Production: Reverse Proxies and Sub-paths
+If your app runs behind a proxy (like Nginx/Traefik) with a prefix (e.g., `/v1/api`), `elemm` automatically respects FastAPI's `root_path`. All navigation URLs and the `openapi_url` will be correctly prefixed.
 
 ### 3. Advanced: Multiple Auth Schemes
 `elemm` detects any dependency that inherits from `SecurityBase`. You can mix and match different schemes like API Keys and OAuth2:
@@ -92,7 +98,7 @@ from fastapi.security import APIKeyHeader
 
 api_key_scheme = APIKeyHeader(name="X-Admin-Key", description="Admin access only")
 
-@ai.landmark(id="wipe_logs", type="write", instructions="High-security action.")
+@ai.action(id="wipe_logs", type="write", instructions="High-security action.")
 @app.delete("/admin/logs")
 async def delete_logs(key: str = Depends(api_key_scheme)):
     return {"status": "logs cleared"}
@@ -150,9 +156,15 @@ Standard `openapi.json` is built for humans. Native MCP is great for simple scri
 
 ---
 
-## The @landmark Decorator Reference
+## Decorator Reference (`@landmark`, `@tool`, `@action`)
 
-The decorator is the primary way to provide semantic context to an AI agent. Here is a detailed breakdown of all available options:
+To make the integration as intuitive as possible, `elemm` provides three identical decorators. Use whichever fits your project's naming convention:
+
+*   **`@ai.landmark(...)`**: The precise term for semantic navigation.
+*   **`@ai.tool(...)`**: Familiar for developers using OpenAI Tools or LangChain.
+*   **`@ai.action(...)`**: Standard terminology for API developers.
+
+### Options Breakdown:
 
 ### `id` (string, required)
 The unique identifier for the action. The AI uses this ID to call the tool.
@@ -229,7 +241,8 @@ Standard OpenAPI documentation is often too noisy for LLMs. `elemm` provides a h
 
 *   **Rocksolid Security**: Native support for FastAPI `SecurityBase`. Sensitive schemes (HTTPBearer, APIKey) are automatically detected and marked as `managed_by: protocol`.
 *   **Context Injection**: Technical fields (e.g., `Request`, `Session`) and internal dependencies are automatically moved to a context scope, keeping the agent's input clean.
-*   **Pydantic V2 Support**: Deep extraction of Enums, nested models, and field metadata.
+*   **Pydantic V2 Support**: Deep extraction of Enums, nested models, and field metadata for both Payloads and **Query/Path parameters**.
+*   **Structured Exceptions**: A clean exception hierarchy (`ElemmError`) for professional debugging.
 
 ---
 

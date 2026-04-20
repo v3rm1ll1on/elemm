@@ -12,12 +12,16 @@ import mcp.types as types
 # It is the ultimate "Write Once, Run Forever" bridge.
 
 API_URL = os.getenv("LANDMARK_URL", "http://localhost:8002")
+READ_ONLY = os.getenv("LANDMARK_READ_ONLY", "false").lower() == "true"
 server = Server("elemm-dynamic-bridge")
 
 async def get_landmarks():
     async with httpx.AsyncClient() as client:
         # Load the auto-generated manifest from the landmark protocol
-        resp = await client.get(f"{API_URL}/.well-known/llm-landmarks.json")
+        url = f"{API_URL}/.well-known/llm-landmarks.json"
+        if READ_ONLY:
+            url += "?read_only=true"
+        resp = await client.get(url)
         return resp.json()["actions"]
 
 @server.list_tools()

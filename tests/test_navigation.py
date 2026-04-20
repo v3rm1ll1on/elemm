@@ -1,19 +1,19 @@
 import pytest
 from fastapi import FastAPI
-from elemm.fastapi import FastAPIProtocolManager
+from elemm import Elemm
 
 def test_auto_navigation_generation():
     tags_metadata = [
         {"name": "SecretModule", "description": "Highly classified tools."}
     ]
     app = FastAPI(openapi_tags=tags_metadata)
-    ai = FastAPIProtocolManager(agent_welcome="Welcome")
+    ai = Elemm(agent_welcome="Welcome")
     
-    @ai.landmark(id="classified_tool", type="read", tags=["SecretModule"])
+    @ai.tool(id="classified_tool", type="read", tags=["SecretModule"])
     @app.get("/secret")
     def secret(): return {}
 
-    @ai.landmark(id="global_tool", type="read")
+    @ai.tool(id="global_tool", type="read")
     @app.get("/global")
     def glb(): return {}
 
@@ -44,9 +44,9 @@ def test_auto_navigation_generation():
 
 def test_manual_grouping():
     app = FastAPI()
-    ai = FastAPIProtocolManager(agent_welcome="Welcome")
+    ai = Elemm(agent_welcome="Welcome")
     
-    @ai.landmark(id="manual_tool", type="write", groups=["CustomGroup"])
+    @ai.action(id="manual_tool", type="write", groups=["CustomGroup"])
     @app.get("/manual")
     def manual(): return {}
 

@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional, Callable
 from .models import AIAction, AIProtocolManifest
+from .exceptions import LandmarkRegistrationError, ManifestGenerationError
 
 DEFAULT_PROTOCOL_INSTRUCTIONS = (
     "You are an autonomous web agent. This manifest defines 'actions' you can call like functions. "
@@ -20,6 +21,7 @@ class BaseAIProtocolManager:
         self.agent_welcome = agent_welcome
         self.protocol_instructions = protocol_instructions or DEFAULT_PROTOCOL_INSTRUCTIONS
         self.actions: List[AIAction] = []
+        self._registered_ids = set()
         self.openapi_url: Optional[str] = None
 
     def landmark(self, id: str, type: str, instructions: Optional[str] = None, description: Optional[str] = None, **kwargs):
@@ -38,18 +40,33 @@ class BaseAIProtocolManager:
             return func
         return decorator
 
+    # Aliases for better developer experience
+    tool = landmark
+    action = landmark
+
     def register_action(self, **kwargs):
         """
         Manually register an action in the manifest.
         """
+        action_id = kwargs.get("id")
+        if action_id in self._registered_ids:
+            import logging
+            logging.getLogger(__name__).warning(f"Landmark ID '{action_id}' is already registered. Overwriting.")
+            # We remove the old one if we want to overwrite, or we could just append. 
+            # Protocol-wise, ID must be unique. Let's filter out the old one.
+            self.actions = [a for a in self.actions if a.id != action_id]
+        
         action = AIAction(**kwargs)
         self.actions.append(action)
+        if action_id:
+            self._registered_ids.add(action_id)
 
-    def get_manifest(self, group: Optional[str] = None, agent_view: bool = True) -> Dict[str, Any]:
+    def get_manifest(self, group: Optional[str] = None, agent_view: bool = True, read_only: bool = False) -> Dict[str, Any]:
         """
         Returns the protocol manifest as a dictionary, optionally filtered by group.
         If group is None, returns only entries without specific groups (Entry Points).
         If agent_view is True, filters out 'noise' fields for the LLM.
+        If read_only is True, filters out 'write' actions.
         """
         filtered_actions = []
         is_internal_group = (group == "_INTERNAL_ALL_")
@@ -58,6 +75,13 @@ class BaseAIProtocolManager:
             if action.hidden and not is_internal_group:
                 continue
             
+            # Read-only filtering (Security Feature)
+            if read_only and not is_internal_group:
+                is_write = (action.type == "write") or \
+                           (action.method and action.method.upper() in ["POST", "PUT", "DELETE", "PATCH"])
+                if is_write:
+                    continue
+
             # Filter by group logic
             if is_internal_group:
                 filtered_actions.append(action)

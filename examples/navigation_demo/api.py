@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
-from elemm.fastapi import FastAPIProtocolManager
+from elemm import Elemm
 
 # 1. Define metadata for our groups (Modules)
 # elemm will use these to create Navigation Landmarks.
@@ -22,7 +22,7 @@ app = FastAPI(
 )
 
 # 2. Setup elemm
-ai = FastAPIProtocolManager(
+ai = Elemm(
     agent_welcome="Welcome to Nexus Corp. Use module exploration to save context.",
     debug=True
 )
@@ -34,13 +34,13 @@ class Order(BaseModel):
 
 # --- SALES MODULE ---
 
-@ai.landmark(id="get_orders", type="read")
+@ai.tool(id="get_orders", type="read")
 @app.get("/sales/orders", tags=["Sales"])
 async def get_orders():
     """List all recent sales orders."""
     return [{"id": "ORD-1", "item": "AI-Processor", "amount": 5}]
 
-@ai.landmark(id="create_order", type="write")
+@ai.action(id="create_order", type="write")
 @app.post("/sales/orders", tags=["Sales"])
 async def create_order(order: Order):
     """Create a new customer order."""
@@ -48,13 +48,13 @@ async def create_order(order: Order):
 
 # --- INVENTORY MODULE ---
 
-@ai.landmark(id="check_stock", type="read")
+@ai.tool(id="check_stock", type="read")
 @app.get("/inventory/stock", tags=["Inventory"])
 async def check_stock(item_id: str):
     """Check availability of an item in the warehouse."""
     return {"item_id": item_id, "status": "In Stock", "count": 42}
 
-@ai.landmark(id="update_stock", type="write")
+@ai.action(id="update_stock", type="write")
 @app.patch("/inventory/stock", tags=["Inventory"])
 async def update_stock(item_id: str, count: int):
     """Adjust stock levels manually."""
@@ -62,11 +62,14 @@ async def update_stock(item_id: str, count: int):
 
 # --- UNGROUPED (Global) ---
 
-@ai.landmark(id="sys_status", type="read", global_access=True)
+@ai.tool(id="sys_status", type="read", global_access=True)
 @app.get("/status", tags=["Inventory"]) # It has a tag, but should still be in Root
 async def get_status():
     """Global system health check."""
     return {"status": "all systems operational"}
+
+# Note: You can now call /.well-known/llm-landmarks.json?read_only=true
+# to see this API in a protected mode without write actions!
 
 # Bind elemm to the app
 app.include_router(ai.get_router())
