@@ -76,3 +76,10 @@ In enterprise environments, Landmark IDs must remain stable. If you need to chan
 The hierarchical structure drastically reduces token consumption.
 - **Global Access**: Tools with `global_access=True` are visible everywhere. Use sparingly to avoid context noise.
 - **Efficiency**: In practice, the tool catalog size per step is reduced by a factor of 10 to 50.
+## 6. The Zero-Prompt Vision: Self-Documenting Infrastructure
+
+A core design goal of Elemm is to eliminate the need for long, complex system prompts that explain API structures to the agent.
+
+- **Embedded Persona**: By injecting the `agent_welcome` message into the primary navigation tools, the agent "discovers" its role and instructions through tool metadata rather than a static system prompt.
+- **On-Demand Guidance**: Instructions (via the Agent Repair Kit) are delivered just-in-time when an error occurs, keeping the context window clean during successful operations.
+- **Protocol-First Discovery**: The agent learns the API hierarchy at runtime by using `list_navigation_points`. This makes Elemm-based agents highly portable across different backend systems without requiring a single line of prompt engineering for the specific API layout.
