@@ -7,13 +7,16 @@ from typing import List, Dict, Any, Optional, Union, Tuple
 from enum import Enum
 import inspect
 import logging
+import asyncio
+import httpx
 
-from .base import BaseAIProtocolManager
+from .base import AIProtocolManager
 from .models import ActionParam
+from .mcp import LandmarkBridge
 
 logger = logging.getLogger(__name__)
 
-class FastAPIProtocolManager(BaseAIProtocolManager):
+class FastAPIProtocolManager(AIProtocolManager):
     """
     FastAPI-specific implementation of the Landmark Protocol.
     Supports automatic discovery of routes via .bind_to_app(app).
@@ -25,6 +28,68 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
         self.app_root_path = ""
         self.router = APIRouter()
         self._setup_well_known(self.router)
+        self._setup_navigation_tool(self.router)
+        self._mcp_bridge: Optional[LandmarkBridge] = None
+
+    def _setup_navigation_tool(self, router_or_app: Union[APIRouter, FastAPI]):
+        @router_or_app.get("/.well-known/module-navigation", include_in_schema=False)
+        @self.action(
+            id="enter_module", 
+            description="Enter a specific enterprise module (IT, HR, Finance, Remediation).",
+            instructions="Use this to switch context and access module-specific tools. Call it with module names like 'it', 'hr', 'finance', 'remediation'.",
+            global_access=True
+        )
+        async def enter_module(module_name: str):
+            return {"status": "success", "message": f"Entering {module_name}..."}
+
+    def bind_mcp_sse(self, app: FastAPI, route_prefix: str = "/mcp"):
+        """
+        Exposes the landmark protocol as an MCP SSE endpoint with session isolation.
+        """
+        from mcp.server.sse import SseServerTransport
+        
+        # We use a dictionary to store isolated bridges per session
+        # In a production environment, this should have a TTL or cleanup mechanism
+        sessions: Dict[str, LandmarkBridge] = {}
+        sse_transport = SseServerTransport(f"{route_prefix}/messages")
+
+        @app.get(f"{route_prefix}/sse", include_in_schema=False)
+        async def handle_sse(request: Request):
+            # Each connection gets its own bridge instance for true isolation
+            bridge = LandmarkBridge(manager=self)
+            
+            async with sse_transport.connect_sse(request.scope, request.receive, request.send) as (read, write):
+                # We need to track which bridge belongs to which session
+                # The mcp library's SseServerTransport handles the underlying session mapping,
+                # but we need to ensure the server.run is called on the isolated bridge.
+                await bridge.server.run(read, write, bridge.server.create_initialization_options())
+
+        @app.post(f"{route_prefix}/messages", include_in_schema=False)
+        async def handle_messages(request: Request):
+            await sse_transport.handle_post_request(request.scope, request.receive, request.send)
+
+    def run_mcp_stdio(self, app_import_path: str, host: str = "127.0.0.1", port: int = 8001):
+        """
+        Dual-Boot Launcher: Starts Web server and then runs MCP Stdio in main thread.
+        """
+        import threading
+        import uvicorn
+        import time
+        import sys
+
+        # Start Web server in background
+        def start_web():
+            uvicorn.run(app_import_path, host=host, port=port, log_level="error")
+        
+        t = threading.Thread(target=start_web, daemon=True)
+        t.start()
+        
+        # Wait for boot
+        time.sleep(2)
+        
+        # Start Bridge (Local mode)
+        bridge = LandmarkBridge(manager=self, base_url=f"http://{host}:{port}")
+        asyncio.run(bridge.run_stdio())
 
     def _setup_well_known(self, router_or_app: Union[APIRouter, FastAPI]):
         from fastapi import Header
@@ -43,6 +108,17 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                 
                 logger.error(f"Error generating landmark manifest: {e}", exc_info=True)
                 return {"error": "Internal error generating manifest", "detail": str(e)}
+
+        @router_or_app.api_route("/.well-known/mcp-tools.json", methods=["GET"], include_in_schema=False)
+        async def get_mcp_export(
+            group: Optional[str] = None,
+            x_elemm_internal_key: Optional[str] = Header(None, alias="X-Elemm-Internal-Key")
+        ):
+            try:
+                return self.get_mcp_tools(group=group, internal_key=x_elemm_internal_key)
+            except Exception as e:
+                logger.error(f"Error generating MCP export: {e}", exc_info=True)
+                return JSONResponse(status_code=500, content={"error": str(e)})
 
     def bind_to_app(self, app: FastAPI):
         """
@@ -77,11 +153,21 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                     tag_id = tag_name.lower().replace(" ", "_").replace("&", "and")
                     tag_id = "".join(c for c in tag_id if c.isalnum() or c == "_")
                     
+                    # Map tags to specific purposes for better guidance
+                    guidance = {
+                        "it infrastructure": "to access server logs, node management and infrastructure controls.",
+                        "security ops": "to retrieve active incident tickets and security alerts.",
+                        "human resources": "to search the personnel directory and verify employee identities.",
+                        "finance and audit": "to audit transactions and verify financial integrity.",
+                        "remediation": "to execute quarantine, restarts and fund recovery actions."
+                    }
+                    purpose = guidance.get(tag_name.lower(), f"to discover tools related to {tag_name}.")
+                    
                     self.register_action(
                         id=f"explore_{tag_id}",
                         type="navigation",
-                        description=tag_desc,
-                        instructions=f"Call this to discover tools related to {tag_name}.",
+                        description=f"Navigate to {tag_name} {purpose}",
+                        instructions=f"Call this when your investigation requires access to {tag_name} specific capabilities.",
                         method="GET",
                         url=f"{self.app_root_path}/.well-known/llm-landmarks.json?group={tag_name}",
                         opens_group=tag_name,
@@ -111,22 +197,47 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
     def _register_from_route(self, route: APIRoute, meta: Dict[str, Any]):
         method = list(route.methods)[0] if route.methods else "GET"
         url = route.path
+        if self.app_root_path and not url.startswith(self.app_root_path):
+            url = f"{self.app_root_path}{url}"
         
         description = meta["description"] or route.endpoint.__doc__ or route.description or route.summary or ""
         description = description.strip()
+        
+        # Auto-extract instructions from docstring if not explicitly provided
+        instructions = meta.get("instructions") or route.endpoint.__doc__ or ""
+        instructions = instructions.strip()
 
-        def map_type(annotation: Any) -> str:
+        def map_type(annotation: Any) -> Tuple[str, Optional[List[Any]]]:
             # Handle Optional/Union (get the first non-None type)
             origin = getattr(annotation, "__origin__", None)
+            
+            # Handle Literal
+            from typing import Literal
+            if origin is Literal:
+                args = getattr(annotation, "__args__", [])
+                return "string", list(args)
+
             if origin is Union:
                 args = getattr(annotation, "__args__", [])
                 annotation = next((a for a in args if a != type(None)), annotation)
+                # Re-check origin after unpacking Union
+                origin = getattr(annotation, "__origin__", None)
+                if origin is Literal:
+                    args = getattr(annotation, "__args__", [])
+                    return "string", list(args)
             
+            # Handle Enum
+            if inspect.isclass(annotation) and issubclass(annotation, Enum):
+                return "string", [e.value for e in annotation]
+
             raw_type = str(getattr(annotation, "__name__", annotation)).lower()
             
             # If it's a dict from JSON schema processing
             if isinstance(annotation, dict):
                 raw_type = annotation.get("type", "string")
+                enum_vals = annotation.get("enum")
+                if enum_vals:
+                    return "string", enum_vals
 
             mapping = {
                 "str": "string", "string": "string",
@@ -136,7 +247,7 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                 "list": "array", "array": "array",
                 "dict": "object", "object": "object"
             }
-            return mapping.get(raw_type, "string")
+            return mapping.get(raw_type, "string"), None
 
         # Automatic payload detection
         payload = meta["extra"].get("payload")
@@ -167,28 +278,35 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
 
             if model:
                 try:
+                    def _resolve_refs(item: Any, definitions: Dict[str, Any], depth: int = 0) -> Any:
+                        if depth > 10: return item # Protection against infinite loops
+                        if not isinstance(item, dict): return item
+                        
+                        if "$ref" in item:
+                            ref_name = item["$ref"].split("/")[-1]
+                            if ref_name in definitions:
+                                # Merge ref definition into current item (excluding the $ref itself)
+                                base = definitions[ref_name]
+                                new_item = {**base, **{k: v for k, v in item.items() if k != "$ref"}}
+                                return _resolve_refs(new_item, definitions, depth + 1)
+                        
+                        # Recurse into properties if it's an object
+                        if "properties" in item:
+                            item["properties"] = {k: _resolve_refs(v, definitions, depth + 1) for k, v in item["properties"].items()}
+                        
+                        return item
+
                     schema = model.model_json_schema() if hasattr(model, "model_json_schema") else (model.schema() if hasattr(model, "schema") else None)
                     if schema:
-                        properties = schema.get("properties")
-                        if not properties and "$ref" in schema:
-                            # Handle Circular Refs (top-level $ref to $defs)
-                            ref_name = schema["$ref"].split("/")[-1]
-                            properties = schema.get("$defs", {}).get(ref_name, {}).get("properties", {})
-                        
-                        if not properties: properties = {}
-                        required_fields = schema.get("required", [])
                         defs = schema.get("$defs", schema.get("definitions", {}))
+                        resolved_schema = _resolve_refs(schema, defs)
+                        
+                        properties = resolved_schema.get("properties", {})
+                        required_fields = resolved_schema.get("required", [])
                         
                         payload = []
                         for field_name, field_info in properties.items():
-                            # Resolve $ref for Enums and other types
-                            if "$ref" in field_info:
-                                ref_path = field_info["$ref"].split("/")
-                                ref_name = ref_path[-1]
-                                if ref_name in defs:
-                                    field_info = {**defs[ref_name], **field_info}
-                            
-                            p_type = map_type(field_info)
+                            p_type, p_options = map_type(field_info)
                             payload.append(ActionParam(
                                 name=field_name,
                                 description=field_info.get("description", f"Field {field_name}"),
@@ -196,7 +314,7 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                                 required=field_name in required_fields,
                                 default=field_info.get("default"),
                                 example=field_info.get("example"),
-                                options=field_info.get("enum"), # Extract Enums!
+                                options=p_options or field_info.get("enum"), # Extract Enums!
                                 min_value=field_info.get("minimum") or field_info.get("ge"),
                                 max_value=field_info.get("maximum") or field_info.get("le")
                             ))
@@ -278,19 +396,7 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                     context_deps.append(name)
                     continue
 
-                p_type = map_type(param.annotation)
-                p_options = None
-                
-                # Enum detection
-                enum_type = param.annotation
-                # Handle Optional[Enum]
-                origin = getattr(enum_type, "__origin__", None)
-                if origin is Union:
-                    args = getattr(enum_type, "__args__", [])
-                    enum_type = next((a for a in args if a != type(None)), enum_type)
-                
-                if inspect.isclass(enum_type) and issubclass(enum_type, Enum):
-                    p_options = [e.value for e in enum_type]
+                p_type, p_options = map_type(param.annotation)
                 
                 actual_parameters.append(ActionParam(
                     name=name,
@@ -306,8 +412,11 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
         headers = meta["extra"].get("headers") or {}
         
         # Group extraction logic
-        # Priority: Landmark 'groups' -> Landmark 'tags' -> FastAPI 'tags'
-        groups = meta["extra"].get("groups") or meta["extra"].get("tags") or (route.tags if route.tags else [])
+        # Support both singular 'group' and plural 'groups'
+        extra = meta.get("extra", {})
+        groups = extra.get("groups") or extra.get("group") or extra.get("tags") or (route.tags if route.tags else [])
+        if isinstance(groups, str):
+            groups = [groups]
 
         # Action Registration
         self.register_action(
@@ -317,7 +426,7 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             groups=groups,
             opens_group=meta["extra"].get("opens_group"),
             description=description or "No description provided.",
-            instructions=meta.get("instructions"),
+            instructions=instructions,
             remedy=meta["extra"].get("remedy"),
             method=method,
             url=url,
@@ -359,6 +468,10 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
 
         if matched_action.remedy:
             response_body["remedy"] = matched_action.remedy
+        
+        if matched_action.instructions:
+            response_body["instruction"] = matched_action.instructions
+        elif matched_action.remedy:
             response_body["instruction"] = "Follow the 'remedy' above to fix your parameters and try again."
         
         # Noise Detection Heuristic
@@ -417,6 +530,36 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
 
     def get_router(self) -> APIRouter:
         return self.router
+
+    def run_mcp_stdio(self, app_import_path: str):
+        """
+        Runs the MCP server via stdio.
+        """
+        bridge = LandmarkBridge(manager=self)
+        bridge.run_stdio()
+
+    async def call_action(self, action_id: str, arguments: Dict[str, Any]) -> Any:
+        """
+        Executes a registered landmark action by calling its FastAPI route internally.
+        """
+        action = next((a for a in self.actions if a.id == action_id), None)
+        if not action:
+            raise ValueError(f"Action {action_id} not found.")
+
+        # Prepare Internal Request
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url="http://test") as client:
+            method = action.method or "POST"
+            url = action.url
+            
+            if method.upper() == "GET":
+                resp = await client.get(url, params=arguments)
+            else:
+                resp = await client.post(url, json=arguments)
+            
+            try:
+                return resp.json()
+            except:
+                return {"status": "ok", "message": resp.text}
 
 # Official cool alias
 Elemm = FastAPIProtocolManager

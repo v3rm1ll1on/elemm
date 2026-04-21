@@ -32,7 +32,8 @@ For deep dives into the protocol's power, see our specialized guides:
 - [**Architecture & Navigation**](docs/ARCHITECTURE.md) - How to scale to 1000+ tools with Token-Hygiene.
 - [**Agent-Repair-Kit**](docs/REPAIR_KIT.md) - How Self-Healing and Remedies break error loops.
 - [**Security & Shielding**](docs/SECURITY.md) - Auto-Auth detection and Read-Only protection.
-- [**Decorator Reference**](docs/DECORATORS.md) - Full API reference for `@ai.tool` and `@ai.action`.
+- [**MCP Integration**](docs/MCP_INTEGRATION.md) - Native Model Context Protocol support (SSE & Stdio).
+- [**Decorator Reference**](docs/DECORATORS.md) - Full API reference for @ai.tool and @ai.action.
 
 ---
 
@@ -115,19 +116,39 @@ Use the decorators that fit your naming convention – they are all functionally
 
 ---
 
-## Native MCP Support
+## Native MCP Support (Model Context Protocol)
 
-Elemm isn't just a manifest; it's a bridge. Use the built-in MCP Server to connect your entire API directly to **Claude Desktop**, **Cursor**, or **LibreChat**.
+Elemm isn't just a manifest; it's a bridge. Connect your entire API directly to agents using the built-in MCP Server.
 
-### Claude Desktop Integration
-Add this to your `claude_desktop_config.json`:
+### 1. Web-Native (SSE)
+Expose your API as an MCP server via HTTP/SSE. This allows agents to connect to your production environment over the web.
+
+```python
+app = FastAPI()
+ai.bind_mcp_sse(app, route_prefix="/mcp")
+```
+
+The agent connects to: `http://localhost:8000/mcp/sse`
+
+### 2. Dual-Boot (Stdio)
+For local development or command-line usage (pipes), use the Stdio launcher. This starts both the HTTP server and the MCP bridge in a single process.
+
+```python
+if __name__ == "__main__":
+    import sys
+    if "--mcp" in sys.argv:
+        ai.run_mcp_stdio("your_api_module:app")
+    else:
+        uvicorn.run(app)
+```
+
+Usage with Claude Desktop:
 ```json
 {
   "mcpServers": {
     "my-backend": {
       "command": "python3",
-      "args": ["/path/to/your/app.py"],
-      "env": { "LANDMARK_URLS": "http://localhost:8000" }
+      "args": ["/path/to/app.py", "--mcp"]
     }
   }
 }

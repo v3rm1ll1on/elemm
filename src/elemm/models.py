@@ -38,4 +38,6 @@ class AIProtocolManifest(BaseModel):
     agent_welcome: str
     protocol_instructions: Optional[str] = None
     openapi_url: Optional[str] = None
+    current_group: Optional[str] = "root"
+    navigation: List[Dict[str, Any]] = [] # Compact navigation landmarks
     actions: List[AIAction]
