@@ -20,7 +20,7 @@ class AIProtocolManager:
     """
     Framework-agnostic core logic for managing LLM Landmarks.
     """
-    def __init__(self, agent_welcome: str, version: str = "v1-lmlmm", protocol_instructions: Optional[str] = None, internal_access_key: Optional[str] = None):
+    def __init__(self, agent_welcome: str, version: str = "v1-lmlmm", protocol_instructions: Optional[str] = None, internal_access_key: Optional[str] = None, hybrid_threshold: int = 10):
         self.version = version
         self.agent_welcome = agent_welcome
         self.protocol_instructions = protocol_instructions or DEFAULT_PROTOCOL_INSTRUCTIONS
@@ -28,6 +28,7 @@ class AIProtocolManager:
         self._registered_ids = set()
         self.openapi_url: Optional[str] = None
         self.internal_access_key = internal_access_key
+        self.hybrid_threshold = hybrid_threshold
 
     async def call_action(self, action_id: str, arguments: Dict[str, Any]) -> Any:
         """
@@ -93,7 +94,7 @@ class AIProtocolManager:
         # If fewer than 10 landmarks AND no groups are defined, we skip the group filter
         # to reduce the 'Navigation Tax' for very simple, flat APIs.
         has_groups = any(a.groups for a in self.actions if a.type != "navigation")
-        if not group and (len(self.actions) < 10 and not has_groups):
+        if not group and (len(self.actions) < self.hybrid_threshold and not has_groups):
             # If we are at root and the API is small AND flat, we act as 'INTERNAL_ALL' (unfiltered) 
             # for functional tools.
             is_internal_group = True

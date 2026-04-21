@@ -18,7 +18,27 @@ When used via web interfaces (SSE), Elemm ensures that no data leakage occurs be
 
 ## 3. Explicit Key Management
 
-In version 0.6.0, Elemm has removed predefined internal keys (formerly `INTERNAL_KEY`). Administrative access to the full manifest (`_INTERNAL_ALL_`) now requires explicit configuration of the `internal_access_key` in the `FastAPIProtocolManager`. Without this configuration, no privileged access to hidden landmarks is possible.
+In version 0.6.0, Elemm has removed predefined internal keys (formerly `INTERNAL_KEY`). Administrative access to the full manifest (`_INTERNAL_ALL_`) now requires explicit configuration of the `internal_access_key` in the `FastAPIProtocolManager`.
+
+To gain administrative access, provide the configured key via the `X-Elemm-Internal-Key` header:
+
+```python
+import httpx
+
+# Server-side configuration:
+# ai = Elemm(..., internal_access_key="your-secret-key")
+
+async def get_all_tools():
+    url = "https://api.solar-ops.com/.well-known/llm-landmarks.json"
+    headers = {"X-Elemm-Internal-Key": "your-secret-key"}
+    params = {"group": "_INTERNAL_ALL_"}
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers, params=params)
+        return response.json()
+```
+
+Warning: Treat the `internal_access_key` with the same level of security as a root password, as it exposes the entire API surface including hidden maintenance tools.
 
 ## 4. Automated Sharding and Shielding
 

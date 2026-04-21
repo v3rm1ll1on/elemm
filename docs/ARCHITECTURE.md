@@ -2,35 +2,77 @@
 
 Elemm transforms a flat API structure into a navigable world of landmarks. This allows AI agents to access extremely large toolsets without overloading the context window.
 
-## 1. Automated Navigation (Signposts)
+## 1. Discovery Lifecycle
 
-A core feature of Elemm is the automatic generation of navigation points. Developers do not need to write manual tools for switching between modules.
+The following diagram illustrates how Elemm filters a massive backend into a manageable context for the agent:
+
+```mermaid
+graph TD
+    subgraph "Backend (500+ Tools)"
+        T1[Tool 1]
+        T2[Tool 2]
+        T3[Tool 3]
+        TN[...]
+    end
+
+    subgraph "Elemm Protocol Layer"
+        LM[Landmark Registry]
+        HB[Hybrid Mode Toggle]
+        CF[Context Filter]
+    end
+
+    subgraph "Agent View (Context: root)"
+        G1[Global Search]
+        N1[Explore IT]
+        N2[Explore HR]
+    end
+
+    subgraph "Agent View (Context: IT)"
+        I1[Query Logs]
+        I2[Restart Server]
+        G1
+    end
+
+    T1 & T2 & T3 & TN --> LM
+    LM --> HB
+    HB -- API > Threshold --> CF
+    CF -- Filter by Group --> N1 & N2
+    N1 -- "navigate('it')" --> I1 & I2
+```
+
+## 2. Automated Navigation (Signposts)
+
+A core feature of Elemm is the automatic generation of navigation points.
+
+### Technical Distinction: Tool vs. ID
+It is important to distinguish between the **Tool** used by the agent and the **Landmark ID** it targets:
+- **list_navigation_points**: This is the MCP Tool the agent calls to discover where it can go.
+- **navigate**: This is the MCP Tool used to move between modules.
+- **explore_{tag_id}**: This is the technical **ID** of a landmark (e.g., `explore_it`). When calling `navigate`, the agent provides this ID as the `landmark_id` argument.
 
 ### How it works
-Elemm analyzes the `openapi_tags` of a FastAPI application. If a route has a tag defined in the application's metadata, Elemm automatically generates a navigation landmark for that group.
-
+Elemm analyzes the `openapi_tags` of a FastAPI application. If a route has a tag defined in the metadata, Elemm automatically generates a navigation landmark.
 - **ID Generation**: Groups automatically receive the prefix `explore_{tag_id}`.
-- **Sanitization**: Special characters in tags are automatically cleaned (e.g., `User & Admin` becomes `explore_user_and_admin`).
-- **Instructions**: Descriptions from the FastAPI tags serve as the primary orientation guide for the agent.
+- **Sanitization**: Special characters are cleaned (e.g., `User & Admin` becomes `explore_user_and_admin`).
 
-## 2. Hybrid Mode (Auto-Flattening)
+## 3. Hybrid Mode (Auto-Flattening)
 
-Elemm adapts to the size of the API. In version 0.6.0, a hybrid mode was introduced:
-- **Flat View**: If an API has fewer than 10 landmarks and uses no explicit group structure, Elemm removes the filtering. The agent sees all tools at once.
-- **Hierarchical View**: As soon as the API grows or groups (tags) are defined, the protocol switches to structured mode. This prevents the "navigation tax" (unnecessary steps) for very simple APIs while maintaining scalability for complex systems.
+Elemm adapts to the size of the API.
+- **Flat View**: If an API has fewer than the `hybrid_threshold` (default: 10) landmarks and no explicit group structure, Elemm removes the filtering.
+- **Hierarchical View**: As soon as the API grows or groups are defined, it switches to structured mode.
+- **Configuration**: The threshold can be adjusted during initialization: `Elemm(..., hybrid_threshold=5)`.
 
-## 3. Token Hygiene and Best Practices
+## 4. Versioning and Deprecation
 
-The hierarchical structure drastically reduces token consumption because only relevant tools are in context per step.
+In enterprise environments, Landmark IDs must remain stable. If you need to change a structure:
 
-### Global Access
-Tools with `global_access=True` are visible in every module.
-**Recommendation**: Use this attribute sparingly for absolutely essential tools (e.g., `system_status` or `help`). Too many global tools lead to context noise and diminish the advantage of the hierarchy.
+### Recommendations:
+1. **Stability**: Prefer generic Landmark IDs (e.g., `explore_it_ops` instead of `explore_it_v1`).
+2. **Deprecation**: If a landmark is deprecated, do not remove it immediately. Use the `hidden=True` attribute and provide a `remedy` explaining the new path.
+3. **Redirection**: You can create a "legacy" landmark that simply returns a message: "This module has moved to 'explore_new_module'. Please navigate there."
 
-## 4. Discovery Lifecycle
+## 5. Token Hygiene
 
-1. **Initialization**: `bind_to_app` recognizes landmarks from tags and explicit registrations.
-2. **Root Level**: The agent initially sees only navigation points and global tools.
-3. **Navigation**: The agent uses the `navigate` tool to enter a module.
-4. **Focusing**: The bridge now delivers a filtered manifest containing only the tools of the selected module.
-5. **Efficiency**: In practice, the size of the tool catalog per step is often reduced by a factor of 10 to 50.
+The hierarchical structure drastically reduces token consumption.
+- **Global Access**: Tools with `global_access=True` are visible everywhere. Use sparingly to avoid context noise.
+- **Efficiency**: In practice, the tool catalog size per step is reduced by a factor of 10 to 50.
