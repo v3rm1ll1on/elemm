@@ -6,9 +6,12 @@ This case study analyzes the performance of the Elemm Landmark Protocol compared
 ## 1. Test Environment and Methodology
 
 ### Hardware & Software
-- **Model**: gemma4:e2b (via Ollama)
-- **Deployment**: Remote Inference Server (192.168.178.76)
-- **Context Window**: Hard-coded at 32,768 tokens (Analysis below suggests 12k is sufficient for ELEMM).
+- **CPU**: AMD Ryzen 9 5900X (12-Core Processor)
+- **GPU**: NVIDIA GeForce RTX 4080 (16GB VRAM)
+- **RAM**: 16GB (WSL2 Allocated) / 32GB+ (System Total)
+- **OS**: Ubuntu 24.04.3 LTS (Linux Kernel 6.6+)
+- **Model**: gemma4:e2b (Inference via Ollama)
+- **Context Window**: Configured at 32,768 tokens.
 
 ### The Scenario: "Solaris SEC-404"
 The AI agent acts as a Forensic Auditor with the task to:
