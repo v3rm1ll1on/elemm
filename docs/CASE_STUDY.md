@@ -80,6 +80,7 @@ During our testing, we challenged both protocols by reducing the context window 
 To push the protocol to its absolute theoretical limit, we performed an **extreme stress test** using a context window of only **1,024 tokens**.
 
 - **Result**: ELEMM achieved a **60.0% success rate** (3/5 runs).
+- **Complexity**: The test was performed using the **exact same 13-step forensic audit scenario** as the primary benchmark, proving that high task complexity can be maintained in low-context environments.
 - **Metric**: The average input was reduced to only **997 tokens per step**.
 - **Observation**: This is a landmark result. While most AI agent architectures fail immediately when the context window is smaller than the tool manifest, ELEMM's "discovery-on-demand" approach allows it to function in environments with virtually zero memory. 
 - **Comparison**: A single step in Classic MCP (at 32k) consumes more tokens than an entire ELEMM mission at 1k context.
