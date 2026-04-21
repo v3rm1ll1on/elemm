@@ -56,7 +56,7 @@ from fastapi import FastAPI
 from elemm.fastapi import FastAPIProtocolManager as Elemm
 
 app = FastAPI()
-ai = Elemm(agent_welcome="Welcome to the Solaris Enterprise System.")
+ai = Elemm(agent_instructions="You are a Solaris Forensic Auditor. Use landmarks to discover modules.")
 
 # 1. Define a Landmark (A semantic entry point)
 @app.get("/it/ops")

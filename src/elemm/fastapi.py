@@ -21,8 +21,8 @@ class FastAPIProtocolManager(AIProtocolManager):
     FastAPI-specific implementation of the Landmark Protocol.
     Supports automatic discovery of routes via .bind_to_app(app).
     """
-    def __init__(self, agent_welcome: str, version: str = "v1-lmlmm", openapi_url: str = "/api/openapi.json", protocol_instructions: Optional[str] = None, debug: bool = False, internal_access_key: Optional[str] = None):
-        super().__init__(agent_welcome, version, protocol_instructions, internal_access_key=internal_access_key)
+    def __init__(self, agent_welcome: Optional[str] = None, version: str = "v1-lmlmm", openapi_url: str = "/api/openapi.json", protocol_instructions: Optional[str] = None, debug: bool = False, internal_access_key: Optional[str] = None, agent_instructions: Optional[str] = None):
+        super().__init__(agent_welcome, version, protocol_instructions, internal_access_key=internal_access_key, agent_instructions=agent_instructions)
         self.openapi_url = openapi_url
         self.debug = debug
         self.app_root_path = ""

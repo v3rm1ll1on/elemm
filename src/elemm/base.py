@@ -20,9 +20,9 @@ class AIProtocolManager:
     """
     Framework-agnostic core logic for managing LLM Landmarks.
     """
-    def __init__(self, agent_welcome: str, version: str = "v1-lmlmm", protocol_instructions: Optional[str] = None, internal_access_key: Optional[str] = None, hybrid_threshold: int = 10):
+    def __init__(self, agent_welcome: Optional[str] = None, version: str = "v1-lmlmm", protocol_instructions: Optional[str] = None, internal_access_key: Optional[str] = None, hybrid_threshold: int = 10, agent_instructions: Optional[str] = None):
         self.version = version
-        self.agent_welcome = agent_welcome
+        self.agent_welcome = agent_instructions or agent_welcome or "Welcome to the Landmark Protocol."
         self.protocol_instructions = protocol_instructions or DEFAULT_PROTOCOL_INSTRUCTIONS
         self.actions: List[AIAction] = []
         self._registered_ids = set()

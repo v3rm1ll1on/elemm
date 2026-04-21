@@ -31,10 +31,14 @@ class LandmarkBridge:
         """
         Registry Style: Export core navigation tools + current module actions.
         """
+        # Zero-Prompt Injection: We inject the manager's welcome/instructions 
+        # directly into the core discovery tool's description.
+        welcome_prefix = f"{self.manager.agent_welcome}\n\n" if self.manager and self.manager.agent_welcome else ""
+        
         tools = [
             types.Tool(
                 name="list_navigation_points",
-                description="List available modules and navigation landmarks.",
+                description=f"{welcome_prefix}List available modules and navigation landmarks to discover available tools.",
                 inputSchema={"type": "object", "properties": {}}
             ),
             types.Tool(
