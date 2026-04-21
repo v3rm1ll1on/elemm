@@ -18,10 +18,26 @@ Elemm utilizes dynamic correction hints (Remedies). In case of validation errors
 
 ## Features
 
-- **Token Optimization**: Static tool descriptions are stripped of redundant instructions. Contextual help is only delivered when needed.
-- **Session Isolation**: Complete separation of navigation states in multi-agent operations through isolated bridge instances per connection.
-- **Deep Type Discovery**: Automatic extraction of Enum and Literal types from Pydantic models for precise JSON schemas.
-- **Native MCP Support**: Full compatibility with the Model Context Protocol (both Stdio and SSE).
+- **Hierarchical Navigation**: Replaces overwhelming flat tool lists with navigational signposts (Landmarks).
+- **Extreme Token Efficiency**: Proven to reduce tokens-per-step by up to **80%** in enterprise environments.
+- **Agent Repair Kit**: Real-time self-healing through dynamic `remedy` injection on validation errors.
+- **Hybrid Auto-Scaling**: Automatically flattens small toolsets to eliminate navigation overhead where unnecessary.
+- **Enterprise-Grade Security**: Strict session isolation for multi-agent environments and restricted administrative access (`_INTERNAL_ALL_`).
+- **Deep Schema Discovery**: Automatic extraction of Enums, Literals, and complex nested types from Pydantic models.
+- **Native MCP Bridge**: Full support for Model Context Protocol via Stdio and SSE (with Nginx-ready buffering logic).
+- **Stateless-Ready**: Designed to function reliably even in extremely low-context environments (proven at 1k-4k context windows).
+
+## Documentation
+
+For deep dives into specific topics, see our technical documentation:
+
+- [Architecture](docs/ARCHITECTURE.md): Core protocol design and Zero-Prompt Vision.
+- [Case Study](docs/CASE_STUDY.md): Detailed results of the Solaris Benchmark (Classic vs. ELEMM).
+- [Security](docs/SECURITY.md): Internal keys, God-mode protection, and administrative access.
+- [Deployment](docs/DEPLOYMENT.md): Docker, Nginx (SSE tuning), and Cloud configuration.
+- [MCP Integration](docs/MCP_INTEGRATION.md): Bridging FastAPI to Model Context Protocol.
+- [Repair Kit](docs/REPAIR_KIT.md): Implementing self-healing via Remedies.
+- [Decorators](docs/DECORATORS.md): API reference for `@ai.landmark`, `@ai.action`, and more.
 
 ## Quick Start
 
