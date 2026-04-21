@@ -1,43 +1,45 @@
 # MCP Integration (Model Context Protocol)
 
-Elemm provides native support for the Model Context Protocol (MCP), allowing any landmark-enabled API to be used directly by AI agents (like Claude or Gemini) without manual tool definition or extensive system prompting.
+Elemm provides native support for the Model Context Protocol (MCP). This allows AI agents to use landmark-enabled APIs directly as tools without the need for manual definitions or extensive system prompting.
 
 ## Features
 
-- **Native Tool Export**: Landmarks are automatically converted to MCP tool definitions.
-- **Mission Vaccination**: The agent persona (`agent_welcome`) and protocol rules are injected into every tool description.
-- **Web-Native MCP (SSE)**: Expose MCP endpoints directly over HTTP/SSE.
-- **Dual-Boot Stdio**: Run your API and an MCP Stdio bridge in a single process.
+- **Automatic Tool Export**: Landmarks are transparently translated into MCP tool definitions.
+- **Registry-based Navigation**: The bridge provides dedicated tools (`list_navigation_points`, `navigate`) to control the active context.
+- **Session Isolation**: Every agent (SSE connection) receives an isolated bridge instance with its own navigation state.
+- **Token Efficiency**: Reduction of static tool descriptions through dynamic delivery of instructions in case of errors.
 
-## Native Export Endpoint
+## Navigation Model
 
-The protocol automatically provides an MCP-compliant tool list at:
-`GET /.well-known/mcp-tools.json`
+Unlike flat MCP servers, Elemm uses a hierarchical model:
 
-This endpoint returns an array of MCP Tool objects, including parameters mapped from Pydantic models.
+1. **list_navigation_points**: Lists all available modules and landmarks in the current area.
+2. **navigate**: Allows switching to a specific module. After the switch, the bridge dynamically updates the list of available tools.
 
-## Usage in FastAPI
+This process minimizes the number of simultaneously visible tools and significantly increases reliability for large tool catalogs.
+
+## Configuration in FastAPI
 
 ### SSE (Server-Sent Events)
 
-Use `bind_mcp_sse` to allow agents to connect to your API via HTTP. This is the recommended way for web-based deployments.
+For web-based deployments, `bind_mcp_sse` is recommended. This allows multiple agents to access the API simultaneously via HTTP.
 
 ```python
 from elemm.fastapi import Elemm
 
-ai = Elemm(agent_welcome="You are a Logistics Manager.")
-# ... define landmarks ...
+ai = Elemm(agent_welcome="You are a forensics specialist.")
+# ... Define landmarks ...
 
 app = FastAPI()
 ai.bind_to_app(app)
 ai.bind_mcp_sse(app, route_prefix="/mcp")
 ```
 
-The agent can now connect to `http://your-api/mcp/sse`.
+Agents connect to: `http://your-api/mcp/sse`.
 
 ### Stdio (Dual-Boot)
 
-For local development or benchmarking (e.g., using pipes), use `run_mcp_stdio`. This starts the web server in a background thread and the MCP Stdio bridge in the main thread.
+For local development or benchmarks via pipes, `run_mcp_stdio` is used.
 
 ```python
 if __name__ == "__main__":
@@ -48,15 +50,22 @@ if __name__ == "__main__":
         uvicorn.run(app, port=8001)
 ```
 
-## Mission Vaccination
+## Hybrid Mode (Auto-Flattening)
 
-One of the core strengths of the Elemm-MCP integration is 'Vaccination'. Every tool description exported via MCP is prepended with the global `agent_welcome` and `protocol_instructions`. 
+Elemm automatically optimizes access:
+- If an API has fewer than 10 landmarks and no explicit group structure is defined, all tools are exported flat.
+- This eliminates navigation overhead ("Navigation Tax") for simple use cases.
+- As complexity increases (more landmarks or groups), the protocol automatically switches to structured navigation.
 
-This ensures that:
-1. The agent always knows its persona, even with a blank system prompt.
-2. Context hygiene is maintained by isolating instructions to the active tool set.
-3. Safety and alignment are enforced at the protocol level.
+## Dynamic Correction (Agent Repair Kit)
 
-## Navigation & Context Groups
+Elemm avoids writing detailed instructions and remedies into every static tool description. Instead, the protocol utilizes the HTTP 422 handler:
+- If a validation error occurs, the response is enriched with precise instructions and the stored correction hint (remedy).
+- The agent receives the required help exactly when needed.
+- This saves valuable tokens on every request and keeps the context window clean.
 
-When an agent calls a landmark of type `navigation` that specifies an `opens_group`, the Elemm bridge automatically updates the active context group. The client is notified via the MCP `notifications/tool_list_changed` mechanism, forcing a refresh of the available tools.
+## Security and Validation
+
+The MCP bridge acts as a gateway:
+- Tools are only callable if they are visible in the agent's current context or have global access.
+- Session data is managed via isolated instances in the FastAPI middleware or the SSE handler to prevent data leakage between different agent sessions.
