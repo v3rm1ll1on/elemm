@@ -156,9 +156,8 @@ class LandmarkBridge:
                     text=f"Error: Tool {name} is not available in the current context ({self.ctx}).\nREMEDY: Use 'navigate' to switch to the correct module."
                 )]
         else:
-            # Tool is visible, fetch its details (using internal key if manager allows it for execution)
-            # We still need the full action details for execution
-            manifest = await self._fetch_manifest_from_source(group="_INTERNAL_ALL_", agent_view=False)
+            # Tool is visible, fetch its details from the current context
+            manifest = await self._fetch_manifest_from_source(group=self.ctx, agent_view=False)
             action = next((a for a in manifest.get("actions", []) if a["id"] == name), None)
 
         if not action:
