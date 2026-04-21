@@ -49,10 +49,14 @@ The following table shows the average values across 5 independent runs for each 
 - **Token Hygiene**: By maintaining an average of ~2,300 tokens per step, ELEMM keeps the agent's focus sharp and reduces inference costs by nearly 80%.
 - **Resilience**: The hierarchical structure naturally guides the agent, preventing it from getting "lost" in unrelated tool schemas.
 
-### Classic Mode: The Complexity Collapse
-- **Instability**: Classic mode only succeeded in 40% of the cases. The high "noise-to-signal" ratio of 233 tools led to frequent hallucinations, where the agent attempted to call non-existent or navigational tools that weren't registered.
-- **Cognitive Load**: ingesting over 12,500 tokens *per step* significantly degrades the model's reasoning capability.
-- **Economic Inefficiency**: Classic mode consumes 4.7x more tokens to complete the same task (when it succeeds), making it prohibitively expensive for large-scale enterprise deployments.
+### Cognitive Latency (The "Thinking" Tax)
+- **Classic Drag**: In the Classic mode, the model must process 233 tool schemas for every single reasoning step. This leads to an average latency of **1,891ms per step**.
+- **ELEMM Speed**: By limiting the active toolset to ~5 items, the model's cognitive load is minimized, reducing latency to **1,487ms per step** (-21%). 
+- **The Paradox**: Even though ELEMM requires more steps (due to navigation), the overall mission time is comparable to the classic mode because the individual steps are executed much faster.
+
+### Scalability Limits (The 500-Tool Ceiling)
+- **Classic Hard-Cap**: Based on the average description length in this benchmark (~500 tokens for 10 tools), a Classic MCP server would hit the **32,768 token context limit** at approximately **500-600 tools**. Beyond this point, the system becomes non-functional.
+- **ELEMM Infinity**: Because ELEMM only loads tools for the active module, it can theoretically handle **tens of thousands of tools** across thousands of modules, as the context per step remains constant regardless of the total API size.
 
 ### Zero-Prompt Readiness
 - **Classic Necessity**: In the Classic mode, the system prompt is a critical crutch. Without explicit instructions on which tools to use, the agent would fail immediately due to the overwhelming choice of 233 options.
