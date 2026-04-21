@@ -47,30 +47,68 @@ For deep dives into specific topics, see our technical documentation:
 pip install elemm
 ```
 
-### Integration with FastAPI
+### Server-Side: FastAPI + MCP
+
+Elemm turns your FastAPI application into a Model Context Protocol (MCP) server with hierarchical discovery.
 
 ```python
 from fastapi import FastAPI
 from elemm.fastapi import FastAPIProtocolManager as Elemm
 
 app = FastAPI()
-ai = Elemm(agent_welcome="Welcome to the Enterprise ERP System.")
+ai = Elemm(agent_welcome="Welcome to the Solaris Enterprise System.")
 
-# Define a landmark
-@app.get("/finance/audit")
-@ai.landmark(id="finance", type="navigation", opens_group="finance")
-async def finance_module():
-    return {"status": "Active"}
+# 1. Define a Landmark (A semantic entry point)
+@app.get("/it/ops")
+@ai.landmark(id="it_ops", type="navigation", opens_group="it_tools")
+async def it_portal():
+    return {"status": "IT Operations Active"}
 
-# Register a tool in a group
-@app.post("/finance/transfer")
-@ai.action(id="transfer", group="finance")
-async def transfer_funds(amount: float):
-    return {"result": "Success"}
+# 2. Register a Tool within that module
+@app.post("/it/restart")
+@ai.action(id="restart_node", group="it_tools")
+async def restart(node_id: str):
+    return {"result": f"Node {node_id} restarted."}
 
+# 3. Bind everything
 ai.bind_to_app(app)
+
+# 4. Expose via Stdio (CLI) or SSE (Web)
+# For Stdio: No extra code needed, just run via 'python app.py'
+# For SSE:
 ai.bind_mcp_sse(app, route_prefix="/mcp")
 ```
+
+### Agent-Side: Connecting to Elemm
+
+You can connect any MCP-compatible agent (like Claude Desktop, LangChain, or custom agents) to your Elemm server.
+
+#### Option A: Stdio (Local / CLI)
+Run your agent and point it to the python script:
+```json
+{
+  "mcpServers": {
+    "my-enterprise-api": {
+      "command": "python",
+      "args": ["path/to/your/app.py"]
+    }
+  }
+}
+```
+
+#### Option B: SSE (Remote / Production)
+Connect via HTTP to the SSE endpoint:
+```python
+# The agent discovers tools at:
+# http://your-api.com/mcp/sse
+```
+
+### Understanding Landmark URLs
+
+Every Landmark defined with `@ai.landmark` is a standard FastAPI route. This means:
+- **Humans** can visit `/it/ops` in their browser to see the status.
+- **Agents** use the same endpoint as a "Signpost" to discover the `it_tools` group.
+- **Documentation**: Your OpenAPI/Swagger UI remains fully functional and reflects the protocol structure.
 
 ## Migration Path: From Flat to Hierarchical in 3 Steps
 
