@@ -36,7 +36,16 @@ def test_prefix_aware_urls():
     
     # Check if navigation tool URL was prefixed
     manifest = ai.get_manifest()
-    nav_action = next(a for a in manifest["actions"] if a["id"] == "explore_orders")
+    # Navigation landmarks are now in the 'navigation' section of manifest (internal representation in AIProtocolManager still has them in .actions)
+    # But for the manifest export they are separated.
+    # However, 'explore_orders' is a generated navigation landmark.
+    # Let's check the manager's actions directly or the manifest's navigation list.
+    nav_point = next(n for n in manifest["navigation"] if n["id"] == "explore_orders")
+    
+    # We need the full action to check the URL, which is NOT in the agent_view manifest's navigation list.
+    # Let's use internal view.
+    full_manifest = ai.get_manifest(agent_view=False)
+    nav_action = next(a for a in full_manifest["navigation"] if a["id"] == "explore_orders")
     assert nav_action["url"].startswith("/api/v1/.well-known/llm-landmarks.json")
 
 def test_discovery_error_handling():

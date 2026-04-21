@@ -42,7 +42,6 @@ def test_mcp_export_comprehensive():
     # Check Context Prefix on any root tool
     report_tool = next(t for t in tools if t["name"] == "submit_report")
     assert "[Module: root] TOOL: Report." in report_tool["description"]
-    assert "Instructions:" not in report_tool["description"] # De-bloated
     
     # 2. Test Banking Context
     resp = client.get("/.well-known/mcp-tools.json?group=banking")

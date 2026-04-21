@@ -127,18 +127,19 @@ async def get_logs(): ...
 ```
 
 ### 2. Initialize and Bind
-Initialize the Elemm manager and bind it to your application. This automatically detects your tags and prepares the discovery layer.
+Initialize the Elemm manager and bind it to your application. When you call `bind_to_app(app)`, Elemm scans all routes for their `tags`. For every unique tag found, it **automatically** creates a navigation tool (e.g., `explore_it_ops`) that allows the agent to switch into that context.
 
 ```python
 from elemm.fastapi import FastAPIProtocolManager as Elemm
-ai = Elemm(agent_welcome="You are an Ops Specialist.")
+ai = Elemm(agent_instructions="You are an Ops Specialist.")
 
-# This automatically creates 'explore_it_ops' from your tags
+# This scans your FastAPI routes and creates 'explore_it_ops'
+# because it found the tag on your routes.
 ai.bind_to_app(app)
 ```
 
-### 3. Define Entry Points
-Mark specific routes as navigation landmarks to activate the hierarchical view.
+### 3. (Optional) Define High-Level Entry Points
+While tags create automatic navigation, you can also mark specific status routes as high-level landmarks to provide better semantic guidance.
 
 ```python
 @app.get("/it/portal")

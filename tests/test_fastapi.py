@@ -20,7 +20,7 @@ def get_current_user():
 @pytest.fixture
 def app():
     app = FastAPI(title="Test App")
-    ai = Elemm(agent_welcome="Test Welcome", debug=True)
+    ai = Elemm(agent_instructions="Test Welcome", debug=True)
     
     @app.get("/items/{item_id}")
     @ai.tool(id="get_item", type="read")
@@ -106,5 +106,5 @@ def test_mcp_export(app):
     # Internal context deps like 'request' should NOT be in MCP schema
     assert "request" not in create_tool["inputSchema"]["properties"]
     
-    # Check if remedy is included in description
-    assert "Remedy:" in create_tool["description"]
+    # Check if module prefix is included
+    assert "[Module: root] TOOL:" in create_tool["description"]

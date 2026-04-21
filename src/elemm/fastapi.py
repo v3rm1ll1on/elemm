@@ -58,7 +58,7 @@ class FastAPIProtocolManager(AIProtocolManager):
             # Each connection gets its own bridge instance for true isolation
             bridge = LandmarkBridge(manager=self)
             
-            async with sse_transport.connect_sse(request.scope, request.receive, request.send) as (read, write):
+            async with sse_transport.connect_sse(request.scope, request.receive, request._send) as (read, write):
                 # We need to track which bridge belongs to which session
                 # The mcp library's SseServerTransport handles the underlying session mapping,
                 # but we need to ensure the server.run is called on the isolated bridge.
@@ -143,8 +143,18 @@ class FastAPIProtocolManager(AIProtocolManager):
         if self.debug:
             print(f"\n[elemm] 🔍 Starting Landmark discovery for app: {app.title} (root_path: '{self.app_root_path}')")
             
-        # 1. Automatic Navigation via openapi_tags
+        # 1. Automatic Navigation via tags
         tags_meta = getattr(app, "openapi_tags", []) or []
+        known_tags = {tm.get("name") for tm in tags_meta if tm.get("name")}
+        
+        # Collect additional tags from routes
+        for route in app.routes:
+            if isinstance(route, APIRoute) and route.tags:
+                for tag in route.tags:
+                    if tag not in known_tags:
+                        tags_meta.append({"name": tag})
+                        known_tags.add(tag)
+
         for tm in tags_meta:
             tag_name = tm.get("name")
             tag_desc = tm.get("description", f"Access module: {tag_name}")
