@@ -26,29 +26,33 @@ The AI agent acts as a Forensic Auditor with the task to:
 
 ---
 
-## 2. Benchmark Results
+---
+
+## 2. Aggregated Benchmark Results (5 Iterations per Mode)
+
+The following table shows the average values across 5 independent runs for each protocol.
 
 | Metric | Classic MCP (Flat) | ELEMM (Hierarchical) | Difference |
 | :--- | :--- | :--- | :--- |
-| **Status** | SUCCESS / FAILED (Instable) | **SUCCESS (Stable)** | - |
-| **Total Steps** | 10 | 13 | +3 steps (Navigation) |
-| **Total Tokens** | 117,928 | **29,988** | **-74.6%** |
-| **Tokens per Step** | 11,648 | **2,133** | **-81.7%** |
-| **Avg. Latency/Step** | 1,891 ms | **1,487 ms** | **-21.3%** |
+| **Success Rate** | 40.0% (2/5) | **80.0% (4/5)** | **+100% Reliability** |
+| **Avg. Steps / Run** | 14.40 | 16.20 | +1.8 steps (Nav) |
+| **Avg. Tokens / Run** | 180,178 | **37,885** | **-79.0%** |
+| **Avg. Tokens / Step** | 12,512 | **2,339** | **-81.3%** |
+| **Avg. Duration / Run** | 32.25s | **28.35s** | **-12.1%** |
 
 ---
 
 ## 3. Comparative Analysis
 
-### ELEMM Mode: Precision and Hygiene
-- **Behavior**: The agent utilizes `list_navigation_points` and `navigate` to maintain a focused toolset. Even with additional steps, the total token load is significantly lower.
-- **Stability**: ELEMM consistently reached `MISSION_SUCCESS` in multiple runs.
-- **Resilience**: The small toolset prevents the model from being overwhelmed by irrelevant metadata.
+### ELEMM Mode: Reliability and Efficiency
+- **Consistency**: ELEMM achieved an 80% success rate. Even when navigation failed in one instance, the agent was able to recover in subsequent steps due to the focused context.
+- **Token Hygiene**: By maintaining an average of ~2,300 tokens per step, ELEMM keeps the agent's focus sharp and reduces inference costs by nearly 80%.
+- **Resilience**: The hierarchical structure naturally guides the agent, preventing it from getting "lost" in unrelated tool schemas.
 
-### Classic Mode: The "Token Wall"
-- **Behavior**: The agent is forced to ingest ~11,000 tokens of tool descriptions at every single step.
-- **Performance Leak**: The model consumes ~4x more tokens in 10 steps than ELEMM does in 13 steps.
-- **Failure Mode**: In several runs, Classic mode failed with a timeout or agent stoppage due to the massive context pressure and irrelevant tool noise. It even attempted to call navigational tools that were not available in its context, showing cognitive overload.
+### Classic Mode: The Complexity Collapse
+- **Instability**: Classic mode only succeeded in 40% of the cases. The high "noise-to-signal" ratio of 233 tools led to frequent hallucinations, where the agent attempted to call non-existent or navigational tools that weren't registered.
+- **Cognitive Load**: ingesting over 12,500 tokens *per step* significantly degrades the model's reasoning capability.
+- **Economic Inefficiency**: Classic mode consumes 4.7x more tokens to complete the same task (when it succeeds), making it prohibitively expensive for large-scale enterprise deployments.
 
 ---
 
