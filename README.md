@@ -56,6 +56,45 @@ ai.bind_to_app(app)
 ai.bind_mcp_sse(app, route_prefix="/mcp")
 ```
 
+## Migration Path: From Flat to Hierarchical in 3 Steps
+
+If you have an existing flat FastAPI application, you can migrate to the landmark protocol without breaking your existing API:
+
+### 1. Categorize your Routes
+Organize your routes using standard FastAPI tags. These tags will become the basis for your navigational structure.
+
+```python
+app = FastAPI(openapi_tags=[
+    {"name": "it_ops", "description": "Manage infrastructure and logs."}
+])
+
+@app.get("/logs", tags=["it_ops"])
+async def get_logs(): ...
+```
+
+### 2. Initialize and Bind
+Initialize the Elemm manager and bind it to your application. This automatically detects your tags and prepares the discovery layer.
+
+```python
+from elemm.fastapi import FastAPIProtocolManager as Elemm
+ai = Elemm(agent_welcome="You are an Ops Specialist.")
+
+# This automatically creates 'explore_it_ops' from your tags
+ai.bind_to_app(app)
+```
+
+### 3. Define Entry Points
+Mark specific routes as navigation landmarks to activate the hierarchical view.
+
+```python
+@app.get("/it/portal")
+@ai.landmark(id="it_portal", type="navigation", opens_group="it_ops")
+async def it_portal():
+    return {"status": "IT Portal Active"}
+```
+
+Once these steps are completed, an AI agent will no longer be overwhelmed by a flat list but will instead navigate through your defined modules.
+
 ## Architecture and Security
 
 Elemm is designed for enterprise production use:
