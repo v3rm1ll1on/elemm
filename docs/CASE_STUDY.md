@@ -66,11 +66,12 @@ The following table shows the average values across 5 independent runs for each 
 
 ## 4. Context Window Analysis
 
-The benchmark used a **32,768** token window.
+During our testing, we challenged both protocols by reducing the context window to **16,384 tokens**.
 
-- **Classic Requirement**: Classic mode consumes ~35% of this window just for the initial tool list. It cannot scale beyond ~500 tools without immediate context overflow.
-- **ELEMM Potential**: ELEMM's peak context usage was ~2,500 tokens. This indicates that the same enterprise mission could be executed in a **12,000 token window** without any loss of performance.
-- **Business Impact**: This allows for the deployment of enterprise agents on cheaper, faster hardware with significantly higher concurrency.
+- **ELEMM Stability**: ELEMM achieved a **100% success rate** at 16k context. Because each step only requires ~2,100 tokens, the agent maintains a crystal-clear history and high reasoning quality. Total mission cost was only **28,127 tokens**.
+- **Classic Degradation**: While Classic mode managed to complete the task once at 16k, it required **19 steps** (compared to 10-14 at 32k) and consumed a staggering **239,921 tokens**. This indicates that the model was constantly hitting the context ceiling, losing track of its history, and struggling to reason effectively.
+- **Efficiency Gap**: At a 16k context window, ELEMM is **8.5x more token-efficient** than Classic MCP.
+- **Business Impact**: ELEMM enables the use of "Low-Context" edge models or cheaper API tiers without sacrificing reliability, whereas Classic MCP becomes economically and technically non-viable as the context window shrinks.
 
 ---
 
