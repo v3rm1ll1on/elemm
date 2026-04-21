@@ -54,6 +54,10 @@ The following table shows the average values across 5 independent runs for each 
 - **Cognitive Load**: ingesting over 12,500 tokens *per step* significantly degrades the model's reasoning capability.
 - **Economic Inefficiency**: Classic mode consumes 4.7x more tokens to complete the same task (when it succeeds), making it prohibitively expensive for large-scale enterprise deployments.
 
+### Zero-Prompt Readiness
+- **Classic Necessity**: In the Classic mode, the system prompt is a critical crutch. Without explicit instructions on which tools to use, the agent would fail immediately due to the overwhelming choice of 233 options.
+- **ELEMM Autonomy**: ELEMM is designed to be self-guiding. While this benchmark provided a system prompt for fairness, ELEMM's "signpost" architecture (Landmarks) and embedded welcome messages mean that the agent could potentially complete the mission with zero system-level configuration. The protocol itself provides the documentation.
+
 ---
 
 ## 4. Context Window Analysis
