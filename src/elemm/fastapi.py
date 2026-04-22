@@ -1,4 +1,4 @@
-from fastapi import APIRouter, FastAPI, params, Request
+from fastapi import APIRouter, FastAPI, params, Request, Body, Header
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
@@ -93,6 +93,20 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             except Exception as e:
                 logger.error(f"Error generating MCP export: {e}", exc_info=True)
                 return JSONResponse(status_code=500, content={"error": str(e)})
+
+        @router_or_app.post("/.well-known/elemm/execute", include_in_schema=False)
+        async def execute_protocol_action(
+            action_id: str = Body(..., embed=True),
+            parameters: Dict[str, Any] = Body(default={}, embed=True),
+            x_elemm_internal_key: Optional[str] = Header(None, alias="X-Elemm-Internal-Key")
+        ):
+            try:
+                # We use the internal call_action which handles routing and auth
+                result = await self.call_action(action_id, parameters)
+                return result
+            except Exception as e:
+                logger.error(f"Protocol Execution Error: {e}")
+                return JSONResponse(status_code=400, content={"error": str(e)})
 
         @router_or_app.get("/.well-known/elemm-manifest.md", include_in_schema=False)
         async def get_md_manifest(request: Request, landmark_id: Optional[str] = None):

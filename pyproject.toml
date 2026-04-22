@@ -35,6 +35,9 @@ examples = [
 "Homepage" = "https://github.com/v3rm1ll1on/elemm"
 "Bug Tracker" = "https://github.com/v3rm1ll1on/elemm/issues"
 
+[project.scripts]
+elemm-connect = "elemm.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 exclude = ["examples*", "tests*"]
