@@ -35,8 +35,14 @@ def test_prefix_aware_urls():
     assert ai.openapi_url == "/api/v1/openapi.json"
     
     # Check if navigation tool URL was prefixed
-    manifest = ai.get_manifest()
-    nav_action = next(a for a in manifest["actions"] if a["id"] == "explore_orders")
+    manifest = ai.get_manifest(agent_view=False)
+    nav_ids = [n["id"] for n in manifest["navigation"]]
+    action_ids = [a["id"] for a in manifest["actions"]]
+    
+    assert "explore_orders" in nav_ids
+    assert "explore_orders" not in action_ids
+    
+    nav_action = next(n for n in manifest["navigation"] if n["id"] == "explore_orders")
     assert nav_action["url"].startswith("/api/v1/.well-known/llm-landmarks.json")
 
 def test_discovery_error_handling():

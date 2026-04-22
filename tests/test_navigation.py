@@ -22,14 +22,16 @@ def test_auto_navigation_generation():
     # 1. Check Root Manifest (No group)
     manifest = ai.get_manifest(agent_view=False)
     action_ids = [a["id"] for a in manifest["actions"]]
+    nav_ids = [n["id"] for n in manifest["navigation"]]
     
-    # Should contain global_tool and the AUTO-GENERATED navigation tool
+    # Should contain global_tool in actions, but the AUTO-GENERATED navigation tool must be in navigation
     assert "global_tool" in action_ids
-    assert "explore_secretmodule" in action_ids
+    assert "explore_secretmodule" in nav_ids
+    assert "explore_secretmodule" not in action_ids # Clean toolbelt!
     assert "classified_tool" not in action_ids # Hidden in root!
 
     # 2. Check Navigation Tool Details
-    nav_tool = next(a for a in manifest["actions"] if a["id"] == "explore_secretmodule")
+    nav_tool = next(n for n in manifest["navigation"] if n["id"] == "explore_secretmodule")
     assert nav_tool["type"] == "navigation"
     assert nav_tool["opens_group"] == "SecretModule"
     assert "SecretModule" in nav_tool["url"]

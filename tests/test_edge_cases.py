@@ -74,6 +74,8 @@ def test_special_character_ids():
     manifest = ai.get_manifest()
     
     # The tag "User & Admin (Beta)" should be sanitized to "explore_user_and_admin_beta"
+    nav_ids = [n["id"] for n in manifest["navigation"]]
     action_ids = [a["id"] for a in manifest["actions"]]
-    assert "explore_user_and_admin_beta" in action_ids
-    assert "explore_user_&_admin_(beta)" not in action_ids
+    assert "explore_user_and_admin_beta" in nav_ids
+    assert "explore_user_and_admin_beta" not in action_ids
+    assert "explore_user_&_admin_(beta)" not in nav_ids

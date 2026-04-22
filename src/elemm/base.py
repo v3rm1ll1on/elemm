@@ -15,11 +15,7 @@ class BaseAIProtocolManager:
     """
     Framework-agnostic core logic for managing LLM Landmarks.
     """
-<<<<<<< Updated upstream
-    def __init__(self, agent_welcome: str, version: str = "v1-lmlmm", protocol_instructions: Optional[str] = None, internal_access_key: Optional[str] = None):
-=======
     def __init__(self, agent_welcome: Optional[str] = None, version: str = "v1-lmlmm", protocol_instructions: Optional[str] = None, internal_access_key: Optional[str] = None, hybrid_threshold: int = 10, agent_instructions: Optional[str] = None, navigation_landmarks: Optional[List[Dict[str, Any]]] = None):
->>>>>>> Stashed changes
         self.version = version
         self.agent_welcome = agent_welcome
         self.protocol_instructions = protocol_instructions or DEFAULT_PROTOCOL_INSTRUCTIONS
@@ -27,8 +23,6 @@ class BaseAIProtocolManager:
         self._registered_ids = set()
         self.openapi_url: Optional[str] = None
         self.internal_access_key = internal_access_key
-<<<<<<< Updated upstream
-=======
         self.hybrid_threshold = hybrid_threshold
         self.navigation_landmarks = navigation_landmarks or []
 
@@ -37,7 +31,6 @@ class BaseAIProtocolManager:
         To be implemented by framework-specific managers.
         """
         raise NotImplementedError("This method must be implemented by a subclass.")
->>>>>>> Stashed changes
 
     def landmark(self, id: str, type: str, instructions: Optional[str] = None, description: Optional[str] = None, **kwargs):
         """
@@ -89,76 +82,6 @@ class BaseAIProtocolManager:
         If agent_view is True, filters out 'noise' fields for the LLM.
         If read_only is True, filters out 'write' actions.
         """
-<<<<<<< Updated upstream
-        filtered_actions = []
-        is_internal_group = (group == "_INTERNAL_ALL_")
-
-        if is_internal_group:
-            # Security Check: Only allow _INTERNAL_ALL_ if configured and key matches
-            if not self.internal_access_key:
-                raise LandmarkNotFoundError("Internal access is not configured.")
-            
-            if internal_key != self.internal_access_key:
-                # We use LandmarkNotFoundError to avoid leaking existence of the endpoint to unauthorized users
-                raise LandmarkNotFoundError("Invalid internal access key.")
-
-        is_authorized = (self.internal_access_key and internal_key == self.internal_access_key)
-        
-        for action in self.actions:
-            if action.hidden and not is_authorized:
-                continue
-            
-            # Read-only filtering (Security Feature)
-            if read_only and not is_internal_group:
-                is_write = (action.type == "write") or \
-                           (action.method and action.method.upper() in ["POST", "PUT", "DELETE", "PATCH"])
-                if is_write:
-                    continue
-
-            # Filter by group logic
-            if is_internal_group:
-                filtered_actions.append(action)
-                continue
-
-            if group:
-                if group in action.groups:
-                    filtered_actions.append(action)
-            else:
-                if not action.groups or action.global_access:
-                    filtered_actions.append(action)
-
-        # Apply LLM Noise Reduction (if agent_view requested and not internal)
-        if agent_view and not is_internal_group:
-            # Exclude fields that are technical noise for the LLM
-            # We keep 'method' and 'url' because they are essential for technical discovery
-            exclude_fields = {
-                "groups", "global_access", 
-                "tags", "hidden", "headers", "context_dependencies",
-                "required_auth"
-            }
-            
-            cleaned_actions = []
-            for action in filtered_actions:
-                action_dict = action.model_dump(exclude=exclude_fields, exclude_none=True)
-                cleaned_actions.append(action_dict)
-            
-            manifest_data = {
-                "version": self.version,
-                "agent_welcome": self.agent_welcome,
-                "protocol_instructions": self.protocol_instructions,
-                "actions": cleaned_actions
-            }
-            return {k: v for k, v in manifest_data.items() if v is not None}
-
-        manifest = AIProtocolManifest(
-            version=self.version,
-            agent_welcome=self.agent_welcome,
-            protocol_instructions=self.protocol_instructions,
-            openapi_url=self.openapi_url,
-            actions=filtered_actions
-        )
-        return manifest.model_dump(exclude_none=True)
-=======
         current_query_group = group or "root"
         is_internal_auth = self._check_internal_auth(group, internal_key)
         
@@ -188,7 +111,6 @@ class BaseAIProtocolManager:
             "navigation": navigation,
             "actions": actions
         }
->>>>>>> Stashed changes
 
     def _check_internal_auth(self, group: Optional[str], internal_key: Optional[str]) -> bool:
         if group != "_INTERNAL_ALL_":
@@ -268,17 +190,10 @@ class BaseAIProtocolManager:
         Export registered landmarks as MCP-compatible tool definitions, optionally filtered by group.
         """
         mcp_tools = []
-<<<<<<< Updated upstream
-        
-        # We reuse the logic from get_manifest but with agent_view=False to get all data
-        manifest_data = self.get_manifest(group=group, agent_view=False, internal_key=internal_key)
-        actions = [AIAction(**a) for a in manifest_data.get("actions", [])]
-=======
         # We need agent_view=False here to preserve 'groups' and other metadata 
         # required by the MCP bridge for auto-context-switching.
         manifest_data = self.get_manifest(group=group, agent_view=False, internal_key=internal_key)
         actions = [AIAction(**a) if isinstance(a, dict) else a for a in manifest_data.get("actions", [])]
->>>>>>> Stashed changes
 
         for action in actions:
             properties = {}
