@@ -6,21 +6,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 DEFAULT_PROTOCOL_INSTRUCTIONS = (
-    "You are an autonomous agent using 'Landmarks' to navigate this API. "
-    "DECISION RULES: "
-    "1. The 'parameters' and 'payload' fields define the tool interface. "
-    "2. Landmarks of type 'navigation' open new modules. "
-    "3. Landmarks of type 'read'/'write' are functional tools. "
-    "4. AUTHENTICATION: This protocol automatically manages sensitive headers (e.g. Auth, API Keys). "
-    "Do NOT attempt to manually provide credentials if they are 'managed_by: protocol'. Focus only on business parameters. "
-    "5. CONTEXT HYGIENE: If a tool is missing, use 'navigation' to explore more specialized modules."
+    "ELEMM PROTOCOL: Navigate via 'get_manifest' and 'navigate'. "
+    "Once inside a landmark, all its specific tools are available directly in your toolbelt. "
+    "Call them natively (e.g., query_logs()) instead of using a generic executor."
 )
 
 class BaseAIProtocolManager:
     """
     Framework-agnostic core logic for managing LLM Landmarks.
     """
+<<<<<<< Updated upstream
     def __init__(self, agent_welcome: str, version: str = "v1-lmlmm", protocol_instructions: Optional[str] = None, internal_access_key: Optional[str] = None):
+=======
+    def __init__(self, agent_welcome: Optional[str] = None, version: str = "v1-lmlmm", protocol_instructions: Optional[str] = None, internal_access_key: Optional[str] = None, hybrid_threshold: int = 10, agent_instructions: Optional[str] = None, navigation_landmarks: Optional[List[Dict[str, Any]]] = None):
+>>>>>>> Stashed changes
         self.version = version
         self.agent_welcome = agent_welcome
         self.protocol_instructions = protocol_instructions or DEFAULT_PROTOCOL_INSTRUCTIONS
@@ -28,6 +27,17 @@ class BaseAIProtocolManager:
         self._registered_ids = set()
         self.openapi_url: Optional[str] = None
         self.internal_access_key = internal_access_key
+<<<<<<< Updated upstream
+=======
+        self.hybrid_threshold = hybrid_threshold
+        self.navigation_landmarks = navigation_landmarks or []
+
+    async def call_action(self, action_id: str, arguments: Dict[str, Any]) -> Any:
+        """
+        To be implemented by framework-specific managers.
+        """
+        raise NotImplementedError("This method must be implemented by a subclass.")
+>>>>>>> Stashed changes
 
     def landmark(self, id: str, type: str, instructions: Optional[str] = None, description: Optional[str] = None, **kwargs):
         """
@@ -79,6 +89,7 @@ class BaseAIProtocolManager:
         If agent_view is True, filters out 'noise' fields for the LLM.
         If read_only is True, filters out 'write' actions.
         """
+<<<<<<< Updated upstream
         filtered_actions = []
         is_internal_group = (group == "_INTERNAL_ALL_")
 
@@ -147,16 +158,127 @@ class BaseAIProtocolManager:
             actions=filtered_actions
         )
         return manifest.model_dump(exclude_none=True)
+=======
+        current_query_group = group or "root"
+        is_internal_auth = self._check_internal_auth(group, internal_key)
+        
+        navigation = self._get_navigation_entries(current_query_group)
+        actions = []
+        
+        # Flattening logic: Show all if few actions and no grouping
+        is_flattened = False
+        has_groups = any(a.groups for a in self.actions if a.type != "navigation")
+        if not group and (len(self.actions) < self.hybrid_threshold and not has_groups):
+            is_flattened = True
+        
+        for action in self.actions:
+            if not self._should_include_action(action, current_query_group, is_internal_auth, read_only, is_flattened, agent_view):
+                continue
+            
+            if action.type == "navigation":
+                navigation.append(self._format_navigation_entry(action, agent_view, is_internal_auth))
+            else:
+                actions.append(self._format_action_for_manifest(action, agent_view, is_internal_auth))
+
+        return {
+            "version": self.version,
+            "agent_welcome": self.agent_welcome,
+            "protocol_instructions": self.protocol_instructions,
+            "current_group": current_query_group,
+            "navigation": navigation,
+            "actions": actions
+        }
+>>>>>>> Stashed changes
+
+    def _check_internal_auth(self, group: Optional[str], internal_key: Optional[str]) -> bool:
+        if group != "_INTERNAL_ALL_":
+            return False
+            
+        if not self.internal_access_key:
+            raise LandmarkNotFoundError("Internal access is not configured.")
+            
+        if internal_key != self.internal_access_key:
+            raise LandmarkNotFoundError("Invalid internal access key.")
+            
+        return True
+
+    def _get_navigation_entries(self, group: str) -> List[Dict[str, Any]]:
+        if group != "root":
+            return []
+            
+        if self.navigation_landmarks:
+            return list(self.navigation_landmarks)
+            
+        # Auto-generate navigation from action groups
+        nav = []
+        groups = set()
+        for action in self.actions:
+            for g in action.groups:
+                if g != "root":
+                    groups.add(g)
+        for g in sorted(list(groups)):
+            nav.append({"id": g, "type": "navigation", "description": f"Navigate to {g}"})
+        return nav
+
+    def _should_include_action(self, action, group: str, is_internal: bool, read_only: bool, is_flattened: bool, agent_view: bool) -> bool:
+        if action.hidden and not is_internal:
+            return False
+            
+        # Read-only filtering
+        if read_only and not is_internal:
+            is_write = (action.type == "write") or \
+                       (action.method and action.method.upper() in ["POST", "PUT", "DELETE", "PATCH"])
+            if is_write:
+                return False
+
+        # Group filtering
+        in_group = (group in action.groups) or (not action.groups and group == "root")
+        if not in_group and not action.global_access and not is_internal and not is_flattened:
+            return False
+
+        # Noise reduction
+        if agent_view and not is_internal:
+            if action.tags and "noise" in [t.lower() for t in action.tags]:
+                return False
+                
+        return True
+
+    def _format_navigation_entry(self, action, agent_view: bool, is_internal: bool) -> Dict[str, Any]:
+        nav_entry = {
+            "id": action.id,
+            "description": action.description,
+            "type": "navigation"
+        }
+        if action.instructions:
+            nav_entry["instructions"] = action.instructions
+        
+        if not agent_view or is_internal:
+            nav_entry["url"] = action.url
+            nav_entry["opens_group"] = action.opens_group
+        return nav_entry
+
+    def _format_action_for_manifest(self, action, agent_view: bool, is_internal: bool) -> Dict[str, Any]:
+        if agent_view and not is_internal:
+            exclude_fields = {"groups", "global_access", "tags", "hidden", "headers", "context_dependencies", "required_auth"}
+            return action.model_dump(exclude=exclude_fields, exclude_none=True)
+        return action.model_dump(exclude_none=True)
 
     def get_mcp_tools(self, group: Optional[str] = None, internal_key: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Export registered landmarks as MCP-compatible tool definitions, optionally filtered by group.
         """
         mcp_tools = []
+<<<<<<< Updated upstream
         
         # We reuse the logic from get_manifest but with agent_view=False to get all data
         manifest_data = self.get_manifest(group=group, agent_view=False, internal_key=internal_key)
         actions = [AIAction(**a) for a in manifest_data.get("actions", [])]
+=======
+        # We need agent_view=False here to preserve 'groups' and other metadata 
+        # required by the MCP bridge for auto-context-switching.
+        manifest_data = self.get_manifest(group=group, agent_view=False, internal_key=internal_key)
+        actions = [AIAction(**a) if isinstance(a, dict) else a for a in manifest_data.get("actions", [])]
+>>>>>>> Stashed changes
 
         for action in actions:
             properties = {}
