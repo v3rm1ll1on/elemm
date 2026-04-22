@@ -32,8 +32,8 @@ class ElemmGateway(LandmarkBridge):
             return await self._handle_call_tool(name, arguments or {})
 
     async def _handle_list_tools(self) -> List[types.Tool]:
-        """Provides the 'connect' tool + any tools from the active site."""
-        # 1. ALWAYS provide the connect tool
+        """Provides the 'connect' tool + a universal executor + any tools from the active site."""
+        # 1. ALWAYS provide the connect and universal execute tools
         tools = [
             types.Tool(
                 name="connect_to_site",
@@ -45,18 +45,29 @@ class ElemmGateway(LandmarkBridge):
                     },
                     "required": ["url"]
                 }
+            ),
+            types.Tool(
+                name="execute_remote_action",
+                description="Execute ANY tool discovered on the remote site by name. Use this if the tool is not directly in your list.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "action_id": {"type": "string", "description": "The ID of the tool to execute (e.g., 'query_logs')"},
+                        "parameters": {"type": "object", "description": "JSON object with parameters for the tool"}
+                    },
+                    "required": ["action_id"]
+                }
             )
         ]
 
         # 2. Add site-specific tools IF connected
         if self.active_site_url and self.active_site_url in self.connected_sites:
             site_data = self.connected_sites[self.active_site_url]
-            # Add native tools from the remote site
+            # Add native tools from the remote site (might not show up in all clients)
             for t_dict in site_data.get("tools", []):
                 tools.append(types.Tool(**t_dict))
             
             # Add core protocol tools for the remote site
-            # We get them from the base class logic but filter them appropriately
             core_tools = await super()._handle_list_tools()
             tools.extend(core_tools)
             
@@ -66,6 +77,11 @@ class ElemmGateway(LandmarkBridge):
         """Dispatches calls to 'connect' or proxied site tools."""
         if name == "connect_to_site":
             return await self._connect(arguments.get("url", ""))
+        
+        if name == "execute_remote_action":
+            aid = arguments.get("action_id")
+            params = arguments.get("parameters", {})
+            return await self._execute_native_action(aid, params)
         
         # If it's a core tool, use the remote-aware handler
         if name in ["get_manifest", "navigate", "inspect_landmark", "execute_action"]:
@@ -109,8 +125,8 @@ class ElemmGateway(LandmarkBridge):
                     f"✅ Successfully connected to {url}.\n\n"
                     f"**Discovered Tools**: {tool_list_str}\n\n"
                     f"**System Instructions**:\n{md_content[:500]}...\n\n"
-                    f"ATTENTION AGENT: You now have new tools available in your toolbelt. "
-                    f"Please use these tools directly for any actions on this site."
+                    f"💡 TIP: If the discovered tools do not appear directly in your toolbelt, "
+                    f"use the `execute_remote_action` tool and provide the `action_id` (e.g., '{tool_names[0] if tool_names else 'action_id'}')."
                 )
                 return [types.TextContent(type="text", text=welcome_msg)]
         except Exception as e:
