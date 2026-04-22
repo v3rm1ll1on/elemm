@@ -101,8 +101,8 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             else:
                 md_content = ManifestGenerator.generate_markdown(
                     system_name=self.agent_welcome or "Solaris Hub",
-                    instructions=self.agent_instructions or "",
-                    landmarks=self.get_navigation_landmarks(),
+                    instructions=self.protocol_instructions or "",
+                    landmarks=self.navigation_landmarks or [],
                     tools=self.get_mcp_tools(),
                     include_technical_metadata=True
                 )
