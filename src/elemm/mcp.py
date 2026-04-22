@@ -35,58 +35,61 @@ class LandmarkBridge:
         @self.server.list_tools()
         async def handle_list_tools() -> List[types.Tool]:
             landmark_ctx.set(self.ctx)
-            current_ctx = landmark_ctx.get()
-            
-            # Always include core navigation tools
-            tools = [
-                types.Tool(
-                    name="get_manifest",
-                    description="SYSTEM DISCOVERY: Call this FIRST to retrieve the full registry of subsystems and the specific Action IDs required to fulfill your mission parameters.",
-                    inputSchema={"type": "object", "properties": {}},
-                ),
-                types.Tool(
-                    name="navigate",
-                    description="CONTEXT SWITCH: Activate a specific subsystem to access its specialized toolset and local instructions.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "landmark_id": {"type": "string", "description": "The ID of the subsystem to activate (found via get_manifest)."},
-                        },
-                        "required": ["landmark_id"],
+            return await self._handle_list_tools()
+
+    async def _handle_list_tools(self) -> List[types.Tool]:
+        """Core logic to generate the list of available tools."""
+        current_ctx = landmark_ctx.get()
+        # Always include core navigation tools
+        tools = [
+            types.Tool(
+                name="get_manifest",
+                description="SYSTEM DISCOVERY: Call this FIRST to retrieve the full registry of subsystems and the specific Action IDs required to fulfill your mission parameters.",
+                inputSchema={"type": "object", "properties": {}},
+            ),
+            types.Tool(
+                name="navigate",
+                description="CONTEXT SWITCH: Activate a specific subsystem to access its specialized toolset and local instructions.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "landmark_id": {"type": "string", "description": "The ID of the subsystem to activate (found via get_manifest)."},
                     },
-                ),
-                types.Tool(
-                    name="execute_action",
-                    description="ACTION EXECUTION: Run a specialized protocol tool by providing its action_id and required parameters. Use this for all mission-critical operations.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "action_id": {"type": "string", "description": "The specialized ID of the tool to execute."},
-                            "parameters": {"type": "object", "description": "The required input parameters for the tool."},
-                        },
-                        "required": ["action_id"],
+                    "required": ["landmark_id"],
+                },
+            ),
+            types.Tool(
+                name="execute_action",
+                description="ACTION EXECUTION: Run a specialized protocol tool by providing its action_id and required parameters. Use this for all mission-critical operations.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "action_id": {"type": "string", "description": "The specialized ID of the tool to execute."},
+                        "parameters": {"type": "object", "description": "The required input parameters for the tool."},
                     },
-                ),
-                types.Tool(
-                    name="inspect_landmark",
-                    description="LANDMARK INSPECTION: Retrieve detailed documentation, available tools, and specific instructions for a subsystem without switching context.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "landmark_id": {"type": "string", "description": "The ID of the subsystem to inspect."},
-                        },
-                        "required": ["landmark_id"],
+                    "required": ["action_id"],
+                },
+            ),
+            types.Tool(
+                name="inspect_landmark",
+                description="LANDMARK INSPECTION: Retrieve detailed documentation, available tools, and specific instructions for a subsystem without switching context.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "landmark_id": {"type": "string", "description": "The ID of the subsystem to inspect."},
                     },
-                ),
-            ]
-            
-            # Dynamic Native Tools from current context
-            if self.manager:
-                mcp_data = self.manager.get_mcp_tools(group=current_ctx)
-                for t_dict in mcp_data:
-                    tools.append(types.Tool(**t_dict))
-            
-            return tools
+                    "required": ["landmark_id"],
+                },
+            ),
+        ]
+        
+        # Dynamic Native Tools from current context
+        if self.manager:
+            mcp_data = self.manager.get_mcp_tools(group=current_ctx)
+            for t_dict in mcp_data:
+                tools.append(types.Tool(**t_dict))
+        
+        return tools
 
         @self.server.call_tool()
         async def handle_call_tool(name: str, arguments: dict) -> List[types.TextContent]:

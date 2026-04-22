@@ -2,7 +2,7 @@ import sys
 import argparse
 import logging
 import asyncio
-from .gateway import ElemmGateway
+from elemm_gateway.server import ElemmGateway
 
 def main():
     parser = argparse.ArgumentParser(description="Elemm Gateway: Connect ANY website to your AI agent.")
@@ -28,7 +28,9 @@ def main():
             # For simplicity, we just trigger the initial logic if a URL is provided
             asyncio.run(gateway._connect(args.url))
             
-        logging.info("Elemm Gateway started. Available tools: connect_to_site")
+        available_tools = asyncio.run(gateway._handle_list_tools())
+        tool_names = ", ".join([t.name for t in available_tools])
+        logging.info(f"Elemm Gateway started. Available tools: {tool_names}")
         gateway.run()
     except KeyboardInterrupt:
         logging.info("Gateway stopped by user.")
