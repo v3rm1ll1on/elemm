@@ -32,8 +32,8 @@ class ElemmGateway(LandmarkBridge):
             return await self._handle_call_tool(name, arguments or {})
 
     async def _handle_list_tools(self) -> List[types.Tool]:
-        """Provides the 'connect' tool + a universal executor + any tools from the active site."""
-        # 1. ALWAYS provide the connect and universal execute tools
+        """Provides the 'connect' tool + a universal executor + core protocol tools + site tools."""
+        # 1. Start with the permanent toolset
         tools = [
             types.Tool(
                 name="connect_to_site",
@@ -60,16 +60,15 @@ class ElemmGateway(LandmarkBridge):
             )
         ]
 
-        # 2. Add site-specific tools IF connected
+        # 2. ALWAYS add core protocol tools (they work as proxies after connect)
+        core_tools = await super()._handle_list_tools()
+        tools.extend(core_tools)
+
+        # 3. Add site-specific functional tools IF connected
         if self.active_site_url and self.active_site_url in self.connected_sites:
             site_data = self.connected_sites[self.active_site_url]
-            # Add native tools from the remote site (might not show up in all clients)
             for t_dict in site_data.get("tools", []):
                 tools.append(types.Tool(**t_dict))
-            
-            # Add core protocol tools for the remote site
-            core_tools = await super()._handle_list_tools()
-            tools.extend(core_tools)
             
         return tools
 
