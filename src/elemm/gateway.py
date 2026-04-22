@@ -2,6 +2,7 @@ import httpx
 import logging
 import asyncio
 import json
+import re
 from typing import List, Dict, Any, Optional
 from .mcp import LandmarkBridge
 import mcp.types as types
@@ -10,101 +11,134 @@ logger = logging.getLogger("elemm-gateway")
 
 class ElemmGateway(LandmarkBridge):
     """
-    Remote Gateway for the Elemm Protocol.
-    Allows connecting to ANY Elemm-compliant website and mounting it as an MCP server.
+    The Single-Script Gateway.
+    Provides a 'connect_to_site' tool that dynamically imports tools from an Elemm .md manifest.
     """
-    def __init__(self, target_url: str, server_name: Optional[str] = None):
-        # Normalize target URL
-        self.target_url = target_url.rstrip("/")
-        name = server_name or f"gateway-{self.target_url.split('//')[-1].replace('.', '-')}"
-        
-        super().__init__(manager=None, base_url=self.target_url, server_name=name)
-        self.ctx = "root"
-
-    async def _handle_get_manifest(self, _name: str, _args: dict) -> List[types.TextContent]:
-        """Fetch the Markdown manifest from the remote site."""
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(f"{self.target_url}/.well-known/elemm-manifest.md")
-                if resp.status_code == 200:
-                    return [types.TextContent(type="text", text=resp.text)]
-                
-                # Fallback to JSON if MD is not available (Legacy support)
-                resp = await client.get(f"{self.target_url}/.well-known/llm-landmarks.json")
-                return [types.TextContent(type="text", text=f"Markdown manifest not found. Raw JSON:\n{resp.text}")]
-        except Exception as e:
-            return [types.TextContent(type="text", text=f"Gateway Error: Failed to fetch manifest from {self.target_url}. {e}")]
+    def __init__(self, server_name: str = "elemm-gateway"):
+        # Initial context is empty
+        super().__init__(manager=None, base_url="", server_name=server_name)
+        self.connected_sites = {} # url -> {tools, manifest_md}
+        self.active_site_url = None
 
     async def _handle_list_tools(self) -> List[types.Tool]:
-        """Fetch remote tools and combine with core protocol tools."""
-        # Start with core tools (get_manifest, navigate, etc.)
-        tools = await super()._handle_list_tools()
-        
-        try:
-            async with httpx.AsyncClient() as client:
-                # Fetch remote MCP tool definitions for the current context
-                resp = await client.get(
-                    f"{self.target_url}/.well-known/mcp-tools.json",
-                    params={"group": self.ctx}
-                )
-                if resp.status_code == 200:
-                    remote_tools = resp.json()
-                    for t_dict in remote_tools:
-                        tools.append(types.Tool(**t_dict))
-        except Exception as e:
-            logger.error(f"Gateway failed to fetch remote tools: {e}")
+        """Provides the 'connect' tool + any tools from the active site."""
+        # 1. Start with the core 'connect' tool
+        tools = [
+            types.Tool(
+                name="connect_to_site",
+                description="Connect to an Elemm-compliant website to discover its tools and landmarks via its .md manifest.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "The base URL of the website (e.g., https://myshop.ai)"}
+                    },
+                    "required": ["url"]
+                }
+            )
+        ]
+
+        # 2. Add tools from the active site if connected
+        if self.active_site_url and self.active_site_url in self.connected_sites:
+            site_data = self.connected_sites[self.active_site_url]
+            # Add site tools
+            for t_dict in site_data.get("tools", []):
+                tools.append(types.Tool(**t_dict))
+            
+            # Also add core protocol tools (inspect, navigate) for this site
+            # We override them to work with the active site
+            tools.extend(await super()._handle_list_tools())
             
         return tools
 
-    async def _handle_inspect_landmark(self, _name: str, arguments: dict) -> List[types.TextContent]:
-        landmark_id = arguments.get("landmark_id", "")
-        if not landmark_id:
-            return [types.TextContent(type="text", text="Error: Missing 'landmark_id'.")]
+    async def _handle_call_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
+        """Dispatches calls to 'connect' or proxied site tools."""
+        if name == "connect_to_site":
+            return await self._connect(arguments.get("url", ""))
+        
+        # If it's a core tool (navigate, inspect_landmark), super() handles it 
+        # BUT it needs self.manager which is None. So we must override them.
+        if name in ["get_manifest", "navigate", "inspect_landmark"]:
+            return await self._handle_remote_core_tool(name, arguments)
+
+        # Otherwise, proxy to the active site's execute endpoint
+        return await self._execute_native_action(name, arguments)
+
+    async def _connect(self, url: str) -> List[types.TextContent]:
+        """Fetches the .md manifest and parses technical metadata."""
+        url = url.rstrip("/")
+        try:
+            async with httpx.AsyncClient() as client:
+                manifest_url = f"{url}/.well-known/elemm-manifest.md"
+                resp = await client.get(manifest_url)
+                if resp.status_code != 200:
+                    return [types.TextContent(type="text", text=f"Failed to find Elemm manifest at {manifest_url}")]
+
+                md_content = resp.text
+                
+                # Extract JSON-ELEMM block
+                # Looking for ```json-elemm ... ```
+                match = re.search(r"```json-elemm\s+(.*?)\s+```", md_content, re.DOTALL)
+                tools = []
+                if match:
+                    try:
+                        tools = json.loads(match.group(1))
+                    except Exception as je:
+                        logger.warning(f"Failed to parse technical metadata: {je}")
+
+                self.connected_sites[url] = {
+                    "tools": tools,
+                    "manifest": md_content
+                }
+                self.active_site_url = url
+                # Update base_url for proxying
+                self.base_url = url
+                
+                welcome_msg = f"Successfully connected to {url}.\n\n{md_content[:500]}..."
+                return [types.TextContent(type="text", text=welcome_msg)]
+        except Exception as e:
+            return [types.TextContent(type="text", text=f"Connection Error: {e}")]
+
+    async def _handle_remote_core_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
+        """Handles navigate/inspect by talking to the remote .md endpoint."""
+        if not self.active_site_url:
+            return [types.TextContent(type="text", text="Error: Not connected to any site.")]
 
         try:
             async with httpx.AsyncClient() as client:
-                # Ask the remote site for a detailed landmark view
-                resp = await client.get(
-                    f"{self.target_url}/.well-known/elemm-manifest.md", 
-                    params={"landmark_id": landmark_id}
-                )
-                return [types.TextContent(type="text", text=resp.text)]
+                if name == "inspect_landmark":
+                    lid = arguments.get("landmark_id")
+                    resp = await client.get(f"{self.active_site_url}/.well-known/elemm-manifest.md", params={"landmark_id": lid})
+                    return [types.TextContent(type="text", text=resp.text)]
+                elif name == "navigate":
+                    self.ctx = arguments.get("landmark_id", "root")
+                    return [types.TextContent(type="text", text=f"Context switched to '{self.ctx}'. Call list_tools to see updated toolset.")]
+                elif name == "get_manifest":
+                    return [types.TextContent(type="text", text=self.connected_sites[self.active_site_url]["manifest"])]
         except Exception as e:
-            return [types.TextContent(type="text", text=f"Gateway Error: {e}")]
+            return [types.TextContent(type="text", text=f"Remote Core Tool Error: {e}")]
+        
+        return [types.TextContent(type="text", text=f"Tool {name} not implemented for remote sites.")]
 
     async def _execute_native_action(self, name: str, arguments: dict) -> List[types.TextContent]:
-        """Proxy tool calls to the remote Elemm API using the universal executor."""
+        """Proxy call to the remote site's executor."""
+        if not self.active_site_url:
+            return [types.TextContent(type="text", text="Error: No active connection.")]
+
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.post(
-                    f"{self.target_url}/.well-known/elemm/execute",
-                    json={
-                        "action_id": name,
-                        "parameters": arguments
-                    }
+                    f"{self.active_site_url}/.well-known/elemm/execute",
+                    json={"action_id": name, "parameters": arguments}
                 )
-                
-                if resp.status_code != 200:
-                    error_data = resp.json() if resp.status_code == 400 else {"error": resp.text}
-                    return [types.TextContent(type="text", text=f"Remote Execution Error: {error_data.get('error')}")]
-
-                # Format the result
                 res = resp.json()
-                # In gateway mode, we just pass back what the remote formatted for us
-                # The remote server is responsible for instructions/remedies in the text
-                if isinstance(res, dict) and "text" in res:
-                     return [types.TextContent(type="text", text=res["text"])]
+                if resp.status_code != 200:
+                    return [types.TextContent(type="text", text=f"Remote Error: {res.get('error', resp.text)}")]
                 
-                # If it's raw data, we use our local formatter
+                # Format result
+                if isinstance(res, dict) and "text" in res:
+                    return [types.TextContent(type="text", text=res["text"])]
+                
                 output_text = self._format_action_result(name, res, None, False)
                 return [types.TextContent(type="text", text=output_text)]
         except Exception as e:
-            return [types.TextContent(type="text", text=f"Gateway Proxy Error: {e}")]
-
-    def run(self):
-        """Standard MCP runner for Gateway."""
-        from mcp.server.stdio import stdio_server
-        async def _run():
-            async with stdio_server() as (read, write):
-                await self.server.run(read, write, self.server.create_initialization_options())
-        asyncio.run(_run())
+            return [types.TextContent(type="text", text=f"Proxy Error: {e}")]

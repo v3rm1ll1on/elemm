@@ -1,12 +1,13 @@
 import sys
 import argparse
 import logging
+import asyncio
 from .gateway import ElemmGateway
 
 def main():
     parser = argparse.ArgumentParser(description="Elemm Gateway: Connect ANY website to your AI agent.")
-    parser.add_argument("url", help="The URL of the Elemm-compliant website (e.g., https://solaris-hub.ai)")
-    parser.add_argument("--name", help="Custom name for the MCP server")
+    parser.add_argument("url", nargs="?", help="Optional: Initial URL to connect to at startup")
+    parser.add_argument("--name", default="elemm-gateway", help="Custom name for the MCP server")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
 
     args = parser.parse_args()
@@ -20,8 +21,14 @@ def main():
     )
 
     try:
-        gateway = ElemmGateway(target_url=args.url, server_name=args.name)
-        logging.info(f"Connecting to Elemm site: {args.url}")
+        gateway = ElemmGateway(server_name=args.name)
+        if args.url:
+            logging.info(f"Auto-connecting to: {args.url}")
+            # We run the initial connect in the background or just set the target
+            # For simplicity, we just trigger the initial logic if a URL is provided
+            asyncio.run(gateway._connect(args.url))
+            
+        logging.info("Elemm Gateway started. Available tools: connect_to_site")
         gateway.run()
     except KeyboardInterrupt:
         logging.info("Gateway stopped by user.")

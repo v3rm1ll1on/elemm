@@ -67,32 +67,6 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
 
     def _setup_well_known(self, router_or_app: Union[APIRouter, FastAPI]):
         from fastapi import Header
-        @router_or_app.api_route("/.well-known/llm-landmarks.json", methods=["GET", "HEAD"], include_in_schema=False)
-        async def get_protocol(
-            group: Optional[str] = None, 
-            read_only: bool = False,
-            x_elemm_internal_key: Optional[str] = Header(None, alias="X-Elemm-Internal-Key")
-        ):
-            try:
-                return self.get_manifest(group=group, read_only=read_only, internal_key=x_elemm_internal_key)
-            except Exception as e:
-                from .exceptions import LandmarkNotFoundError
-                if isinstance(e, LandmarkNotFoundError):
-                    return JSONResponse(status_code=404, content={"detail": str(e)})
-                
-                logger.error(f"Error generating landmark manifest: {e}", exc_info=True)
-                return {"error": "Internal error generating manifest", "detail": str(e)}
-
-        @router_or_app.api_route("/.well-known/mcp-tools.json", methods=["GET"], include_in_schema=False)
-        async def get_mcp_export(
-            group: Optional[str] = None,
-            x_elemm_internal_key: Optional[str] = Header(None, alias="X-Elemm-Internal-Key")
-        ):
-            try:
-                return self.get_mcp_tools(group=group, internal_key=x_elemm_internal_key)
-            except Exception as e:
-                logger.error(f"Error generating MCP export: {e}", exc_info=True)
-                return JSONResponse(status_code=500, content={"error": str(e)})
 
         @router_or_app.post("/.well-known/elemm/execute", include_in_schema=False)
         async def execute_protocol_action(
@@ -127,19 +101,12 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             else:
                 md_content = ManifestGenerator.generate_markdown(
                     system_name=self.agent_welcome or "Solaris Hub",
-                    instructions=self.protocol_instructions or "",
-                    landmarks=self.navigation_landmarks or [],
-                    tools=self.actions
+                    instructions=self.agent_instructions or "",
+                    landmarks=self.get_navigation_landmarks(),
+                    tools=self.get_mcp_tools(),
+                    include_technical_metadata=True
                 )
-                
-                # Browsing-Support: Wir machen aus Landmark-Namen in der Map Links
-                base_url = str(request.url).split('?')[0]
-                for landmark in self.navigation_landmarks:
-                    l_id = landmark["id"]
-                    # Ersetze den Landmark-Namen in der Map durch einen klickbaren Link
-                    link = f"[{l_id}]({base_url}?landmark_id={l_id})"
-                    md_content = md_content.replace(f"- {l_id}", f"- {link}")
-
+            
             return Response(content=md_content, media_type="text/markdown")
 
     def bind_to_app(self, app: FastAPI):

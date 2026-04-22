@@ -13,28 +13,42 @@ class ManifestGenerator:
         system_name: str,
         instructions: str,
         landmarks: List[Dict[str, Any]],
-        tools: List[Any] = None
+        tools: List[Any] = None,
+        include_technical_metadata: bool = False
     ) -> str:
-        lines = [f"# ELEMM: {system_name}"]
+        lines = [f"# ELEMM MANIFEST: {system_name}"]
         
         if instructions:
-            lines.append(f"\n{instructions}")
+            lines.append(f"\n> {instructions}")
             
-        lines.append("\n### Landmarks Map:")
+        lines.append("\n## 🗺️ Landmarks Map")
         for lm in landmarks:
             lid = lm.get("id", "unknown")
             notes = lm.get("notes", lm.get("description", ""))
             actions_str = ManifestGenerator._get_actions_summary(lid, tools)
-            lines.append(f"- {lid}: {notes}{actions_str}")
+            lines.append(f"- **{lid}**: {notes}{actions_str}")
 
-        lines.append("\n### Navigation Strategy:")
+        lines.append("\n## 🧭 Navigation Strategy")
         lines.extend([
-            "1. Locate the Subsystem containing the Action you need.",
-            "2. Use `inspect_landmark` to see all available tools and specific instructions for a subsystem.",
-            "3. If the toolset is not in your toolbelt, use the `navigate` tool to switch context.",
-            "4. Execute actions using the `execute_action` tool by providing the `action_id` and `parameters`.",
-            "   (Note: Server prefixes like 'solaris-hub-' must be included when calling core tools)."
+            "1. Use `inspect_landmark` to explore a specific subsystem.",
+            "2. Use `navigate` to focus on a landmark if it's not in your current context.",
+            "3. Use `execute_action` for functional tasks."
         ])
+
+        if include_technical_metadata and tools:
+            import json
+            # We embed the technical MCP definitions in a hidden-ish block
+            lines.append("\n---")
+            lines.append("### 🛠️ Technical Discovery (Machine Readable)")
+            lines.append("```json-elemm")
+            # We need the full MCP definitions here
+            mcp_data = []
+            if tools:
+                # Assuming tools are already in MCP format or we convert them here
+                # For simplicity, we assume they are provided as dicts
+                mcp_data = tools
+            lines.append(json.dumps(mcp_data, indent=2))
+            lines.append("```")
         
         return "\n".join(lines)
 
