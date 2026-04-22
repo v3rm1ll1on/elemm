@@ -1,59 +1,55 @@
-# Elemm Reference: Decorators & Options
+# Elemm Reference: Decorators and Options
 
-Elemm bietet eine intuitive API, um FastAPI-Routen als AI Landmarks zu markieren. Dabei übernimmt das Framework im Hintergrund die schwere Arbeit der Schema-Extraktion.
+Elemm provides an intuitive API to mark FastAPI routes as AI landmarks. The framework handles the extraction of schemas, types, and validation rules directly from the Python code.
 
----
+## 1. Decorator Aliases
 
-## Die Decorator-Aliase (DX-Power)
+Elemm provides three specialized decorators. The main difference lies in the preconfigured default type:
 
-Elemm bietet drei spezialisierte Decorators. Der Hauptunterschied liegt im **vorkonfigurierten Standard-Typ**:
-
-| Decorator | Default `type` | Empfohlene Nutzung |
+| Decorator | Default Type | Recommended Usage |
 | :--- | :--- | :--- |
-| **`@ai.tool(id=...)`** | `"read"` | Für reine Informationsabfragen (Search, Get, List). |
-| **`@ai.action(id=...)`** | `"write"` | Für zustandsverändernde Aktionen (Create, Update, Delete). |
-| **`@ai.landmark(id=...)`** | *None* | Generisch. Erfordert manuelle Angabe von `type`. |
+| **`@ai.tool(id=...)`** | `"read"` | For pure information queries (search, read, list). |
+| **`@ai.action(id=...)`** | `"write"` | For state-changing actions (create, update, delete). |
+| **`@ai.landmark(id=...)`** | *None* | Generic. Requires manual specification of `type`. |
 
 ```python
-# Beispiel für automatische Typisierung:
-@ai.tool(id="get_user") # Automatisch type="read"
-@ai.action(id="delete_user") # Automatisch type="write"
+# Example for automatic typing:
+@ai.tool(id="get_user")      # Automatically sets type="read"
+@ai.action(id="delete_user") # Automatically sets type="write"
 ```
 
----
+## 2. Parameter Reference
 
-## Parameter-Referenz (Deep Dive)
+### `id` (String, Required)
+The unique identifier of the tool. Elemm automatically sanitizes the ID from special characters.
 
-### `id` (string, Required)
-Die eindeutige Kennung des Tools. Elemm sanitiert diese automatisch (z.B. werden Sonderzeichen in Unterstriche umgewandelt).
+### `type` (String)
+Defines the nature of the action:
+- `read`: Information gathering.
+- `write`: Data modification (filtered out in read-only mode).
+- `navigation`: Signposts for new levels or modules.
 
-### `type` (string)
-Definiert die Natur der Aktion. 
-- `read`: Informationsbeschaffung.
-- `write`: Datenänderung (wird im Read-Only Modus ausgefiltert).
-- `navigation`: Signposts für neue Ebenen.
+### `remedy` (String, Optional)
+Specific correction instruction transmitted to the agent in case of validation errors (HTTP 422). See [REPAIR_KIT.md](REPAIR_KIT.md).
 
-### `remedy` (string, Optional)
-Spezifische Korrekturanweisung bei Validierungsfehlern. Siehe [REPAIR_KIT.md](REPAIR_KIT.md).
+### `instructions` (String, Optional)
+Additional instructions for the agent. In version 0.6.0, these are preferably delivered via the agent repair kit in case of errors for token optimization.
 
-### `opens_group` (string, Optional)
-Signalisiert der KI, dass dieser Landmark eine neue logische Gruppe öffnet. Wird primär für die automatische Navigation genutzt.
+### `global_access` (Boolean)
+If set to `True`, the landmark is visible at the root level and in every sub-manifest (module).
 
----
+### `hidden` (Boolean)
+The landmark is registered in the code but invisible to the agent (except when accessed via the internal group `_INTERNAL_ALL_`).
 
-## Automatisierte Features (The "Magic")
+## 3. Automated Extraction (Deep Type Discovery)
 
-Elemm extrahiert mehr als nur den Funktionsnamen. Folgende Features sind vollautomatisch aktiv:
+Elemm uses reflection to generate precise metadata for AI models:
 
-### 1. Enum-Support
-Wenn du Python `Enum` Typen in deinen Argumenten nutzt, erkennt Elemm diese automatisch und mappt sie auf `options` im Manifest. Die KI sieht exakt, welche Werte erlaubt sind.
+### Enum and Literal Support
+When Python `Enum` or `typing.Literal` types are used, Elemm automatically recognizes them and maps them to `options` in the manifest. The agent receives an exact list of allowed values.
 
-### 2. Response Schema Extraction
-Elemm inspiziert das `response_model` deiner FastAPI-Route. Die KI erhält eine strukturierte Vorstellung davon, was das Tool zurückgeben wird, was die Reasoning-Qualität enorm steigert.
+### Response Schema
+Elemm inspects the `response_model` of the FastAPI route. The agent receives structured information about what data structure the tool will return.
 
-### 3. Nested Models
-Dank Pydantic-Integration werden auch tief geschachtelte Modelle korrekt (flach oder strukturiert) für das Manifest aufbereitet, inklusive Beschreibungen und Constraints (`ge`, `le`, `pattern`).
-
-### 4. Global Access vs. Context
-- **`global_access=True`**: Landmark ist in der Root-Ebene UND in jedem Sub-Manifest sichtbar.
-- **`hidden=True`**: Landmark ist im Code registriert, aber für die KI unsichtbar (außer über die interne Audit-Gruppe `_INTERNAL_ALL_`).
+### Constraints and Validation
+Pydantic constraints such as `ge` (greater than or equal to), `le` (less than or equal to), or `pattern` (Regex) are translated directly into the JSON schema for the agent.

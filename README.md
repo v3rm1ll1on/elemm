@@ -1,148 +1,161 @@
-# Elemm (Landmark Protocol)
+# Elemm: LLM Landmark Protocol
 
-**The Universal AI-Native Backend Bridge. Turn any API into resilient, autonomous AI tools in seconds.**
+Elemm is a protocol standard for hierarchical structuring of API interfaces for AI agents. It enables agents to efficiently navigate complex toolsets with minimal token consumption and maximum precision.
 
-`Elemm` is a high-performance framework centered around the **Model Context Protocol (MCP)**. It transforms standard REST endpoints into "AI Landmarks", enabling autonomous agents (like Claude or GPT) to discover and interact with your backend with zero-shot precision and self-healing resilience.
+## Core Concepts
 
----
+### 1. Landmarks
+Landmarks are marked entry points within an API. They function as signposts that guide agents through various functional modules (e.g., IT, HR, Finance).
 
-## Why Elemm? (The Problem with Flat APIs)
+### 2. Hierarchical Navigation
+Instead of presenting a flat list of hundreds of tools, Elemm provides context-specific toolsets. The agent actively navigates between modules, which increases accuracy and minimizes the risk of hallucinations or incorrect tool selection.
 
-Traditional APIs (OpenAPI/Swagger) are built for humans. When you feed a 200-endpoint Swagger file to an LLM:
-1.  **Context Overload**: The agent drowns in noise (HTTP codes, headers, internal types).
-2.  **Token Waste**: Every turn costs thousands of tokens just for tool descriptions.
-3.  **Fragility**: If the AI makes one typo in a parameter, it gets a raw 400 error and gives up.
+### 3. Hybrid Mode (Auto-Flattening)
+For small or flat APIs (less than 10 landmarks without a group structure), Elemm automatically switches to a hybrid mode. In this mode, all tools are made directly visible to eliminate navigation overhead for simple tasks.
 
-**Elemm solves this with the Landmark-Architecture.**
+### 4. Agent Repair Kit (Self-Healing)
+Elemm utilizes dynamic correction hints (Remedies). In case of validation errors (HTTP 422), the protocol provides the agent with precise instructions for error resolution instead of having to keep these permanently in the context.
 
-| Feature | Standard OpenAPI | Native MCP (Flat) | **Elemm (Landmarks)** |
-| :--- | :--- | :--- | :--- |
-| **Noise Level** | High (HTTP Metadata) | Medium (Flat-List) | **Low (Context Isolated)** |
-| **Discovery** | Static (Manual) | Static (Full Load) | **Hierarchical (Drill-Down)** |
-| **Error Handling** | Generic 4xx/5xx | RAW Error | **Agent-Repair-Kit (Self-Healing)** |
-| **Security** | Manual Header Logic | Manual | **Zero-Config (Auto-Shield)** |
-| **Max Scale** | Limited by Context | ~50 Tools | **Unlimited (Scale out)** |
-| **Token Cost** | factor 5x | factor 1x | **factor < 0.1x (Hygiene)** |
+## Features
 
----
+- **Hierarchical Navigation**: Replaces overwhelming flat tool lists with navigational signposts (Landmarks).
+- **Extreme Token Efficiency**: Proven to reduce tokens-per-step by up to **80%** in enterprise environments.
+- **Agent Repair Kit**: Real-time self-healing through dynamic `remedy` injection on validation errors.
+- **Hybrid Auto-Scaling**: Automatically flattens small toolsets to eliminate navigation overhead where unnecessary.
+- **Enterprise-Grade Security**: Strict session isolation for multi-agent environments and restricted administrative access (`_INTERNAL_ALL_`).
+- **Deep Schema Discovery**: Automatic extraction of Enums, Literals, and complex nested types from Pydantic models.
+- **Native MCP Bridge**: Full support for Model Context Protocol via Stdio and SSE (with Nginx-ready buffering logic).
+- **Stateless-Ready**: Designed to function reliably even in extremely low-context environments (proven at 1k-4k context windows).
 
-## 📚 Documentation Index
+## Documentation
 
-For deep dives into the protocol's power, see our specialized guides:
-- [**Architecture & Navigation**](docs/ARCHITECTURE.md) - How to scale to 1000+ tools with Token-Hygiene.
-- [**Agent-Repair-Kit**](docs/REPAIR_KIT.md) - How Self-Healing and Remedies break error loops.
-- [**Security & Shielding**](docs/SECURITY.md) - Auto-Auth detection and Read-Only protection.
-- [**Decorator Reference**](docs/DECORATORS.md) - Full API reference for `@ai.tool` and `@ai.action`.
+For deep dives into specific topics, see our technical documentation:
 
----
-
-## Key Features
-
-### 1. Agent-Repair-Kit (Self-Healing)
-Elemm is the first protocol that actively talks back to the AI when things go wrong. 
-- **Automated Remedies**: If a validation fails (422), Elemm injects your custom `remedy` instructions into the error response.
-- **Noise Detection**: It explicitly warns the agent if it's hallucinating parameters that don't exist in the manifest.
-- **Instructional Loops**: The AI receives a "behebbar" (fixable) JSON that guides it back to the successful call.
-
-### 2. Hierarchical Navigation (Context Hygiene)
-Stop loading the full API at once. Elemm uses a "Drill-Down" flow:
-- **Signposts**: The agent only sees the "Main Entries" (e.g., `explore_logistics`, `explore_billing`).
-- **Module Loading**: Only when the agent enters a module are the specific tools revealed.
-- **Token Efficiency**: This reduces the active context size by up to 90%.
-
-### 3. Managed Security (Auto-Shield)
-Elemm auto-detects `HTTPBearer`, `APIKey`, and `OAuth2` dependencies. 
-- Technical credentials are **hidden** from the agent.
-- The protocol marks them as `managed_by: protocol`.
-- **Read-Only Mode**: Protect your production with a single flag (`LANDMARK_READ_ONLY=True`) which strips all state-changing actions from the manifest.
-
----
+- [Architecture](docs/ARCHITECTURE.md): Core protocol design and Zero-Prompt Vision.
+- [Case Study](docs/CASE_STUDY.md): Detailed results of the Solaris Benchmark (Classic vs. ELEMM).
+- [Security](docs/SECURITY.md): Internal keys, God-mode protection, and administrative access.
+- [Deployment](docs/DEPLOYMENT.md): Docker, Nginx (SSE tuning), and Cloud configuration.
+- [MCP Integration](docs/MCP_INTEGRATION.md): Bridging FastAPI to Model Context Protocol.
+- [Repair Kit](docs/REPAIR_KIT.md): Implementing self-healing via Remedies.
+- [Decorators](docs/DECORATORS.md): API reference for `@ai.landmark`, `@ai.action`, and more.
 
 ## Quick Start
 
-### 1. Installation
+### Installation
+
 ```bash
 pip install elemm
 ```
 
-### 2. Implementation
+### Server-Side: FastAPI + MCP
+
+Elemm turns your FastAPI application into a Model Context Protocol (MCP) server with hierarchical discovery.
+
 ```python
-from elemm import Elemm
 from fastapi import FastAPI
-from pydantic import BaseModel, Field
+from elemm.fastapi import FastAPIProtocolManager as Elemm
 
 app = FastAPI()
-ai = Elemm(agent_welcome="Welcome to Solaris-OS.")
+ai = Elemm(agent_instructions="You are a Solaris Forensic Auditor. Use landmarks to discover modules.")
 
-class Order(BaseModel):
-    item_id: str
-    amount: int = Field(..., ge=1, le=100)
+# 1. Define a Landmark (A semantic entry point)
+@app.get("/it/ops")
+@ai.landmark(id="it_ops", type="navigation", opens_group="it_tools")
+async def it_portal():
+    return {"status": "IT Operations Active"}
 
-@ai.tool(id="get_categories", type="navigation")
-@app.get("/categories")
-async def list_cats():
-    """Discover available product modules."""
-    return ["Electronics", "Books"]
+# 2. Register a Tool within that module
+@app.post("/it/restart")
+@ai.action(id="restart_node", group="it_tools")
+async def restart(node_id: str):
+    return {"result": f"Node {node_id} restarted."}
 
-@ai.action(
-    id="place_order", 
-    remedy="Always provide an amount between 1 and 100."
-)
-@app.post("/order")
-async def order(data: Order):
-    return {"status": "success"}
-
-# Bind everything
+# 3. Bind everything
 ai.bind_to_app(app)
+
+# 4. Expose via Stdio (CLI) or SSE (Web)
+# For Stdio: No extra code needed, just run via 'python app.py'
+# For SSE:
+ai.bind_mcp_sse(app, route_prefix="/mcp")
 ```
 
----
+### Agent-Side: Connecting to Elemm
 
-## Decorator Reference
+You can connect any MCP-compatible agent (like Claude Desktop, LangChain, or custom agents) to your Elemm server.
 
-Use the decorators that fit your naming convention – they are all functionally identical aliases of `@ai.landmark`:
-
-*   **`@ai.tool(id=...)`**: Best for OpenAI / LangChain style.
-*   **`@ai.action(id=...)`**: Standard for API-centric logic.
-*   **`@ai.landmark(id=...)`**: The precise term for semantic navigation.
-
-### Key Options:
-- `id` (Required): The unique name of the tool for the AI.
-- `type` (Default: "read"/"write"): "read", "write", or "navigation".
-- `remedy`: The instruction given to the AI if it fails the validation.
-- `instructions`: Specific rules for this tool (e.g., "Ask for approval first").
-- `global_access`: If True, this tool stays visible even deep inside other modules.
-
----
-
-## Native MCP Support
-
-Elemm isn't just a manifest; it's a bridge. Use the built-in MCP Server to connect your entire API directly to **Claude Desktop**, **Cursor**, or **LibreChat**.
-
-### Claude Desktop Integration
-Add this to your `claude_desktop_config.json`:
+#### Option A: Stdio (Local / CLI)
+Run your agent and point it to the python script:
 ```json
 {
   "mcpServers": {
-    "my-backend": {
-      "command": "python3",
-      "args": ["/path/to/your/app.py"],
-      "env": { "LANDMARK_URLS": "http://localhost:8000" }
+    "my-enterprise-api": {
+      "command": "python",
+      "args": ["path/to/your/app.py"]
     }
   }
 }
 ```
 
----
+#### Option B: SSE (Remote / Production)
+Connect via HTTP to the SSE endpoint:
+```python
+# The agent discovers tools at:
+# http://your-api.com/mcp/sse
+```
 
-## Architecture & Resilience
+### Understanding Landmark URLs
 
-Elemm is built for scale. 
-- **Reverse Proxy Support**: Automatically respects `root_path` (Nginx/Traefik).
-- **Circular Ref Safety**: Handles complex Pydantic models (self-referencing models).
-- **ID Sanitization**: Safely handles special characters in tags and module names.
+Every Landmark defined with `@ai.landmark` is a standard FastAPI route. This means:
+- **Humans** can visit `/it/ops` in their browser to see the status.
+- **Agents** use the same endpoint as a "Signpost" to discover the `it_tools` group.
+- **Documentation**: Your OpenAPI/Swagger UI remains fully functional and reflects the protocol structure.
 
----
+## Migration Path: From Flat to Hierarchical in 3 Steps
 
-## 📄 License
+If you have an existing flat FastAPI application, you can migrate to the landmark protocol without breaking your existing API:
+
+### 1. Categorize your Routes
+Organize your routes using standard FastAPI tags. These tags will become the basis for your navigational structure.
+
+```python
+app = FastAPI(openapi_tags=[
+    {"name": "it_ops", "description": "Manage infrastructure and logs."}
+])
+
+@app.get("/logs", tags=["it_ops"])
+async def get_logs(): ...
+```
+
+### 2. Initialize and Bind
+Initialize the Elemm manager and bind it to your application. When you call `bind_to_app(app)`, Elemm scans all routes for their `tags`. For every unique tag found, it **automatically** creates a navigation tool (e.g., `explore_it_ops`) that allows the agent to switch into that context.
+
+```python
+from elemm.fastapi import FastAPIProtocolManager as Elemm
+ai = Elemm(agent_instructions="You are an Ops Specialist.")
+
+# This scans your FastAPI routes and creates 'explore_it_ops'
+# because it found the tag on your routes.
+ai.bind_to_app(app)
+```
+
+### 3. (Optional) Define High-Level Entry Points
+While tags create automatic navigation, you can also mark specific status routes as high-level landmarks to provide better semantic guidance.
+
+```python
+@app.get("/it/portal")
+@ai.landmark(id="it_portal", type="navigation", opens_group="it_ops")
+async def it_portal():
+    return {"status": "IT Portal Active"}
+```
+
+Once these steps are completed, an AI agent will no longer be overwhelmed by a flat list but will instead navigate through your defined modules.
+
+## Architecture and Security
+
+Elemm is designed for enterprise production use:
+- **Context Firewall**: The MCP bridge validates tool calls against the agent's current navigation state.
+- **Reverse Proxy Support**: Automatically respects `root_path` when behind Nginx or Traefik.
+- **Circular Reference Safety**: Safely handles complex, recursive Pydantic models.
+
+## License
 GNU General Public License v3.0. Created by Marc Stöcker.

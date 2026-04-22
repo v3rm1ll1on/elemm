@@ -1,72 +1,54 @@
-# Elemm Resilience: The Agent-Repair-Kit
+# Elemm Resilience: The Agent Repair Kit
 
-Autonomous agents are prone to errors (hallucinations, typos, formatting issues). Traditional APIs return raw HTTP errors, which often lead to "Agent Loops" where the AI repeats the same mistake.
+AI agents are prone to errors such as typos, incorrect date formats, or hallucinating parameters. In these cases, traditional APIs often only deliver technical error messages (e.g., "422 Unprocessable Entity"), which frequently leads to infinite loops where the agent repeats the same mistake.
 
-**Elemm's Agent-Repair-Kit breaks these loops by providing proactive, semantic self-healing.**
+The Elemm Agent Repair Kit breaks these loops through proactive, semantic self-healing.
 
----
+## 1. Dynamic Correction Hints (Remedies)
 
-## 1. Automated Remedy Injection
-
-Every landmark can define a `remedy`. This is a hand-crafted instruction that is **only** revealed when the agent makes a mistake.
+Every landmark can define a `remedy`. This is a specific instruction that is transmitted to the agent **only** when it makes an error.
 
 ### Example:
 ```python
 @ai.action(
     id="update_profile",
-    remedy="Always use YYYY-MM-DD for dates. Do not include time."
+    remedy="Use only the YYYY-MM-DD format for dates."
 )
 @app.post("/profile")
 async def update(birth_date: str):
-    # If the AI sends '12th June', FastAPI throws a 422.
-    # Elemm intercepts this and returns the remedy.
+    # If the AI sends 'June 12th', a 422 error is thrown.
+    # Elemm intercepts this and adds the remedy.
 ```
 
-### The AI-Native Error Response:
-When a validation fails, Elemm returns a specialized JSON:
-```json
-{
-  "status": "error",
-  "error_type": "validation_failed",
-  "managed_by": "elemm",
-  "message": "The AI Agent sent an invalid request...",
-  "remedy": "Always use YYYY-MM-DD for dates. Do not include time.",
-  "instruction": "Follow the 'remedy' above to fix your parameters and try again.",
-  "details": [...]
-}
-```
+Instead of keeping these instructions permanently in the tool description (which costs tokens), they are delivered only in case of an error. This keeps the context window clean and efficient.
 
----
+## 2. Automated Noise Detection
 
-## 2. Advanced Noise Detection
+AI agents often invent parameters that do not exist in the API (e.g., a `confirm: true` field during a deletion process).
 
-Often, AI agents hallucinate extra parameters that are not in the API (e.g., trying to send a `confirmation: true` flag to a POST request).
+The repair kit recognizes these deviations:
+- It compares the received JSON keys with the parameters defined in the manifest.
+- Surplus fields are identified and returned to the agent as a `noise_warning`.
+- The response then reads: "The action does not support these parameters: ['confirm']. Stick strictly to the manifest."
 
-The Repair-Kit includes a **Noise Detection Heuristic**:
-- It compares the received JSON body keys against the allowed manifest keys.
-- If it finds spurious fields, it adds a `noise_warning` to the error response.
-- *Response:* `Action does not support these parameters: ['confirmation']. Stick to the manifest.`
+## 3. Zero-Shot Error Recovery Flow
 
----
+The correction process runs fully automatically:
 
-## 3. How to write effective Remedies
+1. **Attempted Call**: The agent sends an erroneous request.
+2. **Interception**: The Elemm protocol manager recognizes the error (HTTP 422).
+3. **Enrichment**: The error response is enriched with the specific `remedy` and, if applicable, a `noise_warning`.
+4. **Instruction**: The agent is explicitly told: "Use the above remedy to correct your parameters and try again."
+5. **Self-Correction**: The agent uses the hint and executes a successful call on the second attempt.
 
-A good remedy should be **Actionable**, **Specific**, and **Constraint-focused**.
+## 4. Writing Effective Remedies
+
+Good correction hints are precise and action-oriented.
 
 | Bad Remedy | Good Remedy |
 | :--- | :--- |
 | "Invalid input" | "The ID must start with 'USR-' followed by 4 digits." |
-| "Check your date" | "Ensure date is ISO-8601 formatted (e.g., 2024-01-01)." |
-| "Too high" | "The amount must be between 1 and 100." |
+| "Check the date" | "Ensure the date is ISO-8601 formatted (e.g., 2024-01-01)." |
+| "Value too high" | "The amount must be between 1 and 100." |
 
----
-
-## 4. Zero-Shot Error Recovery Flow
-
-1.  **Agent attempts call** with a typo.
-2.  **API returns 422** (Unprocessable Entity).
-3.  **Repair-Kit intercepts**, finds the `remedy` for that specific landmark.
-4.  **Agent receives the Remedy** + Noise warning.
-5.  **Agent self-corrects** based on the specific instruction.
-
-**Result:** The failure becomes a learning moment for the agent, leading to a successful second attempt without human intervention.
+With the Agent Repair Kit, every error becomes a learning moment for the agent, which significantly increases the success rate for complex tasks.

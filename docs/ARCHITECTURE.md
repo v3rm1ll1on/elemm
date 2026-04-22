@@ -1,37 +1,85 @@
-# Elemm Architecture: Hierarchical Navigation
+# Elemm Architecture: Hierarchical Navigation and Scalability
 
-Elemm verwandelt eine flache API in eine strukturierte Welt aus Landmarks.
+Elemm transforms a flat API structure into a navigable world of landmarks. This allows AI agents to access extremely large toolsets without overloading the context window.
 
----
+## 1. Discovery Lifecycle
 
-## Automatisierte Navigation (The "Signposts")
+The following diagram illustrates how Elemm filters a massive backend into a manageable context for the agent:
 
-Ein Kernfeature von Elemm ist, dass Entwickler **keine manuellen Navigations-Tools** für ihre Gruppen schreiben müssen. 
+```mermaid
+graph TD
+    subgraph "Backend (500+ Tools)"
+        T1[Tool 1]
+        T2[Tool 2]
+        T3[Tool 3]
+        TN[...]
+    end
 
-### Wie es funktioniert:
-Elemm inspiziert die `openapi_tags` deines FastAPI-Objekts. Wenn eine Route einen Tag besitzt, der in `openapi_tags` definiert ist, generiert Elemm automatisch einen **Navigation Landmark** (Signpost) für diese Gruppe.
+    subgraph "Elemm Protocol Layer"
+        LM[Landmark Registry]
+        HB[Hybrid Mode Toggle]
+        CF[Context Filter]
+    end
 
-- **Automatisches ID-Prefix**: Jede Gruppe erhält eine ID nach dem Schema `explore_{tag_id}`.
-- **Auto-Sanitization**: Ein Tag wie `User & Admin (Beta)` wird automatisch zu `explore_user_and_admin_beta`.
-- **Beschreibung**: Die Beschreibung aus `openapi_tags` wird als primäre Instruktion für die Navigation genutzt.
+    subgraph "Agent View (Context: root)"
+        G1[Global Search]
+        N1[Explore IT]
+        N2[Explore HR]
+    end
 
-**Das bedeutet:** Setze einfach deine Tags in FastAPI, und Elemm baut dir die komplette Navigations-Hierarchie von selbst.
+    subgraph "Agent View (Context: IT)"
+        I1[Query Logs]
+        I2[Restart Server]
+        G1
+    end
 
----
+    T1 & T2 & T3 & TN --> LM
+    LM --> HB
+    HB -- API > Threshold --> CF
+    CF -- Filter by Group --> N1 & N2
+    N1 -- "navigate('it')" --> I1 & I2
+```
 
-## Token Hygiene & Best Practices
+## 2. Automated Navigation (Signposts)
 
-Die hierarchische Struktur spart massiv Token, da nur relevante Tools geladen werden. Aber Vorsicht bei der Nutzung von `global_access=True`:
+A core feature of Elemm is the automatic generation of navigation points.
 
-> [!WARNING]
-> **Die "Global-Access" Falle**: Tools mit `global_access=True` tauchen in JEDEM Sub-Manifest auf. Wenn du zu viele globale Tools hast, verlierst du den Vorteil der Token-Ersparnis und riskierst wieder Context-Noise.
-> 
-> **Best Practice:** Nutze `global_access` nur für absolut essentielle Werkzeuge wie `global_search`, `help` oder `system_status`. Alles andere sollte in thematischen Modulen (Tags) bleiben.
+### Technical Distinction: Tool vs. ID
+It is important to distinguish between the **Tool** used by the agent and the **Landmark ID** it targets:
+- **list_navigation_points**: This is the MCP Tool the agent calls to discover where it can go.
+- **navigate**: This is the MCP Tool used to move between modules.
+- **explore_{tag_id}**: This is the technical **ID** of a landmark (e.g., `explore_it`). When calling `navigate`, the agent provides this ID as the `landmark_id` argument.
 
----
+### How it works
+Elemm analyzes the `openapi_tags` of a FastAPI application. If a route has a tag defined in the metadata, Elemm automatically generates a navigation landmark.
+- **ID Generation**: Groups automatically receive the prefix `explore_{tag_id}`.
+- **Sanitization**: Special characters are cleaned (e.g., `User & Admin` becomes `explore_user_and_admin`).
 
-## Discovery Lifecycle
-1.  **Boot Phase**: `bind_to_app` erkennt Signposts aus Tags.
-2.  **Root View**: Agent sieht nur Signposts + Global Tools.
-3.  **Module View**: Agent "betritt" Gruppe via `explore_...` und erhält fokussierte Tools.
-4.  **Token Savings**: In der Regel wird der Context um den Faktor 10 reduziert.
+## 3. Hybrid Mode (Auto-Flattening)
+
+Elemm adapts to the size of the API.
+- **Flat View**: If an API has fewer than the `hybrid_threshold` (default: 10) landmarks and no explicit group structure, Elemm removes the filtering.
+- **Hierarchical View**: As soon as the API grows or groups are defined, it switches to structured mode.
+- **Configuration**: The threshold can be adjusted during initialization: `Elemm(..., hybrid_threshold=5)`.
+
+## 4. Versioning and Deprecation
+
+In enterprise environments, Landmark IDs must remain stable. If you need to change a structure:
+
+### Recommendations:
+1. **Stability**: Prefer generic Landmark IDs (e.g., `explore_it_ops` instead of `explore_it_v1`).
+2. **Deprecation**: If a landmark is deprecated, do not remove it immediately. Use the `hidden=True` attribute and provide a `remedy` explaining the new path.
+3. **Redirection**: You can create a "legacy" landmark that simply returns a message: "This module has moved to 'explore_new_module'. Please navigate there."
+
+## 5. Token Hygiene
+
+The hierarchical structure drastically reduces token consumption.
+- **Global Access**: Tools with `global_access=True` are visible everywhere. Use sparingly to avoid context noise.
+- **Efficiency**: In practice, the tool catalog size per step is reduced by a factor of 10 to 50.
+## 6. The Zero-Prompt Vision: Self-Documenting Infrastructure
+
+A core design goal of Elemm is to eliminate the need for long, complex system prompts that explain API structures to the agent.
+
+- **Embedded Persona**: By injecting the `agent_welcome` message into the primary navigation tools, the agent "discovers" its role and instructions through tool metadata rather than a static system prompt.
+- **On-Demand Guidance**: Instructions (via the Agent Repair Kit) are delivered just-in-time when an error occurs, keeping the context window clean during successful operations.
+- **Protocol-First Discovery**: The agent learns the API hierarchy at runtime by using `list_navigation_points`. This makes Elemm-based agents highly portable across different backend systems without requiring a single line of prompt engineering for the specific API layout.
