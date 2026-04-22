@@ -127,7 +127,7 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             self.openapi_url = f"{self.app_root_path}{self.openapi_url}"
 
         if self.debug:
-            print(f"\n[elemm] 🔍 Starting Landmark discovery for app: {app.title}")
+            logger.info(f"Starting Landmark discovery for app: {app.title}")
             
         # 1. Navigation Discovery
         tags_meta = getattr(app, "openapi_tags", []) or []
@@ -143,12 +143,12 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                         self._register_from_route(route, landmark_meta)
                         count += 1
                         if self.debug:
-                            print(f"  [Landmark] Registered '{landmark_meta['id']}' -> {route.methods} {route.path}")
+                            logger.info(f"Landmark registered '{landmark_meta['id']}' -> {route.methods} {route.path}")
                 except Exception as e:
                     logger.error(f"Failed to register landmark from route {route.path}: {e}")
         
         if self.debug:
-            print(f"[elemm] ✅ Discovery complete. Total landmarks: {count}\n")
+            logger.info(f"Discovery complete. Total landmarks: {count}")
 
     def _register_navigation_landmarks(self, app: FastAPI, tags_meta: List[Dict[str, Any]]):
         known_tags = {tm.get("name") for tm in tags_meta if tm.get("name")}

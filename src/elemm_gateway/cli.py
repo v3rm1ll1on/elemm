@@ -4,7 +4,7 @@ import logging
 import asyncio
 from elemm_gateway.server import ElemmGateway
 
-def main():
+async def async_main():
     parser = argparse.ArgumentParser(description="Elemm Gateway: Connect ANY website to your AI agent.")
     parser.add_argument("url", nargs="?", help="Optional: Initial URL to connect to at startup")
     parser.add_argument("--name", default="elemm-gateway", help="Custom name for the MCP server")
@@ -12,32 +12,46 @@ def main():
 
     args = parser.parse_args()
 
-    # Configure logging
+    # Configure logging to STDERR strictly
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        stream=sys.stderr
+        stream=sys.stderr,
+        force=True # Ensure we override any previous config
     )
+    
+    logger = logging.getLogger("elemm-cli")
 
     try:
         gateway = ElemmGateway(server_name=args.name)
+        
         if args.url:
-            logging.info(f"Auto-connecting to: {args.url}")
-            # We run the initial connect in the background or just set the target
-            # For simplicity, we just trigger the initial logic if a URL is provided
-            asyncio.run(gateway._connect(args.url))
+            logger.info(f"Auto-connecting to: {args.url}")
+            await gateway._connect(args.url)
             
-        available_tools = asyncio.run(gateway._handle_list_tools())
+        # Log available tools for debugging (to stderr)
+        available_tools = await gateway._handle_list_tools()
         tool_names = ", ".join([t.name for t in available_tools])
-        logging.info(f"Elemm Gateway started. Available tools: {tool_names}")
-        gateway.run()
+        logger.info(f"Elemm Gateway started. Available tools: {tool_names}")
+        
+        # Run the server
+        from mcp.server.stdio import stdio_server
+        async with stdio_server() as (read, write):
+            await gateway.server.run(
+                read, 
+                write, 
+                gateway.server.create_initialization_options()
+            )
+            
     except KeyboardInterrupt:
-        logging.info("Gateway stopped by user.")
-        sys.exit(0)
+        logger.info("Gateway stopped by user.")
     except Exception as e:
-        logging.error(f"Gateway failed: {e}")
+        logger.error(f"Gateway failed: {e}")
         sys.exit(1)
+
+def main():
+    asyncio.run(async_main())
 
 if __name__ == "__main__":
     main()
