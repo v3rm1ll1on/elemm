@@ -36,7 +36,7 @@ examples = [
 "Bug Tracker" = "https://github.com/v3rm1ll1on/elemm/issues"
 
 [project.scripts]
-elemm-connect = "elemm.cli:main"
+elemm-connect = "elemm_gateway.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
