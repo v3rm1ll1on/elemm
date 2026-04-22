@@ -102,7 +102,16 @@ class ElemmGateway(LandmarkBridge):
                 self.active_site_url = url
                 self.base_url = url
                 
-                welcome_msg = f"Successfully connected to {url}. Subsystems and tools discovered.\n\n{md_content[:500]}..."
+                tool_names = [t.get("name") for t in tools] if isinstance(tools, list) else []
+                tool_list_str = ", ".join(tool_names) if tool_names else "No functional tools found (only navigation)."
+                
+                welcome_msg = (
+                    f"✅ Successfully connected to {url}.\n\n"
+                    f"**Discovered Tools**: {tool_list_str}\n\n"
+                    f"**System Instructions**:\n{md_content[:500]}...\n\n"
+                    f"ATTENTION AGENT: You now have new tools available in your toolbelt. "
+                    f"Please use these tools directly for any actions on this site."
+                )
                 return [types.TextContent(type="text", text=welcome_msg)]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Connection Error to {url}: {e}")]
