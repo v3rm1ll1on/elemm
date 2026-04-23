@@ -1,46 +1,40 @@
-# Elemm: LLM Landmark Protocol
+<div align="center">
+  <img src="https://raw.githubusercontent.com/v3rm1ll1on/elemm/main/assets/logo.png" alt="Elemm Logo" width="200" onerror="this.style.display='none'">
+  <h1>Elemm: LLM Landmark Protocol</h1>
+  <p><strong>Hierarchical API Discovery for Enterprise AI Agents</strong></p>
 
-Elemm is a protocol standard for hierarchical structuring of API interfaces for AI agents. It enables agents to efficiently navigate complex toolsets with minimal token consumption and maximum precision.
+  [![PyPI version](https://badge.fury.io/py/elemm.svg)](https://badge.fury.io/py/elemm)
+  [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+  [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+</div>
 
-## Core Concepts
+---
 
-### 1. Landmarks
-Landmarks are marked entry points within an API. They function as signposts that guide agents through various functional modules (e.g., IT, HR, Finance).
+**Elemm** is a protocol standard for the Model Context Protocol (MCP) and FastAPI. It replaces overwhelming flat API tool lists with a **hierarchical, navigable structure** (Landmarks). This allows AI agents to efficiently explore and interact with massive enterprise APIs without context window overflows, reducing token consumption by up to 80% while significantly increasing reliability.
 
-### 2. Hierarchical Navigation
-Instead of presenting a flat list of hundreds of tools, Elemm provides context-specific toolsets. The agent actively navigates between modules, which increases accuracy and minimizes the risk of hallucinations or incorrect tool selection.
+## 🌟 Why Elemm?
 
-### 3. Hybrid Mode (Auto-Flattening)
-For small or flat APIs (less than 10 landmarks without a group structure), Elemm automatically switches to a hybrid mode. In this mode, all tools are made directly visible to eliminate navigation overhead for simple tasks.
+Modern AI agents struggle when presented with hundreds of tools simultaneously. The context window fills up, cognitive latency spikes, and hallucinations become frequent. 
 
-### 4. Agent Repair Kit (Self-Healing)
-Elemm utilizes dynamic correction hints (Remedies). In case of validation errors (HTTP 422), the protocol provides the agent with precise instructions for error resolution instead of having to keep these permanently in the context.
+Elemm solves this by introducing **Landmarks**:
+- **Semantic Signposts**: Group your tools into logical domains (e.g., IT, HR, Finance).
+- **Just-in-Time Context**: The agent uses the `navigate` tool to switch modules. Elemm dynamically injects only the tools relevant to the current module into the agent's toolbelt.
+- **Zero-Prompt Vision**: Stop writing massive system prompts. The protocol acts as its own documentation, guiding the agent automatically.
 
-## Features
+---
 
-- **Hierarchical Navigation**: Replaces overwhelming flat tool lists with navigational signposts (Landmarks).
-- **Extreme Token Efficiency**: Proven to reduce tokens-per-step by up to **80%** in enterprise environments.
-- **Agent Repair Kit**: Real-time self-healing through dynamic `remedy` injection on validation errors.
-- **Hybrid Auto-Scaling**: Automatically flattens small toolsets to eliminate navigation overhead where unnecessary.
-- **Enterprise-Grade Security**: Strict session isolation for multi-agent environments and restricted administrative access (`_INTERNAL_ALL_`).
-- **Deep Schema Discovery**: Automatic extraction of Enums, Literals, and complex nested types from Pydantic models.
-- **Native MCP Bridge**: Full support for Model Context Protocol via Stdio and SSE (with Nginx-ready buffering logic).
-- **Stateless-Ready**: Designed to function reliably even in extremely low-context environments (proven at 1k-4k context windows).
+## ⚡ Core Features
 
-## Documentation
+- 🗺️ **Hierarchical Navigation**: Transforms flat APIs into a navigable tree structure.
+- 📉 **Extreme Token Efficiency**: Cuts token usage per step by up to 80%, enabling complex operations even on smaller local models (e.g., Gemma 4).
+- 🛠️ **Agent Repair Kit**: Real-time self-healing. When the AI makes an error (e.g., HTTP 422), Elemm injects a dynamic `remedy` and `noise_warning` to guide self-correction without permanently polluting the context.
+- 🔄 **Hybrid Auto-Scaling**: Automatically flattens small toolsets (<10 tools) to eliminate navigation overhead for simple tasks.
+- 🛡️ **Enterprise Security**: Context-aware tool validation, read-only modes, and strict session isolation for multi-agent environments.
+- 🔌 **Native MCP Bridge**: Full integration with the Model Context Protocol via Stdio and SSE.
 
-For deep dives into specific topics, see our technical documentation:
+---
 
-- [Architecture](docs/ARCHITECTURE.md): Core protocol design and Zero-Prompt Vision.
-- [Gateway](docs/GATEWAY.md): Centralized hub for multi-host and cross-domain tool orchestration.
-- [Case Study](docs/CASE_STUDY.md): Detailed results of the Solaris Benchmark (Classic vs. ELEMM).
-- [Security](docs/SECURITY.md): Internal keys, God-mode protection, and administrative access.
-- [Deployment](docs/DEPLOYMENT.md): Docker, Nginx (SSE tuning), and Cloud configuration.
-- [MCP Integration](docs/MCP_INTEGRATION.md): Bridging FastAPI to Model Context Protocol.
-- [Repair Kit](docs/REPAIR_KIT.md): Implementing self-healing via Remedies.
-- [Decorators](docs/DECORATORS.md): API reference for `@ai.landmark`, `@ai.action`, and more.
-
-## Quick Start
+## 🚀 Quick Start
 
 ### Installation
 
@@ -50,42 +44,41 @@ pip install elemm
 
 ### Server-Side: FastAPI + MCP
 
-Elemm turns your FastAPI application into a Model Context Protocol (MCP) server with hierarchical discovery.
+Turn any FastAPI application into a hierarchical MCP server with just a few decorators.
 
 ```python
 from fastapi import FastAPI
 from elemm.fastapi import FastAPIProtocolManager as Elemm
 
 app = FastAPI()
-ai = Elemm(agent_instructions="You are a Solaris Forensic Auditor. Use landmarks to discover modules.")
+ai = Elemm(agent_instructions="You are an IT Support Agent. Navigate landmarks to find tools.")
 
-# 1. Define a Landmark (A semantic entry point)
+# 1. Define a Landmark (Entry Point)
 @app.get("/it/ops")
-@ai.landmark(id="it_ops", type="navigation", opens_group="it_tools")
+@ai.landmark(id="it_ops", type="navigation")
 async def it_portal():
     return {"status": "IT Operations Active"}
 
 # 2. Register a Tool within that module
 @app.post("/it/restart")
-@ai.action(id="restart_node", group="it_tools")
+@ai.action(id="restart_node", groups=["it_ops"], remedy="Ensure node_id format is SRV-XXXX.")
 async def restart(node_id: str):
     return {"result": f"Node {node_id} restarted."}
 
-# 3. Bind everything
+# 3. Bind everything to the app
 ai.bind_to_app(app)
 
 # 4. Expose via Stdio (CLI) or SSE (Web)
-# For Stdio: No extra code needed, just run via 'python app.py'
-# For SSE:
+# Stdio: Run directly via `python app.py` (if script uses `run_mcp_stdio`)
+# SSE: Connect your agent via HTTP
 ai.bind_mcp_sse(app, route_prefix="/mcp")
 ```
 
-### Agent-Side: Connecting to Elemm
+### Agent-Side Connection
 
-You can connect any MCP-compatible agent (like Claude Desktop, LangChain, or custom agents) to your Elemm server.
+Connect Claude Desktop, LangChain, or any MCP-compatible agent!
 
-#### Option A: Stdio (Local / CLI)
-Run your agent and point it to the python script:
+**Local (Stdio):**
 ```json
 {
   "mcpServers": {
@@ -97,66 +90,37 @@ Run your agent and point it to the python script:
 }
 ```
 
-#### Option B: SSE (Remote / Production)
-Connect via HTTP to the SSE endpoint:
-```python
-# The agent discovers tools at:
-# http://your-api.com/mcp/sse
-```
+**Remote (SSE):** Simply point your agent to `http://your-api.com/mcp/sse`.
 
-### Understanding Landmark URLs
+---
 
-Every Landmark defined with `@ai.landmark` is a standard FastAPI route. This means:
-- **Humans** can visit `/it/ops` in their browser to see the status.
-- **Agents** use the same endpoint as a "Signpost" to discover the `it_tools` group.
-- **Documentation**: Your OpenAPI/Swagger UI remains fully functional and reflects the protocol structure.
+## 📚 Deep Dive Documentation
 
-## Migration Path: From Flat to Hierarchical in 3 Steps
+Explore our comprehensive guides to master Elemm:
 
-If you have an existing flat FastAPI application, you can migrate to the landmark protocol without breaking your existing API:
+- 🏗️ [Architecture & Zero-Prompt Vision](docs/ARCHITECTURE.md)
+- 🌐 [Elemm Gateway (Universal Broker)](docs/GATEWAY.md)
+- 🏥 [Agent Repair Kit (Self-Healing)](docs/REPAIR_KIT.md)
+- 🔒 [Security & Session Isolation](docs/SECURITY.md)
+- 📊 [Case Study: Solaris ERP Benchmark](docs/CASE_STUDY.md)
+- 🚢 [Deployment Guide](docs/DEPLOYMENT.md)
+- 🔌 [MCP Integration Details](docs/MCP_INTEGRATION.md)
+- 🏷️ [Decorators API Reference](docs/DECORATORS.md)
 
-### 1. Categorize your Routes
-Organize your routes using standard FastAPI tags. These tags will become the basis for your navigational structure.
+---
 
-```python
-app = FastAPI(openapi_tags=[
-    {"name": "it_ops", "description": "Manage infrastructure and logs."}
-])
+## 🎯 Included Examples
 
-@app.get("/logs", tags=["it_ops"])
-async def get_logs(): ...
-```
+Check out the [`examples/`](./examples) directory to see Elemm in action:
 
-### 2. Initialize and Bind
-Initialize the Elemm manager and bind it to your application. When you call `bind_to_app(app)`, Elemm scans all routes for their `tags`. For every unique tag found, it **automatically** creates a navigation tool (e.g., `explore_it_ops`) that allows the agent to switch into that context.
+1. **[Enterprise Hub](./examples/enterprise_hub)**: The flagship benchmark. A complex forensic audit simulation with 100+ tools.
+2. **[Basic Navigation](./examples/basic_navigation)**: The "Hello World" showing automatic FastAPI tag discovery.
+3. **[Synth-Shop](./examples/synth_shop)**: E-commerce with JWT authentication flows and image rendering.
+4. **[Office Management](./examples/office_management)**: Booking automation with location-based navigation.
 
-```python
-from elemm.fastapi import FastAPIProtocolManager as Elemm
-ai = Elemm(agent_instructions="You are an Ops Specialist.")
+---
 
-# This scans your FastAPI routes and creates 'explore_it_ops'
-# because it found the tag on your routes.
-ai.bind_to_app(app)
-```
+## 🤝 Contributing & License
 
-### 3. (Optional) Define High-Level Entry Points
-While tags create automatic navigation, you can also mark specific status routes as high-level landmarks to provide better semantic guidance.
-
-```python
-@app.get("/it/portal")
-@ai.landmark(id="it_portal", type="navigation", opens_group="it_ops")
-async def it_portal():
-    return {"status": "IT Portal Active"}
-```
-
-Once these steps are completed, an AI agent will no longer be overwhelmed by a flat list but will instead navigate through your defined modules.
-
-## Architecture and Security
-
-Elemm is designed for enterprise production use:
-- **Context Firewall**: The MCP bridge validates tool calls against the agent's current navigation state.
-- **Reverse Proxy Support**: Automatically respects `root_path` when behind Nginx or Traefik.
-- **Circular Reference Safety**: Safely handles complex, recursive Pydantic models.
-
-## License
-GNU General Public License v3.0. Created by Marc Stöcker.
+Elemm is open-source and built for the community.
+Licensed under the **GNU General Public License v3.0**. Created by Marc Stöcker.

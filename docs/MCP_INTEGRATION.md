@@ -53,9 +53,10 @@ if __name__ == "__main__":
 ## Hybrid Mode (Auto-Flattening)
 
 Elemm automatically optimizes access:
-- If an API has fewer than 10 landmarks and no explicit group structure is defined, all tools are exported flat.
+- If an API has fewer than the `hybrid_threshold` (default: 10) tools/landmarks and no explicit group structure is defined, all tools are exported flat.
 - This eliminates navigation overhead ("Navigation Tax") for simple use cases.
 - As complexity increases (more landmarks or groups), the protocol automatically switches to structured navigation.
+- **Critical for Scale**: For mass APIs (like the 233-tool Solaris Benchmark), the threshold ensures the API remains strictly hierarchical. If auto-flattening were to trigger on such a massive scale, it would instantly overload the agent's context window.
 
 ## Dynamic Correction (Agent Repair Kit)
 
