@@ -4,23 +4,38 @@ AI agents are prone to errors such as typos, incorrect date formats, or hallucin
 
 The Elemm Agent Repair Kit breaks these loops through proactive, semantic self-healing.
 
-## 1. Dynamic Correction Hints (Remedies)
+Instead of keeping these instructions permanently in the tool description (which costs tokens), they are delivered only in case of an error.
 
-Every landmark can define a `remedy`. This is a specific instruction that is transmitted to the agent **only** when it makes an error.
+### Static vs. Dynamic Remedies
 
-### Example:
+You can provide remedies in two ways:
+1. **Static (via Decorator)**: Best for general formatting or constant rules.
+2. **Dynamic (via Code Logic)**: Best for complex validation that depends on specific input values.
+
+#### Native Python: Dynamic Remedies via `ActionError`
+
+If you are using Elemm without FastAPI, you can use the `ActionError` exception to provide situational hints:
+
 ```python
-@ai.action(
-    id="update_profile",
-    remedy="Use only the YYYY-MM-DD format for dates."
-)
-@app.post("/profile")
-async def update(birth_date: str):
-    # If the AI sends 'June 12th', a 422 error is thrown.
-    # Elemm intercepts this and adds the remedy.
+from elemm.core.exceptions import ActionError
+
+@manager.action(id="process_payment")
+def pay(amount: int, currency: str):
+    if amount > 1000:
+        # Dynamic remedy based on the specific error condition
+        raise ActionError(
+            message="Limit exceeded",
+            remedy="Payments over 1000 require 'manager_approval: true'."
+        )
+    if currency != "EUR":
+        raise ActionError(
+            message="Invalid currency",
+            remedy="We only support 'EUR' for this operation."
+        )
+    return {"status": "success"}
 ```
 
-Instead of keeping these instructions permanently in the tool description (which costs tokens), they are delivered only in case of an error. This keeps the context window clean and efficient.
+When an `ActionError` is raised, Elemm automatically extracts the `remedy` and places it at the very top of the agent's feedback.
 
 ## 2. Automated Noise Detection
 
@@ -36,8 +51,10 @@ The repair kit recognizes these deviations:
 The correction process runs fully automatically:
 
 1. **Attempted Call**: The agent sends an erroneous request.
-2. **Interception**: The Elemm protocol manager recognizes the error (HTTP 422).
-3. **Enrichment**: The error response is enriched with the specific `remedy` and, if applicable, a `noise_warning`.
+2. **Interception**:
+    - **FastAPI**: Elemm recognizes HTTP error codes (400, 422, 500).
+    - **Native Python**: Elemm catches uncaught exceptions or explicit `ActionError` calls.
+3. **Enrichment**: The error response is enriched with the specific `remedy` (static or dynamic) and, if applicable, a `noise_warning`.
 4. **Instruction**: The agent is explicitly told: "Use the above remedy to correct your parameters and try again."
 5. **Self-Correction**: The agent uses the hint and executes a successful call on the second attempt.
 
