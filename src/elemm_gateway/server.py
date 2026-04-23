@@ -137,7 +137,7 @@ class ElemmGateway(LandmarkBridge):
             return [types.TextContent(type="text", text="Error: Not connected. Call 'connect_to_site' first.")]
 
         # Sync context for potential internal dependencies
-        from elemm.fastapi import session_headers
+        from elemm.core.context import session_headers
         token_ctx = session_headers.set(self.session_headers)
 
         try:
