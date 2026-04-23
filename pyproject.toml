@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "elemm"
-version = "0.8.0"
+version = "0.8.1"
 authors = [
   { name="Marc Stöcker" },
 ]
@@ -22,12 +22,12 @@ classifiers = [
 dependencies = [
     "fastapi",
     "pydantic>=2.0",
+    "httpx",
 ]
 
 [project.optional-dependencies]
 examples = [
     "uvicorn",
-    "httpx",
     "mcp>=0.1.0",
 ]
 
