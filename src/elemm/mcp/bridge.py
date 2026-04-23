@@ -1,3 +1,18 @@
+# This file is part of Elemm.
+#
+# Elemm is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Elemm is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Elemm.  If not, see <https://www.gnu.org/licenses/>.
+
 import asyncio
 import httpx
 import logging
@@ -292,7 +307,8 @@ class LandmarkBridge:
         if auto_switched:
             sections.append(f"[Ctx: {self.ctx}] (Switched)")
             
-        return "\n".join(sections)
+        return "
+".join(sections)
 
     def _stringify_result(self, res: Any) -> str:
         # 1. Compact success responses
@@ -303,8 +319,11 @@ class LandmarkBridge:
         if isinstance(res, list):
             if len(res) > 10:
                 truncated = res[:10]
-                return "\n".join([f"- {json.dumps(item, separators=(',', ':'))}" for item in truncated]) + f"\n... (+{len(res)-10})"
-            return "\n".join([f"- {json.dumps(item, separators=(',', ':'))}" for item in res])
+                return "
+".join([f"- {json.dumps(item, separators=(',', ':'))}" for item in truncated]) + f"
+... (+{len(res)-10})"
+            return "
+".join([f"- {json.dumps(item, separators=(',', ':'))}" for item in res])
             
         # 4. Simplify dicts
         if isinstance(res, dict):
@@ -357,8 +376,10 @@ class LandmarkBridge:
         actions = manifest.get("actions", [])
         
         # Only list IDs and short descriptions to save tokens
-        tool_list = "\n".join([f"- {a['id']}: {a.get('description', '')[:100]}" for a in actions])
-        return [types.TextContent(type="text", text=f"Landmark '{landmark_id}' Tools:\n{tool_list}")]
+        tool_list = "
+".join([f"- {a['id']}: {a.get('description', '')[:100]}" for a in actions])
+        return [types.TextContent(type="text", text=f"Landmark '{landmark_id}' Tools:
+{tool_list}")]
 
     async def _handle_navigate(self, _name: str, arguments: dict) -> List[types.TextContent]:
         landmark_id = arguments.get("landmark_id", "")
