@@ -258,14 +258,26 @@ class LandmarkBridge:
             pass
 
     def _format_action_result(self, name: str, res: Any, action_meta, auto_switched: bool) -> str:
+        # 1. Unpack tuples (e.g. (data, 200) -> data, status)
+        status_code = 200
+        if isinstance(res, (list, tuple)) and len(res) == 2 and isinstance(res[1], int):
+            status_code = res[1]
+            res = res[0]
+
         # Extract dynamic metadata from response
         remedy = None
         instruction = None
+        is_error = status_code >= 400 or (isinstance(res, dict) and res.get("status") == "error")
+
         if isinstance(res, dict):
             remedy = res.get("remedy")
             instruction = res.get("instruction")
             # Clean display data
             res = {k: v for k, v in res.items() if k not in ["remedy", "instruction"]}
+        
+        # Static Remedy Fallback (Native Python & Uncaught exceptions)
+        if is_error and not remedy and action_meta and getattr(action_meta, "remedy", None):
+            remedy = action_meta.remedy
         
         # Build Text
         data_text = self._stringify_result(res)
@@ -283,11 +295,7 @@ class LandmarkBridge:
         return "\n".join(sections)
 
     def _stringify_result(self, res: Any) -> str:
-        # 1. Unpack tuples (e.g. (data, 200) -> data)
-        if isinstance(res, (list, tuple)) and len(res) == 2 and isinstance(res[1], int):
-            res = res[0]
-
-        # 2. Compact success responses
+        # 1. Compact success responses
         if isinstance(res, dict) and res.get("status") == "success" and "message" in res:
             return f"OK: {res['message']}"
             
