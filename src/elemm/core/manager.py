@@ -101,10 +101,48 @@ class BaseAIProtocolManager:
         final_description = kwargs.get("instructions") or kwargs.get("description") or doc or f"Action: {action_id}"
         kwargs["description"] = final_description
 
+        if "parameters" not in kwargs and handler:
+            import inspect
+            from .discovery import map_type
+            from .models import ActionParam
+            sig = inspect.signature(handler)
+            parameters = []
+            for name, param in sig.parameters.items():
+                p_type, p_options = map_type(param.annotation)
+                p_required = param.default == inspect.Parameter.empty
+                parameters.append(ActionParam(
+                    name=name,
+                    type=p_type,
+                    options=p_options,
+                    required=p_required,
+                    description=f"Parameter {name}"
+                ))
+            kwargs["parameters"] = parameters
+
         action = AIAction(handler=handler, **kwargs)
         self.actions.append(action)
         if action_id:
             self._registered_ids.add(action_id)
+
+    def bind_module(self, module: Any):
+        """
+        Scans a Python module for functions decorated with @landmark and registers them automatically.
+        This provides auto-discovery for native Python, without requiring FastAPI.
+        """
+        import inspect
+        for name, obj in inspect.getmembers(module):
+            if inspect.isfunction(obj) or inspect.iscoroutinefunction(obj):
+                meta = getattr(obj, "_llm_landmark", None)
+                if meta and meta["id"] not in self._registered_ids:
+                    extra = meta.get("extra", {})
+                    self.register_action(
+                        handler=obj,
+                        id=meta["id"],
+                        type=meta["type"],
+                        description=meta["description"],
+                        instructions=meta["instructions"],
+                        **extra
+                    )
 
     def get_manifest(self, group: Optional[str] = None, agent_view: bool = True, read_only: bool = False, internal_key: Optional[str] = None) -> Dict[str, Any]:
         """
