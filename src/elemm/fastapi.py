@@ -1,153 +1,260 @@
-from fastapi import APIRouter, FastAPI, params, Request
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
+from fastapi import APIRouter, FastAPI, params, Request, Body, Header
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.routing import APIRoute
-from fastapi.security.base import SecurityBase
-from typing import List, Dict, Any, Optional, Union, Tuple
-from enum import Enum
-import inspect
+from typing import List, Dict, Any, Optional, Union, Tuple, Callable
 import logging
-import asyncio
 import httpx
+import json
+import inspect
+import re
+import uuid
+from contextvars import ContextVar
+from pydantic import BaseModel
 
-from .base import AIProtocolManager
+from .base import BaseAIProtocolManager
 from .models import ActionParam
-from .mcp import LandmarkBridge
+from .discovery import map_type, resolve_refs
+from .repair import agent_repair_handler
+from .mcp_fastapi import bind_mcp_sse, run_mcp_stdio
+from .context import session_headers
 
 logger = logging.getLogger(__name__)
 
-class FastAPIProtocolManager(AIProtocolManager):
+class FastAPIProtocolManager(BaseAIProtocolManager):
     """
     FastAPI-specific implementation of the Landmark Protocol.
     Supports automatic discovery of routes via .bind_to_app(app).
     """
-    def __init__(self, agent_welcome: Optional[str] = None, version: str = "v1-lmlmm", openapi_url: str = "/api/openapi.json", protocol_instructions: Optional[str] = None, debug: bool = False, internal_access_key: Optional[str] = None, agent_instructions: Optional[str] = None):
-        super().__init__(agent_welcome, version, protocol_instructions, internal_access_key=internal_access_key, agent_instructions=agent_instructions)
+    def __init__(self, 
+                 app: Optional[FastAPI] = None, 
+                 agent_welcome: Optional[str] = None,
+                 agent_instructions: Optional[str] = None,
+                 protocol_instructions: Optional[str] = None,
+                 internal_access_key: Optional[str] = None,
+                 hybrid_threshold: int = 10,
+                 navigation_landmarks: Optional[List[Dict[str, Any]]] = None,
+                 openapi_url: str = "/api/openapi.json", 
+                 debug: bool = False):
+        super().__init__(
+            agent_welcome=agent_welcome,
+            agent_instructions=agent_instructions,
+            protocol_instructions=protocol_instructions,
+            internal_access_key=internal_access_key,
+            hybrid_threshold=hybrid_threshold,
+            navigation_landmarks=navigation_landmarks
+        )
         self.openapi_url = openapi_url
         self.debug = debug
+        if debug:
+            logger.setLevel(logging.INFO)
+            # Also ensure a handler exists if not already configured
+            if not logger.handlers:
+                sh = logging.StreamHandler()
+                sh.setFormatter(logging.Formatter('%(levelname)s:     %(message)s'))
+                logger.addHandler(sh)
+
         self.app_root_path = ""
         self.router = APIRouter()
         self._setup_well_known(self.router)
         self._setup_navigation_tool(self.router)
-        self._mcp_bridge: Optional[LandmarkBridge] = None
 
     def _setup_navigation_tool(self, router_or_app: Union[APIRouter, FastAPI]):
         @router_or_app.get("/.well-known/module-navigation", include_in_schema=False)
-        @self.action(
+        @self.tool(
             id="enter_module", 
-            description="Enter a specific enterprise module (IT, HR, Finance, Remediation).",
-            instructions="Use this to switch context and access module-specific tools. Call it with module names like 'it', 'hr', 'finance', 'remediation'.",
+            type="navigation",
+            description="Enter a specific submodule or category of tools.",
+            instructions="Use this to switch context and access domain-specific capabilities.",
             global_access=True
         )
         async def enter_module(module_name: str):
-            return {"status": "success", "message": f"Entering {module_name}..."}
+            """Internal navigation helper."""
+            return {"message": f"Entered {module_name}. Inspect the landmark for new tools."}
 
     def bind_mcp_sse(self, app: FastAPI, route_prefix: str = "/mcp"):
-        """
-        Exposes the landmark protocol as an MCP SSE endpoint with session isolation.
-        """
-        from mcp.server.sse import SseServerTransport
-        
-        # We use a dictionary to store isolated bridges per session
-        # In a production environment, this should have a TTL or cleanup mechanism
-        sessions: Dict[str, LandmarkBridge] = {}
-        sse_transport = SseServerTransport(f"{route_prefix}/messages")
-
-        @app.get(f"{route_prefix}/sse", include_in_schema=False)
-        async def handle_sse(request: Request):
-            # Each connection gets its own bridge instance for true isolation
-            bridge = LandmarkBridge(manager=self)
-            
-            async with sse_transport.connect_sse(request.scope, request.receive, request._send) as (read, write):
-                # We need to track which bridge belongs to which session
-                # The mcp library's SseServerTransport handles the underlying session mapping,
-                # but we need to ensure the server.run is called on the isolated bridge.
-                await bridge.server.run(read, write, bridge.server.create_initialization_options())
-
-        @app.post(f"{route_prefix}/messages", include_in_schema=False)
-        async def handle_messages(request: Request):
-            await sse_transport.handle_post_request(request.scope, request.receive, request.send)
+        """Exposes the landmark protocol as an MCP SSE endpoint."""
+        bind_mcp_sse(self, app, route_prefix)
 
     def run_mcp_stdio(self, app_import_path: str, host: str = "127.0.0.1", port: int = 8001):
-        """
-        Dual-Boot Launcher: Starts Web server and then runs MCP Stdio in main thread.
-        """
-        import threading
-        import uvicorn
-        import time
-        import sys
-
-        # Start Web server in background
-        def start_web():
-            uvicorn.run(app_import_path, host=host, port=port, log_level="error")
-        
-        t = threading.Thread(target=start_web, daemon=True)
-        t.start()
-        
-        # Wait for boot
-        time.sleep(2)
-        
-        # Start Bridge (Local mode)
-        bridge = LandmarkBridge(manager=self, base_url=f"http://{host}:{port}")
-        asyncio.run(bridge.run_stdio())
+        """Starts Web server and then runs MCP Stdio in main thread."""
+        run_mcp_stdio(self, app_import_path, host, port)
 
     def _setup_well_known(self, router_or_app: Union[APIRouter, FastAPI]):
         from fastapi import Header
-        @router_or_app.api_route("/.well-known/llm-landmarks.json", methods=["GET", "HEAD"], include_in_schema=False)
-        async def get_protocol(
-            group: Optional[str] = None, 
-            read_only: bool = False,
+
+        @router_or_app.post("/.well-known/elemm/execute", include_in_schema=False)
+        async def execute_protocol_action(
+            request: Request,
+            action_id: str = Body(..., embed=True),
+            parameters: Dict[str, Any] = Body(default={}, embed=True),
             x_elemm_internal_key: Optional[str] = Header(None, alias="X-Elemm-Internal-Key")
         ):
             try:
-                return self.get_manifest(group=group, read_only=read_only, internal_key=x_elemm_internal_key)
-            except Exception as e:
-                from .exceptions import LandmarkNotFoundError
-                if isinstance(e, LandmarkNotFoundError):
-                    return JSONResponse(status_code=404, content={"detail": str(e)})
+                # Scoped Auth: Propagate incoming headers (e.g. Authorization) to internal call
+                # We filter for common auth headers to avoid bloat
+                auth_headers = {}
+                for k, v in request.headers.items():
+                    if k.lower() in ["authorization", "x-api-key", "api-key", "token", "cookie"]:
+                        auth_headers[k] = v
                 
-                logger.error(f"Error generating landmark manifest: {e}", exc_info=True)
-                return {"error": "Internal error generating manifest", "detail": str(e)}
-
-        @router_or_app.api_route("/.well-known/mcp-tools.json", methods=["GET"], include_in_schema=False)
-        async def get_mcp_export(
-            group: Optional[str] = None,
-            x_elemm_internal_key: Optional[str] = Header(None, alias="X-Elemm-Internal-Key")
-        ):
-            try:
-                return self.get_mcp_tools(group=group, internal_key=x_elemm_internal_key)
+                # Merge with current host context (usually elemm-internal for the server-side app)
+                current_sessions = session_headers.get().copy()
+                current_sessions["elemm-internal"] = auth_headers
+                token = session_headers.set(current_sessions)
+                
+                try:
+                    # We use the internal call_action which handles routing and auth
+                    result, status_code = await self.call_action(action_id, parameters)
+                    
+                    # Protocol Enrichment: If the action failed (>=400), inject the tool-specific remedy
+                    if status_code >= 400 and isinstance(result, dict):
+                        action = next((a for a in self.actions if a.id == action_id), None)
+                        if action and getattr(action, "remedy", None):
+                            result["remedy"] = action.remedy
+                    
+                    return JSONResponse(status_code=status_code, content=result)
+                finally:
+                    session_headers.reset(token)
             except Exception as e:
-                logger.error(f"Error generating MCP export: {e}", exc_info=True)
-                return JSONResponse(status_code=500, content={"error": str(e)})
+                logger.error(f"Protocol Execution Error: {e}")
+                return JSONResponse(
+                    status_code=400, 
+                    content={
+                        "error": str(e), 
+                        "hint": "The action you requested could not be executed. Use 'get_manifest' to verify available tools."
+                    }
+                )
 
-    def bind_to_app(self, app: FastAPI):
-        """
-        Scans all routes in the FastAPI app and registers those marked with @landmark.
-        Also automatically registers the Agent-Repair-Kit to improve AI resilience.
-        """
+        @router_or_app.get("/.well-known/elemm-manifest.md", include_in_schema=False)
+        async def get_md_manifest(request: Request, landmark_id: Optional[str] = None, part: Optional[str] = None, technical: bool = False):
+            from .manifest import ManifestGenerator
+            from fastapi import Response
+            
+            # Split comma-separated parts if provided
+            parts = part.split(",") if part else None
+            
+            try:
+                if landmark_id:
+                    # Filter tools for the specific landmark
+                    actions = []
+                    for a in self.actions:
+                        groups = a.groups if hasattr(a, "groups") else []
+                        if landmark_id in groups:
+                            actions.append({
+                                "id": a.id if hasattr(a, "id") else "",
+                                "description": a.description if hasattr(a, "description") else ""
+                            })
+                    
+                    md_content = ManifestGenerator.generate_detailed_landmark(landmark_id, actions)
+                else:
+                    md_content = ManifestGenerator.generate_markdown(
+                        manager=self,
+                        system_name=self.agent_welcome or "Elemm Protocol",
+                        instructions=self.protocol_instructions or "",
+                        landmarks=self.navigation_landmarks or [],
+                        include_technical_metadata=technical,
+                        parts=parts or (["landmarks"] if not self.debug else ["welcome", "instructions", "landmarks"])
+                    )
+            except Exception as e:
+                logger.error(f"Failed to generate manifest: {e}")
+                md_content = f"# ELEMM PROTOCOL ERROR\n\n## Internal Error\n{str(e)}\n\n## Remedy\nPlease try to refresh the session or use the 'navigate' tool to recover."
+            
+            return Response(content=md_content, media_type="text/markdown")
+
+    def bind_to_app(self, app: "FastAPI"):
+        """Scans all routes in the FastAPI app and registers those marked with @landmark."""
+        if hasattr(app, "_elemm_bound"):
+            return
+        app._elemm_bound = True
         self.app = app
+        
+        # 1. Register Global Elemm Error Handler
+        @app.exception_handler(HTTPException)
+        async def elemm_http_exception_handler(request: Request, exc: HTTPException):
+            detail = exc.detail
+            message = detail if isinstance(detail, str) else detail.get("message", str(detail))
+            
+            # Try to find a tool-specific remedy if it exists in our registry
+            # This allows even generic 404s to carry protocol remedies
+            remedy = "Please check your parameters and retry."
+            if isinstance(detail, dict) and "remedy" in detail:
+                remedy = detail["remedy"]
+            
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={
+                    "status": "error",
+                    "message": message,
+                    "remedy": remedy
+                }
+            )
+
+        # 2. Setup internal routes and discovery
         self.app_root_path = getattr(app, "root_path", "").rstrip("/")
-
-        # 0. Register the .well-known endpoint directly on the app
         self._setup_well_known(app)
+        self._setup_navigation_tool(app)
 
-        # 1. Register Agent-Repair-Kit (Exception Handler for LLM self-healing)
         @app.exception_handler(RequestValidationError)
         async def elemm_validation_exception_handler(request: Request, exc: RequestValidationError):
-            return await self._agent_repair_handler(request, exc)
+            return await agent_repair_handler(self, request, exc)
         
-        # Ensure our manifest's openapi_url also respects the root_path if it's relative
         if self.openapi_url and self.openapi_url.startswith("/") and not self.openapi_url.startswith(self.app_root_path + "/"):
             self.openapi_url = f"{self.app_root_path}{self.openapi_url}"
 
         if self.debug:
-            print(f"\n[elemm] 🔍 Starting Landmark discovery for app: {app.title} (root_path: '{self.app_root_path}')")
+            logger.info(f"Starting Landmark discovery for app: {app.title}")
             
-        # 1. Automatic Navigation via tags
+        # 1. Navigation Discovery
         tags_meta = getattr(app, "openapi_tags", []) or []
+        self._register_navigation_landmarks(app, tags_meta)
+
+        # 2. Tool Discovery
+        count = 0
+        for route in app.routes:
+            if isinstance(route, APIRoute):
+                try:
+                    # Strategy 1: Explicit Attribute (Fastest)
+                    endpoint = route.endpoint
+                    landmark_meta = getattr(endpoint, "_llm_landmark", None)
+                    
+                    if not landmark_meta and hasattr(endpoint, "__wrapped__"):
+                        endpoint = endpoint.__wrapped__
+                        landmark_meta = getattr(endpoint, "_llm_landmark", None)
+
+                    if landmark_meta:
+                        self._register_from_route(route, landmark_meta)
+                        count += 1
+                    else:
+                        # Strategy 2: Match by handler (fallback for decorated functions)
+                        # Find any action that was pre-registered via @tool/@action
+                        matching_action = next((a for a in self.actions if a.handler == route.endpoint or (hasattr(route.endpoint, "__wrapped__") and a.handler == route.endpoint.__wrapped__)), None)
+                        if matching_action:
+                            # Re-register to pick up URL/Method from route
+                            fake_meta = {
+                                "id": matching_action.id, 
+                                "type": matching_action.type, 
+                                "description": matching_action.description,
+                                "instructions": matching_action.instructions,
+                                "extra": {
+                                    "remedy": matching_action.remedy,
+                                    "global_access": matching_action.global_access,
+                                    "groups": matching_action.groups
+                                }
+                            }
+                            self._register_from_route(route, fake_meta)
+                            count += 1
+                            pass
+                except Exception as e:
+                    logger.error(f"Failed to register landmark from route {route.path}: {e}")
+        
+        if self.debug:
+            logger.info(f"Discovery complete. Total actions registered: {count}")
+
+    def _register_navigation_landmarks(self, app: FastAPI, tags_meta: List[Dict[str, Any]]):
         known_tags = {tm.get("name") for tm in tags_meta if tm.get("name")}
         
-        # Collect additional tags from routes
+        # Add tags from routes
         for route in app.routes:
             if isinstance(route, APIRoute) and route.tags:
                 for tag in route.tags:
@@ -155,183 +262,139 @@ class FastAPIProtocolManager(AIProtocolManager):
                         tags_meta.append({"name": tag})
                         known_tags.add(tag)
 
-        for tm in tags_meta:
-            tag_name = tm.get("name")
-            tag_desc = tm.get("description", f"Access module: {tag_name}")
-            if tag_name:
-                try:
-                    tag_id = tag_name.lower().replace(" ", "_").replace("&", "and")
-                    tag_id = "".join(c for c in tag_id if c.isalnum() or c == "_")
-                    
-                    # Map tags to specific purposes for better guidance
-                    guidance = {
-                        "it infrastructure": "to access server logs, node management and infrastructure controls.",
-                        "security ops": "to retrieve active incident tickets and security alerts.",
-                        "human resources": "to search the personnel directory and verify employee identities.",
-                        "finance and audit": "to audit transactions and verify financial integrity.",
-                        "remediation": "to execute quarantine, restarts and fund recovery actions."
-                    }
-                    purpose = guidance.get(tag_name.lower(), f"to discover tools related to {tag_name}.")
-                    
-                    self.register_action(
-                        id=f"explore_{tag_id}",
-                        type="navigation",
-                        description=f"Navigate to {tag_name} {purpose}",
-                        instructions=f"Call this when your investigation requires access to {tag_name} specific capabilities.",
-                        method="GET",
-                        url=f"{self.app_root_path}/.well-known/llm-landmarks.json?group={tag_name}",
-                        opens_group=tag_name,
-                        groups=[] # Navigation tools are always in Root
-                    )
-                    if self.debug:
-                        print(f"  [Discovery] Created Navigation Landmark for Tag: {tag_name}")
-                except Exception as e:
-                    logger.error(f"Failed to create navigation landmark for tag {tag_name}: {e}")
+        # Tag meta dictionary for lookup
+        tag_descriptions = {tm.get("name"): tm.get("description") for tm in tags_meta if tm.get("name")}
 
-        count = 0
-        for route in app.routes:
-            if isinstance(route, APIRoute):
-                try:
-                    landmark_meta = getattr(route.endpoint, "_llm_landmark", None)
-                    if landmark_meta:
-                        self._register_from_route(route, landmark_meta)
-                        count += 1
-                        if self.debug:
-                            print(f"  [Landmark] Registered '{landmark_meta['id']}' -> {route.methods} {route.path}")
-                except Exception as e:
-                    logger.error(f"Failed to register landmark from route {route.path}: {e}")
-        
-        if self.debug:
-            print(f"[elemm] ✅ Discovery complete. Total landmarks: {count}\n")
+        for tag_name, description in tag_descriptions.items():
+            if not tag_name: continue
+            
+            try:
+                tag_id = "".join(c for c in tag_name.lower().replace(" ", "_").replace("&", "and") if c.isalnum() or c == "_")
+                purpose = description if description else f"tools related to {tag_name}."
+                
+                self.register_action(
+                    id=f"explore_{tag_id}",
+                    type="navigation",
+                    description=f"Navigate to {tag_name}: {purpose}",
+                    instructions=f"Call this when your investigation requires access to {tag_name} specific capabilities.",
+                    method="GET",
+                    # Internal discovery endpoint
+                    url=f"{self.app_root_path}/.well-known/elemm/discovery?group={tag_name}",
+                    opens_group=tag_name,
+                    groups=[] 
+                )
+                
+                # Auto-populate navigation_landmarks for manifest generation
+                if not self.navigation_landmarks:
+                    self.navigation_landmarks = []
+                
+                if not any(l.get("id") == tag_name for l in self.navigation_landmarks):
+                    self.navigation_landmarks.append({
+                        "id": tag_name,
+                        "notes": purpose
+                    })
+            except Exception as e:
+                logger.error(f"Failed to create navigation landmark for tag {tag_name}: {e}")
 
     def _register_from_route(self, route: APIRoute, meta: Dict[str, Any]):
         method = list(route.methods)[0] if route.methods else "GET"
         url = route.path
-        if self.app_root_path and not url.startswith(self.app_root_path):
-            url = f"{self.app_root_path}{url}"
         
-        description = meta["description"] or route.endpoint.__doc__ or route.description or route.summary or ""
-        description = description.strip()
-        
-        # Auto-extract instructions from docstring if not explicitly provided
-        instructions = meta.get("instructions") or route.endpoint.__doc__ or ""
-        instructions = instructions.strip()
+        # LLM Metadata Hierarchy: instructions > description > docstring
+        doc = route.endpoint.__doc__.strip() if route.endpoint and route.endpoint.__doc__ else None
+        description = (meta.get("instructions") or meta.get("description") or doc or route.description or route.summary or "").strip()
+        instructions = meta.get("instructions") or ""
 
-        def map_type(annotation: Any) -> Tuple[str, Optional[List[Any]]]:
-            # Handle Optional/Union (get the first non-None type)
-            origin = getattr(annotation, "__origin__", None)
-            
-            # Handle Literal
-            from typing import Literal
-            if origin is Literal:
-                args = getattr(annotation, "__args__", [])
-                return "string", list(args)
+        payload = self._extract_payload(route, meta)
+        actual_parameters, context_deps = self._extract_parameters(route, meta)
 
-            if origin is Union:
-                args = getattr(annotation, "__args__", [])
-                annotation = next((a for a in args if a != type(None)), annotation)
-                # Re-check origin after unpacking Union
-                origin = getattr(annotation, "__origin__", None)
-                if origin is Literal:
-                    args = getattr(annotation, "__args__", [])
-                    return "string", list(args)
-            
-            # Handle Enum
-            if inspect.isclass(annotation) and issubclass(annotation, Enum):
-                return "string", [e.value for e in annotation]
+        extra = meta.get("extra", {})
+        groups = extra.get("groups") or extra.get("group") or extra.get("tags") or (route.tags if route.tags else [])
+        if isinstance(groups, str):
+            groups = [groups]
 
-            raw_type = str(getattr(annotation, "__name__", annotation)).lower()
-            
-            # If it's a dict from JSON schema processing
-            if isinstance(annotation, dict):
-                raw_type = annotation.get("type", "string")
-                enum_vals = annotation.get("enum")
-                if enum_vals:
-                    return "string", enum_vals
+        # Preserve existing handler if this ID was already registered via decorator
+        existing_action = next((a for a in self.actions if a.id == meta["id"]), None)
+        handler = existing_action.handler if existing_action else route.endpoint
 
-            mapping = {
-                "str": "string", "string": "string",
-                "int": "integer", "integer": "integer",
-                "float": "number", "number": "number",
-                "bool": "boolean", "boolean": "boolean",
-                "list": "array", "array": "array",
-                "dict": "object", "object": "object"
-            }
-            return mapping.get(raw_type, "string"), None
+        if self.debug:
+            logger.info(f"DEBUG: Registering Action '{meta['id']}' from route '{route.path}' [{method}]")
 
-        # Automatic payload detection
+        self.register_action(
+            handler=handler,
+            id=meta["id"],
+            type=meta["type"],
+            tags=route.tags if route.tags else ["default"],
+            groups=groups,
+            opens_group=meta["extra"].get("opens_group"),
+            description=description or "No description provided.",
+            instructions=instructions,
+            remedy=meta["extra"].get("remedy"),
+            method=method,
+            url=url,
+            parameters=actual_parameters if actual_parameters else None,
+            headers=meta["extra"].get("headers") or None,
+            payload=payload,
+            required_auth=meta["extra"].get("required_auth"),
+            context_dependencies=context_deps if context_deps else None,
+            response_schema=self._extract_response_schema(route.response_model),
+            hidden=meta["extra"].get("hidden", False),
+            global_access=meta["extra"].get("global_access", False)
+        )
+
+    def _extract_payload(self, route: APIRoute, meta: Dict[str, Any]) -> Optional[Union[List[ActionParam], Dict[str, Any]]]:
         payload = meta["extra"].get("payload")
+        if payload: return payload
         
-        if not payload:
-            model = None
-            
-            # 1. Check official FastAPI body_field
-            if route.body_field:
-                model = getattr(route.body_field, "annotation", None) or \
-                        getattr(route.body_field, "type_", None)
-            
-            # 2. Check body_params in dependencies
-            if not model and hasattr(route, "dependant") and route.dependant.body_params:
-                for param in route.dependant.body_params:
-                    model = getattr(param, "annotation", None) or getattr(param, "type_", None)
-                    if model: break
-            
-            # 3. Fallback: Direct inspection of the endpoint signature
-            if not model:
-                sig = inspect.signature(route.endpoint)
-                for name, param in sig.parameters.items():
-                    ann = param.annotation
-                    # Check if it looks like a Pydantic model
-                    if hasattr(ann, "model_json_schema") or hasattr(ann, "schema"):
-                        model = ann
-                        break
+        model = None
+        if route.body_field:
+            model = getattr(route.body_field, "annotation", None) or getattr(route.body_field, "type_", None)
+        
+        if not model and hasattr(route, "dependant") and route.dependant.body_params:
+            for param in route.dependant.body_params:
+                model = getattr(param, "annotation", None) or getattr(param, "type_", None)
+                if model: break
+        
+        if not model:
+            sig = inspect.signature(route.endpoint)
+            for name, param in sig.parameters.items():
+                ann = param.annotation
+                if hasattr(ann, "model_json_schema") or hasattr(ann, "schema"):
+                    model = ann
+                    break
 
-            if model:
-                try:
-                    def _resolve_refs(item: Any, definitions: Dict[str, Any], depth: int = 0) -> Any:
-                        if depth > 10: return item # Protection against infinite loops
-                        if not isinstance(item, dict): return item
-                        
-                        if "$ref" in item:
-                            ref_name = item["$ref"].split("/")[-1]
-                            if ref_name in definitions:
-                                # Merge ref definition into current item (excluding the $ref itself)
-                                base = definitions[ref_name]
-                                new_item = {**base, **{k: v for k, v in item.items() if k != "$ref"}}
-                                return _resolve_refs(new_item, definitions, depth + 1)
-                        
-                        # Recurse into properties if it's an object
-                        if "properties" in item:
-                            item["properties"] = {k: _resolve_refs(v, definitions, depth + 1) for k, v in item["properties"].items()}
-                        
-                        return item
+        if not model: return None
+        
+        try:
+            schema = model.model_json_schema() if hasattr(model, "model_json_schema") else (model.schema() if hasattr(model, "schema") else None)
+            if not schema: return None
+            
+            defs = schema.get("$defs", schema.get("definitions", {}))
+            resolved_schema = resolve_refs(schema, defs)
+            
+            properties = resolved_schema.get("properties", {})
+            required_fields = resolved_schema.get("required", [])
+            
+            payload_params = []
+            for field_name, field_info in properties.items():
+                p_type, p_options = map_type(field_info)
+                payload_params.append(ActionParam(
+                    name=field_name,
+                    description=field_info.get("description", f"Field {field_name}"),
+                    type=p_type,
+                    required=field_name in required_fields,
+                    default=field_info.get("default"),
+                    example=field_info.get("example"),
+                    options=p_options or field_info.get("enum"),
+                    min_value=field_info.get("minimum") or field_info.get("ge"),
+                    max_value=field_info.get("maximum") or field_info.get("le")
+                ))
+            return payload_params
+        except Exception as e:
+            logger.warning(f"Could not extract schema from model {model}: {e}")
+            return None
 
-                    schema = model.model_json_schema() if hasattr(model, "model_json_schema") else (model.schema() if hasattr(model, "schema") else None)
-                    if schema:
-                        defs = schema.get("$defs", schema.get("definitions", {}))
-                        resolved_schema = _resolve_refs(schema, defs)
-                        
-                        properties = resolved_schema.get("properties", {})
-                        required_fields = resolved_schema.get("required", [])
-                        
-                        payload = []
-                        for field_name, field_info in properties.items():
-                            p_type, p_options = map_type(field_info)
-                            payload.append(ActionParam(
-                                name=field_name,
-                                description=field_info.get("description", f"Field {field_name}"),
-                                type=p_type,
-                                required=field_name in required_fields,
-                                default=field_info.get("default"),
-                                example=field_info.get("example"),
-                                options=p_options or field_info.get("enum"), # Extract Enums!
-                                min_value=field_info.get("minimum") or field_info.get("ge"),
-                                max_value=field_info.get("maximum") or field_info.get("le")
-                            ))
-                except Exception as e:
-                    logger.warning(f"Could not extract schema from model {model}: {e}")
-
-        # Parameter detection
+    def _extract_parameters(self, route: APIRoute, meta: Dict[str, Any]) -> Tuple[List[ActionParam], List[str]]:
         manual_params = meta["extra"].get("parameters")
         actual_parameters = []
         context_deps = []
@@ -346,179 +409,70 @@ class FastAPIProtocolManager(AIProtocolManager):
                     default=p.get("default"),
                     managed_by="protocol" if p["name"].lower() in ["authorization", "x-api-key", "token"] else None
                 ))
-        else:
-            # Fallback to automatic inspection
-            sig = inspect.signature(route.endpoint)
-            # Standard fields to ignore/treat as context
-            internal_fields = ["request", "response", "session_id", "headers", "background_tasks", "session"]
+            return actual_parameters, context_deps
+
+        sig = inspect.signature(route.endpoint)
+        internal_fields = ["request", "response", "session_id", "headers", "background_tasks", "session"]
+        
+        for name, param in sig.parameters.items():
+            # Context dependencies: Parameters that are injected by FastAPI/Elemm and NOT provided by the LLM
+            is_dependency = isinstance(param.default, params.Depends)
             
-            for name, param in sig.parameters.items():
-                if name in internal_fields:
-                    context_deps.append(name)
-                    continue
-                
-                # Metadata detection
-                p_description = f"Parameter {name}"
-                p_required = param.default == inspect.Parameter.empty
-                p_managed = None
-                p_type = "string"
-                is_header = False
-                
-                # 1. Check for explicit Header parameters
+            if name in internal_fields or is_dependency:
+                context_deps.append(name)
+                continue
+            
+            p_description = f"Parameter {name}"
+            p_required = param.default == inspect.Parameter.empty
+            p_managed = None
+            p_default_val = None
+            
+            if isinstance(param.default, params.Param):
+                if param.default.description:
+                    p_description = param.default.description
                 if isinstance(param.default, params.Header):
-                    is_header = True
-                    # Protection (Critic Point 2): Mark sensitive headers as protocol-managed
                     if name.lower() in ["authorization", "x-api-key", "api-key", "token", "auth"]:
                         p_managed = "protocol"
-                    
-                    if param.default.description:
-                        p_description = param.default.description
-                    else:
-                        p_description = f"Parameter {name} (Header)"
-                    
-                    # Check if Header is required
-                    if param.default.default is Ellipsis or str(param.default.default) == "PydanticUndefined":
-                        p_required = True
                 
-                # 2. Check for Security/Depends dependencies
-                elif isinstance(param.default, (params.Depends, params.Security)):
-                    dependency = param.default.dependency
-                    
-                    # Inspect if the dependency is a Security Scheme (like HTTPBearer, APIKeyHeader)
-                    is_security = isinstance(dependency, SecurityBase) or \
-                                 (inspect.isclass(dependency) and issubclass(dependency, SecurityBase))
-                    
-                    if is_security:
-                        # Auto-detect Auth requirements
-                        context_deps.append(name)
-                        p_managed = "protocol"
-                        # We try to extract the auth type (e.g., 'bearer', 'api-key')
-                        auth_type = "bearer" if "bearer" in str(type(dependency)).lower() else "api-key"
-                        meta["extra"]["required_auth"] = auth_type
-                        continue 
-                    
-                    # Standard dependencies that look like auth should also be context-only
-                    if "get_current_user" in str(dependency) or "auth" in str(dependency).lower():
-                        context_deps.append(name)
-                        continue
-                    
-                    # If it's not a security scheme, we might want to skip it as it's internal logic
-                    context_deps.append(name)
-                    continue
+                val = param.default.default
+                try:
+                    json.dumps(val)
+                    p_default_val = val if val is not Ellipsis else None
+                except:
+                    p_default_val = None
+                if val is Ellipsis or "PydanticUndefined" in str(val):
+                    p_required = True
+            else:
+                val = param.default
+                try:
+                    json.dumps(val)
+                    p_default_val = val if val is not Ellipsis else None
+                except:
+                    p_default_val = None
+                if val is Ellipsis or "PydanticUndefined" in str(val):
+                    p_required = True
 
-                p_type, p_options = map_type(param.annotation)
-                
-                actual_parameters.append(ActionParam(
-                    name=name,
-                    description=p_description,
-                    type=p_type,
-                    required=p_required,
-                    managed_by=p_managed,
-                    options=p_options,
-                    default=None if p_required else (param.default.default if is_header else param.default)
-                ))
-
-        # Headers detection
-        headers = meta["extra"].get("headers") or {}
-        
-        # Group extraction logic
-        # Support both singular 'group' and plural 'groups'
-        extra = meta.get("extra", {})
-        groups = extra.get("groups") or extra.get("group") or extra.get("tags") or (route.tags if route.tags else [])
-        if isinstance(groups, str):
-            groups = [groups]
-
-        # Action Registration
-        self.register_action(
-            id=meta["id"],
-            type=meta["type"],
-            tags=route.tags if route.tags else ["default"],
-            groups=groups,
-            opens_group=meta["extra"].get("opens_group"),
-            description=description or "No description provided.",
-            instructions=instructions,
-            remedy=meta["extra"].get("remedy"),
-            method=method,
-            url=url,
-            parameters=actual_parameters if actual_parameters else None,
-            headers=headers if headers else None,
-            payload=payload,
-            required_auth=meta["extra"].get("required_auth"),
-            context_dependencies=context_deps if context_deps else None,
-            response_schema=self._extract_response_schema(route.response_model),
-            hidden=meta["extra"].get("hidden", False),
-            global_access=meta["extra"].get("global_access", False)
-        )
-
-    async def _agent_repair_handler(self, request: Request, exc: RequestValidationError):
-        """Enriches validation errors with landmark 'remedy' instructions to help LLMs self-correct."""
-        path_template = ""
-        if "route" in request.scope:
-            path_template = getattr(request.scope["route"], "path", "")
-        
-        method = request.method
-        matched_action = None
-        for action in self.actions:
-            if action.url == path_template and action.method == method:
-                matched_action = action
-                break
-        
-        errors = exc.errors()
-        if not matched_action:
-            # Fallback to standard FastAPI format for non-landmark routes
-            return JSONResponse(status_code=422, content={"detail": errors})
-
-        response_body = {
-            "status": "error",
-            "error_type": "validation_failed",
-            "managed_by": "elemm",
-            "message": "The AI Agent sent an invalid request according to the landmark protocol.",
-            "details": errors,
-        }
-
-        if matched_action.remedy:
-            response_body["remedy"] = matched_action.remedy
-        
-        if matched_action.instructions:
-            response_body["instruction"] = matched_action.instructions
-        elif matched_action.remedy:
-            response_body["instruction"] = "Follow the 'remedy' above to fix your parameters and try again."
-        
-        # Noise Detection Heuristic
-        try:
-            received_params = []
-            if method in ["POST", "PUT", "PATCH"]:
-                body = await request.json()
-                if isinstance(body, dict):
-                    received_params = list(body.keys())
+            p_type, p_options = map_type(param.annotation)
+            actual_parameters.append(ActionParam(
+                name=name,
+                description=p_description,
+                type=p_type,
+                required=p_required,
+                managed_by=p_managed,
+                options=p_options,
+                default=p_default_val
+            ))
             
-            allowed_params = []
-            if matched_action.parameters:
-                allowed_params += [p.name for p in matched_action.parameters]
-            if matched_action.payload:
-                if isinstance(matched_action.payload, list):
-                    allowed_params += [p.name for p in matched_action.payload]
-                elif isinstance(matched_action.payload, dict):
-                    allowed_params += list(matched_action.payload.keys())
-            
-            spurious = [p for p in received_params if p not in allowed_params]
-            if spurious:
-                response_body["noise_warning"] = f"Action does not support these parameters: {spurious}. Stick to the manifest."
-        except Exception:
-            pass
+        return actual_parameters, context_deps
 
-        return JSONResponse(status_code=422, content=response_body)
-
-    def _extract_response_schema(self, model: Any) -> Dict[str, str]:
+    def _extract_response_schema(self, model: Any) -> Dict[str, Any]:
         if not model: return {}
         try:
-            # Handle List[T], Optional[T], etc.
             origin = getattr(model, "__origin__", None)
             args = getattr(model, "__args__", [])
             if origin in [list, List] and args:
                 model = args[0]
             elif origin in [Union, Optional] and args:
-                # Take first non-None type
                 model = next((a for a in args if a != type(None)), model)
 
             if hasattr(model, "model_json_schema"):
@@ -526,7 +480,6 @@ class FastAPIProtocolManager(AIProtocolManager):
                 props = schema.get("properties", {})
                 res = {}
                 for k, v in props.items():
-                    # Return a dict for each property to include description if present
                     prop_type = v.get("type", "string")
                     desc = v.get("description", "")
                     if desc:
@@ -541,35 +494,158 @@ class FastAPIProtocolManager(AIProtocolManager):
     def get_router(self) -> APIRouter:
         return self.router
 
-    def run_mcp_stdio(self, app_import_path: str):
-        """
-        Runs the MCP server via stdio.
-        """
-        bridge = LandmarkBridge(manager=self)
-        bridge.run_stdio()
+    def tool(self, 
+             id: Optional[str] = None, 
+             type: str = "read", 
+             description: Optional[str] = None, 
+             instructions: Optional[str] = None, 
+             remedy: Optional[str] = None, 
+             groups: Optional[List[str]] = None, 
+             tags: Optional[List[str]] = None, 
+             global_access: bool = False, 
+             hidden: bool = False,
+             opens_group: Optional[str] = None,
+             parameters: Optional[List[ActionParam]] = None,
+             headers: Optional[Dict[str, str]] = None,
+             payload: Optional[Union[Dict[str, Any], List[ActionParam]]] = None,
+             required_auth: Optional[str] = None,
+             context_dependencies: Optional[List[str]] = None
+            ):
+        """Decorator to mark a FastAPI route as an ELEMM tool."""
+        final_groups = list(set((groups or []) + (tags or [])))
+        def decorator(func):
+            action_id = id or func.__name__
+            func._llm_landmark = {
+                "id": action_id,
+                "type": type,
+                "description": description,
+                "extra": {
+                    "instructions": instructions,
+                    "remedy": remedy,
+                    "groups": final_groups,
+                    "global_access": global_access,
+                    "hidden": hidden,
+                    "opens_group": opens_group,
+                    "parameters": parameters,
+                    "headers": headers,
+                    "payload": payload,
+                    "required_auth": required_auth,
+                    "context_dependencies": context_dependencies
+                }
+            }
+            # Pre-register so bind_to_app can find it
+            self.register_action(
+                handler=func,
+                id=action_id,
+                type=type,
+                description=description or "No description provided.",
+                groups=final_groups,
+                instructions=instructions,
+                remedy=remedy,
+                global_access=global_access,
+                hidden=hidden,
+                opens_group=opens_group,
+                parameters=parameters,
+                headers=headers,
+                payload=payload,
+                required_auth=required_auth,
+                context_dependencies=context_dependencies
+            )
+            return func
+        return decorator
 
-    async def call_action(self, action_id: str, arguments: Dict[str, Any]) -> Any:
-        """
-        Executes a registered landmark action by calling its FastAPI route internally.
-        """
+    def action(self, 
+               id: Optional[str] = None, 
+               type: str = "write", 
+               description: Optional[str] = None, 
+               instructions: Optional[str] = None, 
+               remedy: Optional[str] = None, 
+               groups: Optional[List[str]] = None, 
+               tags: Optional[List[str]] = None, 
+               global_access: bool = False, 
+               hidden: bool = False,
+               opens_group: Optional[str] = None,
+               parameters: Optional[List[ActionParam]] = None,
+               headers: Optional[Dict[str, str]] = None,
+               payload: Optional[Union[Dict[str, Any], List[ActionParam]]] = None,
+               required_auth: Optional[str] = None,
+               context_dependencies: Optional[List[str]] = None
+              ):
+        """Decorator to mark a FastAPI route as an ELEMM action."""
+        return self.tool(
+            id, type, description, instructions, remedy, groups, tags, global_access, hidden,
+            opens_group, parameters, headers, payload, required_auth, context_dependencies
+        )
+
+
+
+    async def call_action(self, action_id: str, arguments: Dict[str, Any]) -> tuple[Any, int]:
+        """Executes a registered landmark action by calling its FastAPI route internally."""
         action = next((a for a in self.actions if a.id == action_id), None)
         if not action:
             raise ValueError(f"Action {action_id} not found.")
 
-        # Prepare Internal Request
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url="http://test") as client:
-            method = action.method or "POST"
-            url = action.url
-            
-            if method.upper() == "GET":
-                resp = await client.get(url, params=arguments)
-            else:
-                resp = await client.post(url, json=arguments)
-            
-            try:
-                return resp.json()
-            except:
-                return {"status": "ok", "message": resp.text}
+        # Copy arguments to avoid modifying the original dict
+        params_to_use = (arguments or {}).copy()
+        url = action.url
+        
+        if url is None:
+            logger.error(f"CRITICAL: Action '{action_id}' has NO URL!")
+            raise ValueError(f"Action {action_id} has no registered URL.")
 
-# Official cool alias
+        # Fill path parameters (e.g. /locations/{city}/offices)
+        for k in list(params_to_use.keys()):
+            placeholder = f"{{{k}}}"
+            if placeholder in url:
+                old_url = url
+                url = url.replace(placeholder, str(params_to_use.pop(k)))
+                if self.debug:
+                    print(f"DEBUG: Replaced {placeholder} in URL. Old: {old_url}, New: {url}")
+
+        # Determine host-key for header scoping
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        host_key = parsed.netloc if parsed.netloc else "elemm-internal"
+        
+        current_headers = session_headers.get().get(host_key, {})
+        
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app), base_url="http://elemm-internal") as client:
+            method = (action.method or "POST").upper()
+            
+            # Route parameters based on method type
+            kwargs = {"headers": current_headers}
+            if method in ["GET", "DELETE"]:
+                kwargs["params"] = params_to_use
+            else:
+                kwargs["json"] = params_to_use
+
+            resp = await client.request(method, url, **kwargs)
+            
+            # Internal logging (Uvicorn-style) only if debug is enabled
+            if self.debug:
+                status_msg = "OK" if resp.status_code < 400 else "ERROR"
+                uv_logger = logging.getLogger("uvicorn.error")
+                target_logger = uv_logger if uv_logger.handlers else logger
+                target_logger.info(f"INTERNAL: \"{method} {url} HTTP/1.1\" {resp.status_code} {status_msg}")
+
+            try:
+                result = resp.json()
+            except:
+                result = {"status": "ok", "message": resp.text}
+            
+            # Protocol Enrichment: Inject remedy for failed actions (>= 400)
+            if resp.status_code >= 400 and isinstance(result, dict):
+                if action.remedy:
+                    result["remedy"] = action.remedy
+                elif resp.status_code == 404:
+                    # If the URL still contains placeholders, it means path parameters were missing
+                    import re
+                    placeholders = re.findall(r"\{(\w+)\}", url)
+                    if placeholders:
+                        result["remedy"] = f"Missing arguments: {', '.join(placeholders)}. Please provide required arguments."
+                    else:
+                        result["remedy"] = "Action not found or resource missing. Verify parameters and try again."
+            
+            return result, resp.status_code
+
 Elemm = FastAPIProtocolManager

@@ -18,25 +18,26 @@ Elemm provides three specialized decorators. The main difference lies in the pre
 @ai.action(id="delete_user") # Automatically sets type="write"
 ```
 
-## 2. Parameter Reference
-
 ### `id` (String, Required)
 The unique identifier of the tool. Elemm automatically sanitizes the ID from special characters.
 
+### `instructions` (String, Optional)
+**Highest Priority Metadata.** If provided, this string is used as the primary description for the AI agent. Use this to give specific, mission-oriented instructions to the LLM that should differ from the technical docstring.
+
+### `description` (String, Optional)
+**Medium Priority Metadata.** Used if `instructions` is not provided. If both are missing, Elemm automatically extracts the description from the function's **Docstring**.
+
 ### `type` (String)
 Defines the nature of the action:
-- `read`: Information gathering.
-- `write`: Data modification (filtered out in read-only mode).
-- `navigation`: Signposts for new levels or modules.
+- `read`: Information gathering (Default for `@ai.tool`).
+- `write`: Data modification (Default for `@ai.action`).
+- `navigation`: Signposts for context switching.
 
 ### `remedy` (String, Optional)
-Specific correction instruction transmitted to the agent in case of validation errors (HTTP 422). See [REPAIR_KIT.md](REPAIR_KIT.md).
-
-### `instructions` (String, Optional)
-Additional instructions for the agent. In version 0.6.0, these are preferably delivered via the agent repair kit in case of errors for token optimization.
+Specific correction instruction transmitted to the agent in case of validation errors (HTTP 422). This is a core part of the "Agent Repair Kit". See [REPAIR_KIT.md](REPAIR_KIT.md).
 
 ### `global_access` (Boolean)
-If set to `True`, the landmark is visible at the root level and in every sub-manifest (module).
+If set to `True`, the landmark is visible at the root level and in every sub-manifest (module). Use for cross-cutting tools like `search`.
 
 ### `hidden` (Boolean)
 The landmark is registered in the code but invisible to the agent (except when accessed via the internal group `_INTERNAL_ALL_`).

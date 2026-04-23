@@ -1,6 +1,9 @@
-from .base import AIProtocolManager
+from .base import BaseAIProtocolManager
 from .fastapi import FastAPIProtocolManager, Elemm
 from .models import AIAction, ActionParam
 
-__version__ = "0.7.0"
-__all__ = ["Elemm", "AIProtocolManager", "FastAPIProtocolManager", "AIAction", "ActionParam"]
+# Alias for backward compatibility
+AIProtocolManager = FastAPIProtocolManager
+
+__version__ = "0.8.0"
+__all__ = ["Elemm", "AIProtocolManager", "FastAPIProtocolManager", "BaseAIProtocolManager", "AIAction", "ActionParam"]

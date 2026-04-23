@@ -59,7 +59,9 @@ def test_global_access_and_filtering():
     all_manifest = manager.get_manifest(group="_INTERNAL_ALL_", agent_view=False, internal_key="secret123")
     all_ids = [a["id"] for a in all_manifest["actions"]]
     assert "hidden_tool" in all_ids
-    assert len(all_ids) == 3
+    # 3 registered + 1 enter_module
+    assert len(all_ids) == 3 # enter_module is in navigation
+    assert "enter_module" in [n["id"] for n in all_manifest["navigation"]]
 
 def test_complex_type_detection():
     app = FastAPI()
@@ -125,7 +127,9 @@ def test_mcp_legacy_and_list_payload():
         payload=[ActionParam(name="f3", type="boolean", required=True, description="Desc")]
     )
 
-    mcp_tools = manager.get_mcp_tools()
+    from elemm.mcp import LandmarkBridge
+    bridge = LandmarkBridge(manager=manager)
+    mcp_tools = bridge.get_full_mcp_definitions()
     
     legacy_tool = next(t for t in mcp_tools if t["name"] == "legacy")
     assert legacy_tool["inputSchema"]["properties"]["field1"]["type"] == "string"
@@ -145,7 +149,8 @@ def test_agent_view_noise_reduction():
     )
     
     clean_manifest = manager.get_manifest(agent_view=True)
-    clean_action = clean_manifest["actions"][0]
+    # Find the noisy action (not the enter_module)
+    clean_action = next(a for a in clean_manifest["actions"] if a["id"] == "noisy")
     
     # These fields SHOULD be gone in agent_view
     forbidden = ["groups", "global_access", "required_auth", "tags", "hidden"]
@@ -170,7 +175,8 @@ def test_read_only_filtering():
     # Normal View (read_only=False)
     normal_manifest = manager.get_manifest(read_only=False)
     normal_ids = [a["id"] for a in normal_manifest["actions"]]
-    assert len(normal_ids) == 3
+    assert len(normal_ids) == 3 # enter_module is in navigation
+    assert "enter_module" in [n["id"] for n in normal_manifest["navigation"]]
 
     # Read-Only View (read_only=True)
     ro_manifest = manager.get_manifest(read_only=True)
@@ -178,7 +184,8 @@ def test_read_only_filtering():
     assert "read_op" in ro_ids
     assert "write_op" not in ro_ids
     assert "delete_op" not in ro_ids 
-    assert len(ro_ids) == 1
+    assert len(ro_ids) == 1 # enter_module is in navigation
+    assert "enter_module" in [n["id"] for n in ro_manifest["navigation"]]
 
 def test_decorator_aliases():
     app = FastAPI()

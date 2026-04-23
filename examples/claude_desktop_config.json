@@ -1,12 +1,12 @@
 {
   "mcpServers": {
-    "elemm-landmarks": {
-      "command": "python3",
+    "elemm-gateway": {
+      "command": "elemm-connect",
       "args": [
-        "/ABSOLUTER/PFAD/ZU/DEINEM/REPO/examples/mcp_bridge.py"
+        "http://localhost:8000"
       ],
       "env": {
-        "LANDMARK_URLS": "http://localhost:8000"
+        "PYTHONPATH": "src"
       }
     }
   }

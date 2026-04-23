@@ -78,11 +78,12 @@ async def get_status():
 # --- BINDING ---
 
 ai.bind_to_app(app)
-# This also exposes /.well-known/llm-landmarks.json
-app.include_router(ai.get_router())
+# Note: bind_to_app automatically exposes:
+# - /.well-known/elemm-manifest.md (The hierarchical manifest)
+# - /.well-known/elemm/execute (The universal action proxy)
 
 if __name__ == "__main__":
-    print("\n--- Elemm Demo Server ---")
-    print("Navigation: http://localhost:8000/.well-known/llm-landmarks.json")
-    print("Market Access: http://localhost:8000/.well-known/llm-landmarks.json?group=Market+and+Sales")
+    print("\n--- Elemm Basic Navigation Demo ---")
+    print("Agent Manifest: http://localhost:8000/.well-known/elemm-manifest.md")
+    print("Market Access:  http://localhost:8000/.well-known/elemm-manifest.md?landmark_id=Market%20%26%20Sales")
     uvicorn.run(app, host="0.0.0.0", port=8000)

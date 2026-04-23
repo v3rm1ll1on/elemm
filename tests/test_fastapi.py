@@ -3,6 +3,7 @@ from fastapi import FastAPI, Header, Depends, Request
 from pydantic import BaseModel, Field
 from enum import Enum
 from elemm import Elemm
+from elemm.mcp import LandmarkBridge
 
 class Color(str, Enum):
     RED = "red"
@@ -20,7 +21,7 @@ def get_current_user():
 @pytest.fixture
 def app():
     app = FastAPI(title="Test App")
-    ai = Elemm(agent_instructions="Test Welcome", debug=True)
+    ai = Elemm(agent_welcome="Test Welcome", debug=True)
     
     @app.get("/items/{item_id}")
     @ai.tool(id="get_item", type="read")
@@ -94,7 +95,8 @@ def test_enum_and_pydantic_extraction(app):
     assert payload_fields["color"].options == ["red", "green", "blue"]
 
 def test_mcp_export(app):
-    mcp_tools = app.get_mcp_tools()
+    bridge = LandmarkBridge(manager=app)
+    mcp_tools = bridge.get_full_mcp_definitions()
     tool_names = [t["name"] for t in mcp_tools]
     
     assert "get_item" in tool_names
@@ -105,6 +107,3 @@ def test_mcp_export(app):
     assert "color" in create_tool["inputSchema"]["properties"]
     # Internal context deps like 'request' should NOT be in MCP schema
     assert "request" not in create_tool["inputSchema"]["properties"]
-    
-    # Check if module prefix is included
-    assert "[Module: root] TOOL:" in create_tool["description"]

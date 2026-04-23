@@ -45,10 +45,12 @@ graph TD
 A core feature of Elemm is the automatic generation of navigation points.
 
 ### Technical Distinction: Tool vs. ID
-It is important to distinguish between the **Tool** used by the agent and the **Landmark ID** it targets:
-- **list_navigation_points**: This is the MCP Tool the agent calls to discover where it can go.
-- **navigate**: This is the MCP Tool used to move between modules.
-- **explore_{tag_id}**: This is the technical **ID** of a landmark (e.g., `explore_it`). When calling `navigate`, the agent provides this ID as the `landmark_id` argument.
+It is important to distinguish between the **Core Tools** used by the agent and the **Native Tools** discovered within landmarks:
+- **get_manifest**: This is the primary discovery tool. It returns a Markdown manifest containing the available landmarks (navigation points) and a list of global tools.
+- **navigate**: Used to move between modules. When calling `navigate`, the agent provides a `landmark_id`.
+- **Native Tools**: Once an agent has navigated to a landmark (e.g. `it_ops`), all tools belonging to that group are exposed directly to the agent's toolbelt. The agent can call them **natively** (e.g. `query_logs()`) instead of using a generic executor.
+- **execute_action**: A protocol-level fallback tool used to run any registered action by its ID.
+- **explore_{tag_id}**: This is the default technical **ID** of a navigation landmark generated from FastAPI tags (e.g., `explore_it`).
 
 ### How it works
 Elemm analyzes the `openapi_tags` of a FastAPI application. If a route has a tag defined in the metadata, Elemm automatically generates a navigation landmark.
@@ -83,3 +85,11 @@ A core design goal of Elemm is to eliminate the need for long, complex system pr
 - **Embedded Persona**: By injecting the `agent_welcome` message into the primary navigation tools, the agent "discovers" its role and instructions through tool metadata rather than a static system prompt.
 - **On-Demand Guidance**: Instructions (via the Agent Repair Kit) are delivered just-in-time when an error occurs, keeping the context window clean during successful operations.
 - **Protocol-First Discovery**: The agent learns the API hierarchy at runtime by using `list_navigation_points`. This makes Elemm-based agents highly portable across different backend systems without requiring a single line of prompt engineering for the specific API layout.
+
+## 7. Distributed Architecture: The Gateway
+
+For extremely large enterprise environments, Elemm provides a **Gateway** model. This allows a single MCP endpoint to bridge multiple independent Elemm servers.
+
+- **Broker Logic**: The Gateway dynamically connects to remote sites, aggregates their tool manifests, and proxies execution calls.
+- **Cross-Domain Orchestration**: An agent can navigate from a Banking module on Host A to a Forensic module on Host B seamlessly.
+- **Unified Identity**: The Gateway manages scoped authentication across all connected hosts, ensuring that security contexts (like OAuth tokens) are correctly propagated only to the relevant targets.
