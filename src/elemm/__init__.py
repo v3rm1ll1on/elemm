@@ -1,6 +1,6 @@
-from .base import BaseAIProtocolManager
-from .fastapi import FastAPIProtocolManager, Elemm
-from .models import AIAction, ActionParam
+from .core.manager import BaseAIProtocolManager
+from .integrations.fastapi.manager import FastAPIProtocolManager, Elemm
+from .core.models import AIAction, ActionParam
 
 # Alias for backward compatibility
 AIProtocolManager = FastAPIProtocolManager

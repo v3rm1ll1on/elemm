@@ -10,7 +10,7 @@ def bind_mcp_sse(manager, app: FastAPI, route_prefix: str = "/mcp"):
     Exposes the landmark protocol as an MCP SSE endpoint with session isolation.
     """
     from mcp.server.sse import SseServerTransport
-    from .mcp import LandmarkBridge
+    from ...mcp.bridge import LandmarkBridge
     
     # We use a dictionary to store isolated bridges per session
     # In a production environment, this should have a TTL or cleanup mechanism
@@ -35,7 +35,7 @@ def run_mcp_stdio(manager, app_import_path: str, host: str = "127.0.0.1", port: 
     import threading
     import uvicorn
     import time
-    from .mcp import LandmarkBridge
+    from ...mcp.bridge import LandmarkBridge
 
     # Start Web server in background
     def start_web():

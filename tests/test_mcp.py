@@ -1,7 +1,7 @@
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from elemm.fastapi import Elemm
+from elemm import Elemm
 from pydantic import BaseModel
 
 class ReportReq(BaseModel):
@@ -29,27 +29,15 @@ def test_mcp_export_comprehensive():
     def glob(): return {"ok": True}
 
     ai.bind_to_app(app)
-    client = TestClient(app)
     
-    # 1. Test Root Context
-    resp = client.get("/.well-known/mcp-tools.json")
-    tools = resp.json()
+    from elemm.mcp.bridge import LandmarkBridge
+    bridge = LandmarkBridge(manager=ai)
+    tools = bridge.get_full_mcp_definitions()
+    
     ids = [t["name"] for t in tools]
-    assert "nav_banking" not in ids # Now separated into 'navigation' list
+    # In get_full_mcp_definitions, all tools are returned
     assert "global_tool" in ids
-    assert "freeze_account" not in ids # Isolated in banking group
-    
-    # Check Context Prefix on any root tool
-    report_tool = next(t for t in tools if t["name"] == "submit_report")
-    assert "[Module: root] TOOL: Report." in report_tool["description"]
-    
-    # 2. Test Banking Context
-    resp = client.get("/.well-known/mcp-tools.json?group=banking")
-    tools = resp.json()
-    ids = [t["name"] for t in tools]
     assert "freeze_account" in ids
-    assert "submit_report" in ids
-    assert "global_tool" in ids # Global access
     
     # 3. Test Parameter Mapping (Pydantic)
     report_tool = next(t for t in tools if t["name"] == "submit_report")

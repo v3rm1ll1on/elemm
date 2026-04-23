@@ -14,7 +14,7 @@ logging.getLogger("mcp").setLevel(logging.WARNING)
 logger = logging.getLogger("elemm-bridge")
 
 # Thread-safe session context
-from .context import landmark_ctx, session_headers
+from ..core.context import landmark_ctx, session_headers
 
 class LandmarkBridge:
     """
@@ -126,7 +126,7 @@ class LandmarkBridge:
             # We filter actions based on current context
             manifest_data = self.manager.get_manifest(group=current_ctx, agent_view=False)
             actions = manifest_data.get("actions", [])
-            from .discovery import convert_actions_to_mcp_tools
+            from ..core.discovery import convert_actions_to_mcp_tools
             native_tools = convert_actions_to_mcp_tools(actions)
             tools.extend(native_tools)
         
@@ -140,7 +140,7 @@ class LandmarkBridge:
         
         # Use direct access to actions to avoid internal auth checks
         actions = self.manager.actions
-        from .discovery import convert_actions_to_mcp_tools
+        from ..core.discovery import convert_actions_to_mcp_tools
         mcp_tools = convert_actions_to_mcp_tools(actions)
         return [t.model_dump() for t in mcp_tools]
 
@@ -199,7 +199,7 @@ class LandmarkBridge:
         auto_switched = await self._handle_auto_pilot(action_meta)
 
         # Inject session headers into context for this task
-        from .context import session_headers
+        from ..core.context import session_headers
         if not hasattr(self, "session_headers"):
             self.session_headers = {}
         token = session_headers.set(self.session_headers)

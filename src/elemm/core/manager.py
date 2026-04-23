@@ -27,11 +27,28 @@ class BaseAIProtocolManager:
         self.hybrid_threshold = hybrid_threshold
         self.navigation_landmarks = navigation_landmarks or []
 
-    async def call_action(self, action_id: str, arguments: Dict[str, Any]) -> Any:
+    async def call_action(self, action_id: str, arguments: Dict[str, Any]) -> tuple[Any, int]:
         """
-        To be implemented by framework-specific managers.
+        Direct execution of a registered Python function.
+        Returns (result, status_code) to remain compatible with MCP bridge expectations.
         """
-        raise NotImplementedError("This method must be implemented by a subclass.")
+        action = next((a for a in self.actions if a.id == action_id), None)
+        if not action:
+            raise ValueError(f"Action {action_id} not found.")
+            
+        if not action.handler:
+            raise ValueError(f"Action {action_id} has no registered handler.")
+            
+        import inspect
+        try:
+            if inspect.iscoroutinefunction(action.handler):
+                result = await action.handler(**arguments)
+            else:
+                result = action.handler(**arguments)
+            return result, 200
+        except Exception as e:
+            logger.error(f"Action {action_id} failed: {e}")
+            return {"error": str(e), "status": "error"}, 500
 
     def landmark(self, id: str, type: str, instructions: Optional[str] = None, description: Optional[str] = None, **kwargs):
         """

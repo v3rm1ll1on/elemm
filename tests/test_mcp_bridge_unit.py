@@ -1,8 +1,8 @@
 import pytest
 import asyncio
 from unittest.mock import MagicMock, AsyncMock
-from elemm.mcp import LandmarkBridge
-from elemm.models import AIAction
+from elemm.mcp.bridge import LandmarkBridge
+from elemm.core.models import AIAction
 import mcp.types as types
 
 @pytest.fixture

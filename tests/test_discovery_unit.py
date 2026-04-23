@@ -1,5 +1,5 @@
 import pytest
-from elemm.discovery import map_type, resolve_refs
+from elemm.core.discovery import map_type, resolve_refs
 from typing import List, Optional, Union
 from enum import Enum
 from pydantic import BaseModel

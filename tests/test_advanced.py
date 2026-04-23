@@ -4,8 +4,8 @@ from typing import Optional, Union, List
 from enum import Enum
 from pydantic import BaseModel
 from elemm import Elemm
-from elemm.models import ActionParam
-from elemm.exceptions import LandmarkNotFoundError
+from elemm.core.models import ActionParam
+from elemm.core.exceptions import LandmarkNotFoundError
 
 class Status(str, Enum):
     ACTIVE = "active"
@@ -127,7 +127,7 @@ def test_mcp_legacy_and_list_payload():
         payload=[ActionParam(name="f3", type="boolean", required=True, description="Desc")]
     )
 
-    from elemm.mcp import LandmarkBridge
+    from elemm.mcp.bridge import LandmarkBridge
     bridge = LandmarkBridge(manager=manager)
     mcp_tools = bridge.get_full_mcp_definitions()
     

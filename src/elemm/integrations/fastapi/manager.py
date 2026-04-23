@@ -12,12 +12,12 @@ import uuid
 from contextvars import ContextVar
 from pydantic import BaseModel
 
-from .base import BaseAIProtocolManager
-from .models import ActionParam
-from .discovery import map_type, resolve_refs
+from ...core.manager import BaseAIProtocolManager
+from ...core.models import ActionParam
+from ...core.discovery import map_type, resolve_refs
 from .repair import agent_repair_handler
-from .mcp_fastapi import bind_mcp_sse, run_mcp_stdio
-from .context import session_headers
+from .mcp import bind_mcp_sse, run_mcp_stdio
+from ...core.context import session_headers
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
 
         @router_or_app.get("/.well-known/elemm-manifest.md", include_in_schema=False)
         async def get_md_manifest(request: Request, landmark_id: Optional[str] = None, part: Optional[str] = None, technical: bool = False):
-            from .manifest import ManifestGenerator
+            from ...mcp.manifest import ManifestGenerator
             from fastapi import Response
             
             # Split comma-separated parts if provided
@@ -418,7 +418,10 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             # Context dependencies: Parameters that are injected by FastAPI/Elemm and NOT provided by the LLM
             is_dependency = isinstance(param.default, params.Depends)
             
-            if name in internal_fields or is_dependency:
+            # Filter out Pydantic BaseModels from path/query parameters since they are handled by payload
+            is_model = inspect.isclass(param.annotation) and issubclass(param.annotation, BaseModel)
+            
+            if name in internal_fields or is_dependency or is_model:
                 context_deps.append(name)
                 continue
             
