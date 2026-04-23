@@ -18,6 +18,20 @@ Elemm provides three specialized decorators. The main difference lies in the pre
 @ai.action(id="delete_user") # Automatically sets type="write"
 ```
 
+## 2. Dynamic Activation: `bind_module`
+
+In a native Python environment (without FastAPI), you must "bind" your modules to the manager to activate the discovery of decorated functions.
+
+```python
+from elemm.core.manager import BaseAIProtocolManager
+import my_tools_module
+
+ai = BaseAIProtocolManager()
+
+# Scans the module for @tool, @action, and @landmark decorators
+ai.bind_module(my_tools_module)
+```
+
 ### `id` (String, Required)
 The unique identifier of the tool. Elemm automatically sanitizes the ID from special characters.
 
@@ -52,5 +66,29 @@ When Python `Enum` or `typing.Literal` types are used, Elemm automatically recog
 ### Response Schema
 Elemm inspects the Python return type annotations (or the `response_model` of a FastAPI route). The agent receives structured information about what data structure the tool will return.
 
+### Pure Python Type Mapping
+
+When using native Python functions, Elemm uses `inspect.signature` to automatically extract parameter metadata:
+
+| Python Type | JSON/MCP Type | Note |
+| :--- | :--- | :--- |
+| `str` | `string` | |
+| `int` | `integer` | |
+| `float` | `number` | |
+| `bool` | `boolean` | |
+| `list` / `list[T]` | `array` | |
+| `dict` / `Dict[K, V]`| `object` | |
+| `Optional[T]` | `type T` | `required=False` |
+
+**Example:**
+```python
+@ai.tool(id="search")
+def search(query: str, limit: int = 10, tags: Optional[list[str]] = None):
+    # Elemm extracts:
+    # query: string (required)
+    # limit: integer (optional, default 10)
+    # tags: array (optional)
+```
+
 ### Constraints and Validation
-Pydantic constraints such as `ge` (greater than or equal to), `le` (less than or equal to), or `pattern` (Regex) are translated directly into the JSON schema for the agent.
+Pydantic constraints (when used in type hints or FastAPI routes) such as `ge` (greater than or equal to), `le` (less than or equal to), or `pattern` (Regex) are translated directly into the JSON schema for the agent.
