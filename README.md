@@ -32,6 +32,7 @@ Elemm utilizes dynamic correction hints (Remedies). In case of validation errors
 For deep dives into specific topics, see our technical documentation:
 
 - [Architecture](docs/ARCHITECTURE.md): Core protocol design and Zero-Prompt Vision.
+- [Gateway](docs/GATEWAY.md): Centralized hub for multi-host and cross-domain tool orchestration.
 - [Case Study](docs/CASE_STUDY.md): Detailed results of the Solaris Benchmark (Classic vs. ELEMM).
 - [Security](docs/SECURITY.md): Internal keys, God-mode protection, and administrative access.
 - [Deployment](docs/DEPLOYMENT.md): Docker, Nginx (SSE tuning), and Cloud configuration.
