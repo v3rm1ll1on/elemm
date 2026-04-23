@@ -173,13 +173,13 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                     )
             except Exception as e:
                 logger.error(f"Failed to generate manifest: {e}")
-                md_content = f"# ELEMM PROTOCOL ERROR
-
-## Internal Error
-{str(e)}
-
-## Remedy
-Please try to refresh the session or use the 'navigate' tool to recover."
+                md_content = f"""# ELEMM PROTOCOL ERROR
+ 
+ ## Internal Error
+ {str(e)}
+ 
+ ## Remedy
+ Please try to refresh the session or use the 'navigate' tool to recover."""
             
             return Response(content=md_content, media_type="text/markdown")
 
@@ -611,12 +611,37 @@ Please try to refresh the session or use the 'navigate' tool to recover."
 
         # Copy arguments to avoid modifying the original dict
         params_to_use = (arguments or {}).copy()
-        url = action.url
         
-        if url is None:
-            logger.error(f"CRITICAL: Action '{action_id}' has NO URL!")
-            raise ValueError(f"Action {action_id} has no registered URL.")
+        # EXECUTION DISPATCHER
+        # If the action has a URL, we route it through the FastAPI app via HTTPX (to preserve middleware/auth logic)
+        # If it's a native function (no URL), we execute it directly.
+        
+        if not action.url:
+            # Native execution for functions without a FastAPI route
+            try:
+                import asyncio
+                import inspect
+                
+                # Filter params to only those accepted by the handler
+                sig = inspect.signature(action.handler)
+                filtered_params = {
+                    k: v for k, v in params_to_use.items() 
+                    if k in sig.parameters
+                }
 
+                if asyncio.iscoroutinefunction(action.handler):
+                    result = await action.handler(**filtered_params)
+                else:
+                    result = action.handler(**filtered_params)
+                return result, 200
+            except Exception as e:
+                logger.error(f"Native Execution Error for {action_id}: {e}")
+                return {"error": str(e)}, 500
+
+        # HTTPX Internal Routing for FastAPI routes
+        url = action.url
+        from urllib.parse import urlparse
+        
         # Fill path parameters (e.g. /locations/{city}/offices)
         for k in list(params_to_use.keys()):
             placeholder = f"{{{k}}}"
@@ -671,5 +696,12 @@ Please try to refresh the session or use the 'navigate' tool to recover."
                         result["remedy"] = "Action not found or resource missing. Verify parameters and try again."
             
             return result, resp.status_code
+
+    def run_mcp_stdio(self, app_import_path: str, host: str = "127.0.0.1", port: int = 8001):
+        """
+        Convenience launcher: Starts the FastAPI server and then the MCP Stdio bridge.
+        """
+        from .mcp import run_mcp_stdio
+        run_mcp_stdio(self, app_import_path, host, port)
 
 Elemm = FastAPIProtocolManager

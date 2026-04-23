@@ -50,9 +50,9 @@ class ManifestGenerator:
             lines.append(f"# ELEMM MANIFEST: {system_name}")
             
         if "instructions" in requested and instructions:
-            lines.append(f"
-### AGENT DIRECTIVE
-{instructions}")
+            lines.append(f"""
+ ### AGENT DIRECTIVE
+ {instructions}""")
             
         # Optimize: Group actions by landmark once before the loop
         actions_by_group = {}
@@ -78,25 +78,21 @@ class ManifestGenerator:
                 summary = ManifestGenerator._get_summary_string(landmark_tools) if landmark_tools else ""
                 lines.append(f"- **{l_id}**: {l_notes}{summary}")
         elif tools:
-            lines.append("
-## Available Tools (Flat View)")
+            lines.append("\n## Available Tools (Flat View)")
             for t in tools:
                 # Robustly handle both object and dict types
                 if isinstance(t, dict):
                     tid = t.get("id") or t.get("name", "unknown")
-                    desc = t.get("description", "").split("
-")[0]
+                    desc = t.get("description", "").split("\n")[0]
                 else:
                     tid = getattr(t, "id", getattr(t, "name", "unknown"))
-                    desc = getattr(t, "description", "").split("
-")[0]
+                    desc = getattr(t, "description", "").split("\n")[0]
                 lines.append(f"- **{tid}**: {desc}")
 
         if include_technical_metadata:
             import json
             # We embed the technical MCP definitions in a hidden-ish block for Gateways/Bridges
-            lines.append("
----")
+            lines.append("\n---")
             lines.append("### Technical Discovery (Machine Readable)")
             lines.append("> [!NOTE]")
             lines.append("> This block contains the full technical definitions for Elemm Gateways.")
@@ -110,8 +106,7 @@ class ManifestGenerator:
             lines.append(json.dumps([t.model_dump() for t in mcp_data], indent=2))
             lines.append("```")
         
-        return "
-".join(lines)
+        return "\n".join(lines)
 
     @staticmethod
     def _get_summary_string(landmark_tools: List[Any], limit: int = 3) -> str:
@@ -133,9 +128,7 @@ class ManifestGenerator:
     def generate_detailed_landmark(landmark_id: str, tools: List[Dict[str, Any]]) -> str:
         header = [f"# LANDMARK DETAILS: {landmark_id}", "", "### Available Tools"]
         if not tools:
-            return "
-".join(header + ["_No tools registered in this landmark._"])
+            return "\n".join(header + ["_No tools registered in this landmark._"])
             
         tool_lines = [f"- **{t.get('id', t.get('name'))}**: {t.get('description', '')}" for t in tools]
-        return "
-".join(header + tool_lines)
+        return "\n".join(header + tool_lines)

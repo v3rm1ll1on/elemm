@@ -13,15 +13,13 @@ We currently support and provide security updates for the following versions of 
 
 We take security seriously. If you discover a security vulnerability within Elemm, please do **not** open a public issue. Instead, please report it via one of the following methods:
 
-1. **Email**: Send a detailed report to [INSERT EMAIL].
+1. **Email**: Send a detailed report to v3rm1ll1on [AT] proton [DOT] me.
 2. **GitHub Private Reporting**: Use the "Report a security vulnerability" feature on the repository if enabled.
 
 Please include as much information as possible, including:
 - A description of the vulnerability.
 - Steps to reproduce the issue.
 - Potential impact.
-
-We will acknowledge your report within 48 hours and provide a timeline for a fix.
 
 ## Technical Security Documentation
 

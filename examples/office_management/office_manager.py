@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field
-from elemm import FastAPIProtocolManager
+from elemm import Elemm
 
 app = FastAPI(title="UrbanCoWorking - Premium Office Spaces")
 
@@ -14,7 +14,7 @@ app = FastAPI(title="UrbanCoWorking - Premium Office Spaces")
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
-ai = FastAPIProtocolManager(
+ai = Elemm(
     agent_welcome="Welcome to UrbanCoWorking. How may I assist with your workspace today?",
     agent_instructions="Concierge-style support: Provide warm, elegant booking assistance and only confirm reservations via tool-issued IDs.",
     protocol_instructions="Verify availability via 'list_offices' before booking.",
@@ -103,10 +103,7 @@ async def book_room(data: BookingRequest):
     if not room:
         raise HTTPException(
             status_code=400, 
-            detail={
-                "message": f"Room '{data.room_id}' not found.",
-                "remedy": "The room_id might be incorrect. Use 'list_offices' with a valid city to get the correct workspace IDs."
-            }
+            detail=f"Room '{data.room_id}' not found."
         )
         
     b_id = str(uuid.uuid4())[:8]

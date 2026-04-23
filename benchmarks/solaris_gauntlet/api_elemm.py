@@ -3,7 +3,7 @@ import random
 from fastapi import FastAPI, Query, Body, HTTPException
 from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
-from elemm.fastapi import FastAPIProtocolManager as Elemm
+from elemm import Elemm
 
 # --- SCHEMAS ---
 class Alert(BaseModel):
@@ -169,4 +169,8 @@ ai.bind_to_app(app)
 if __name__ == "__main__":
     import sys
     if "--stdio" in sys.argv or "--mcp" in sys.argv:
-        ai.run_mcp_stdio("api_elemm:app")
+        ai.run_mcp_stdio("api_elemm:app", port=8008)
+    else:
+        import uvicorn
+        print("Starting Solaris Gauntlet API on http://localhost:8008")
+        uvicorn.run(app, host="0.0.0.0", port=8008)

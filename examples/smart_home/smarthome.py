@@ -3,12 +3,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from enum import Enum
-from elemm.fastapi import FastAPIProtocolManager
+from elemm import Elemm
 
 app = FastAPI(title="SmartHome AI Control", version="1.0.0")
 
 # --- elemm configuration ---
-ai = FastAPIProtocolManager(
+ai = Elemm(
     agent_instructions="Welcome to the SmartHome Matrix. You are an autonomous controller. Do NOT ask the user for device IDs if you can find them via discovery tools.",
     protocol_instructions=(
         "### SMART HOME PROTOCOL RULES ###\n"
@@ -78,17 +78,15 @@ def get_rooms():
     id="list_devices", 
     global_access=True,
     description="Lists all smart devices (Lights, Heating, Espresso Machine, etc.) in a room.",
-    instructions="You MUST provide the 'room_id' (e.g., 'living-room') as a parameter. Look at 'list_rooms' output first."
+    instructions="You MUST provide the 'room_id' (e.g., 'living-room') as a parameter. Look at 'list_rooms' output first.",
+    remedy="If room is not found, call 'list_rooms' to see valid room IDs."
 )
 def get_devices(room_id: str):
     """Lists all smart devices in a specific room."""
     if room_id not in DB:
         raise HTTPException(
             status_code=404, 
-            detail={
-                "message": f"Room '{room_id}' not found.",
-                "remedy": "Call 'list_rooms' to see the exact valid room IDs."
-            }
+            detail=f"Room '{room_id}' not found."
         )
     return DB[room_id]
 
@@ -97,18 +95,15 @@ def get_devices(room_id: str):
     id="control_device", 
     global_access=True,
     instructions="Updates device status. Use 'device_id' (e.g., 'heat-1') and provide 'temperature' (18-24) or 'is_on' (boolean).",
-    remedy="If it fails, ensure you use 'device_id' (not 'device') and 'temperature' (not 'set_temperature')."
+    remedy="Check device_id via 'list_devices'. Ensure 'is_on' is boolean. Note: Fridges cannot be turned off for safety."
 )
 def control_device(device_id: str, request: ControlRequest):
     """Updates the status or temperature of a device."""
-    # Check fridge safety only if is_on is explicitly set to False
+    # Check fridge safety
     if "fridge" in device_id and request.is_on is False:
         raise HTTPException(
             status_code=403, 
-            detail={
-                "message": "Safety Lock: Cannot turn off the fridge via AI.",
-                "remedy": "This is a hardware safety restriction. You cannot turn off cooling appliances."
-            }
+            detail="Safety Lock: Cannot turn off the fridge via API."
         )
     
     device_found = None
@@ -123,19 +118,18 @@ def control_device(device_id: str, request: ControlRequest):
     if not device_found:
         raise HTTPException(
             status_code=404, 
-            detail={
-                "message": f"Device '{device_id}' not found.",
-                "remedy": f"Verify the device ID. Use 'list_devices' for the specific room to find the correct ID."
-            }
+            detail=f"Device '{device_id}' not found."
         )
 
-    # Update power status if provided
+    # Update power status
     if request.is_on is not None:
         device_found.status = DeviceStatus.ON if request.is_on else DeviceStatus.OFF
-        
-    # Update temperature if provided
-    if request.temperature is not None:
-        device_found.temperature = request.temperature
+    elif request.temperature is None:
+        # Neither is_on nor temperature was provided (likely a hallucinated parameter like 'status')
+        raise HTTPException(
+            status_code=400,
+            detail="No valid control parameters provided."
+        )
     
     # Update power usage based on current status
     if device_found.status == DeviceStatus.OFF:

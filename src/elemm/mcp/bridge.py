@@ -307,30 +307,37 @@ class LandmarkBridge:
         if auto_switched:
             sections.append(f"[Ctx: {self.ctx}] (Switched)")
             
-        return "
-".join(sections)
+        return "\n".join(sections)
 
     def _stringify_result(self, res: Any) -> str:
-        # 1. Compact success responses
-        if isinstance(res, dict) and res.get("status") == "success" and "message" in res:
-            return f"OK: {res['message']}"
-            
-        # 3. Truncate long lists
+        # 1. Truncate long lists (First level protection)
         if isinstance(res, list):
-            if len(res) > 10:
-                truncated = res[:10]
-                return "
-".join([f"- {json.dumps(item, separators=(',', ':'))}" for item in truncated]) + f"
-... (+{len(res)-10})"
-            return "
-".join([f"- {json.dumps(item, separators=(',', ':'))}" for item in res])
+            orig_len = len(res)
+            if orig_len > 10:
+                res = res[:10]
+                suffix = f"\n... (+{orig_len - 10} items)"
+            else:
+                suffix = ""
+            return "\n".join([f"- {json.dumps(item, separators=(',', ':'))}" for item in res]) + suffix
             
-        # 4. Simplify dicts
-        if isinstance(res, dict):
-            if not res: return "{}"
-            return json.dumps(res, separators=(',', ':'))
+        # 2. Smart Compaction for success responses
+        # ONLY if NO other data is present besides status/message
+        if isinstance(res, dict) and res.get("status") == "success" and "message" in res:
+            if len(res) <= 2:
+                return f"OK: {res['message']}"
+
+        # 3. Default JSON stringification
+        if isinstance(res, (dict, list)):
+            out = json.dumps(res, separators=(',', ':'))
+        else:
+            out = str(res)
             
-        return str(res)
+        # 4. HARD LIMIT PROTECTION (Context Bloat Guard)
+        MAX_CHARS = 5000
+        if len(out) > MAX_CHARS:
+            return out[:MAX_CHARS] + f"\n\n[WARNING: Result truncated to {MAX_CHARS} chars to prevent context overflow]"
+            
+        return out
 
     def _format_error_feedback(self, e: Exception) -> str:
         msg = str(e)
@@ -376,10 +383,8 @@ class LandmarkBridge:
         actions = manifest.get("actions", [])
         
         # Only list IDs and short descriptions to save tokens
-        tool_list = "
-".join([f"- {a['id']}: {a.get('description', '')[:100]}" for a in actions])
-        return [types.TextContent(type="text", text=f"Landmark '{landmark_id}' Tools:
-{tool_list}")]
+        tool_list = "\n".join([f"- {a['id']}: {a.get('description', '')[:100]}" for a in actions])
+        return [types.TextContent(type="text", text=f"Landmark '{landmark_id}' Tools:\n{tool_list}")]
 
     async def _handle_navigate(self, _name: str, arguments: dict) -> List[types.TextContent]:
         landmark_id = arguments.get("landmark_id", "")

@@ -115,10 +115,7 @@ class ElemmGateway(LandmarkBridge):
                 
                 # Simple extraction for directive
                 def get_section(name):
-                    pattern = rf"^### {name}\s*
-(.*?)(?=
-###|
-##|$)"
+                    pattern = rf"^### {name}\s*\n(.*?)(?=\n###|\n##|$)"
                     m = re.search(pattern, md_content, re.MULTILINE | re.DOTALL)
                     return m.group(1).strip() if m else None
 
@@ -126,9 +123,7 @@ class ElemmGateway(LandmarkBridge):
 
                 # Extract Technical Tools from json-elemm block
                 mcp_tools = []
-                json_match = re.search(r"```json-elemm
-(.*?)
-```", md_content, re.DOTALL)
+                json_match = re.search(r"```json-elemm\n(.*?)\n```", md_content, re.DOTALL)
                 if json_match:
                     try:
                         mcp_tools = json.loads(json_match.group(1))
@@ -143,12 +138,8 @@ class ElemmGateway(LandmarkBridge):
                 self.active_site_url = url
                 
                 welcome_msg = (
-                    f"Connected to {url} successfully.
-
-"
-                    f"Instructions: {directive}
-
-"
+                    f"Connected to {url} successfully.\n\n"
+                    f"Instructions: {directive}\n\n"
                     f"Discovered {len(mcp_tools)} tools. Use get_manifest or navigation tools to explore the site."
                 )
                 return [types.TextContent(type="text", text=welcome_msg)]
@@ -169,9 +160,7 @@ class ElemmGateway(LandmarkBridge):
                 if name == "get_manifest":
                     raw_md = self.connected_sites[self.active_site_url]["manifest"]
                     # Token Optimization: Strip the technical json-elemm block for the agent
-                    clean_md = re.sub(r"
----
-### Technical Discovery.*```json-elemm.*?```", "", raw_md, flags=re.DOTALL)
+                    clean_md = re.sub(r"\n---\n### Technical Discovery.*```json-elemm.*?```", "", raw_md, flags=re.DOTALL)
                     return [types.TextContent(type="text", text=clean_md.strip())]
                 
                 if name == "inspect_landmark":
@@ -218,8 +207,7 @@ class ElemmGateway(LandmarkBridge):
 
                     # We use the base class stringifier for consistency
                     output_text = self._stringify_result(res)
-                    return [types.TextContent(type="text", text=f"### RESULT: {aid}
-{output_text}")]
+                    return [types.TextContent(type="text", text=f"### RESULT: {aid}\n{output_text}")]
 
         except Exception as e:
             logger.error(f"Gateway Proxy Error: {e}")
