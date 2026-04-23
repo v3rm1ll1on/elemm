@@ -1,6 +1,6 @@
 # Elemm Reference: Decorators and Options
 
-Elemm provides an intuitive API to mark FastAPI routes as AI landmarks. The framework handles the extraction of schemas, types, and validation rules directly from the Python code.
+Elemm provides an intuitive API to mark native Python functions or FastAPI routes as AI landmarks. The framework handles the extraction of schemas, types, and validation rules directly from the Python code via `inspect` (or Pydantic if available).
 
 ## 1. Decorator Aliases
 
@@ -50,7 +50,7 @@ Elemm uses reflection to generate precise metadata for AI models:
 When Python `Enum` or `typing.Literal` types are used, Elemm automatically recognizes them and maps them to `options` in the manifest. The agent receives an exact list of allowed values.
 
 ### Response Schema
-Elemm inspects the `response_model` of the FastAPI route. The agent receives structured information about what data structure the tool will return.
+Elemm inspects the Python return type annotations (or the `response_model` of a FastAPI route). The agent receives structured information about what data structure the tool will return.
 
 ### Constraints and Validation
 Pydantic constraints such as `ge` (greater than or equal to), `le` (less than or equal to), or `pattern` (Regex) are translated directly into the JSON schema for the agent.

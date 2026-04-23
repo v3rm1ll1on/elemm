@@ -4,7 +4,27 @@ Deploying landmark-enabled APIs requires attention to how proxies handle long-li
 
 ## 1. Dockerization
 
-A standard FastAPI deployment with Elemm:
+### 1.1 Native Python (No Framework)
+
+A pure Python MCP server (e.g., using `run_mcp_stdio` or the `mcp` CLI) doesn't need to expose network ports:
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install elemm
+
+COPY . .
+
+# Run via stdio (The container runs indefinitely waiting for MCP stdin)
+CMD ["python", "my_module.py"]
+```
+
+### 1.2 FastAPI Integration (SSE)
+
+A standard FastAPI deployment with Elemm (using SSE):
 
 ```dockerfile
 FROM python:3.11-slim
