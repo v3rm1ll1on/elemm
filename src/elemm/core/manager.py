@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, Optional, Callable
 from .models import AIAction, AIProtocolManifest
-from .exceptions import LandmarkRegistrationError, ManifestGenerationError, LandmarkNotFoundError
+from .exceptions import LandmarkRegistrationError, ManifestGenerationError, LandmarkNotFoundError, ActionError
 import logging
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,12 @@ class BaseAIProtocolManager:
             else:
                 result = action.handler(**arguments)
             return result, 200
+        except ActionError as e:
+            logger.error(f"Action {action_id} failed: {e.message}")
+            res = {"error": e.message, "status": "error"}
+            if e.remedy: res["remedy"] = e.remedy
+            if e.instruction: res["instruction"] = e.instruction
+            return res, e.status_code
         except Exception as e:
             logger.error(f"Action {action_id} failed: {e}")
             return {"error": str(e), "status": "error"}, 500
