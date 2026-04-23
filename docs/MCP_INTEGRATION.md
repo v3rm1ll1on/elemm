@@ -5,7 +5,7 @@ Elemm provides native support for the Model Context Protocol (MCP). This allows 
 ## Features
 
 - **Automatic Tool Export**: Landmarks are transparently translated into MCP tool definitions.
-- **Registry-based Navigation**: The bridge provides dedicated tools (`list_navigation_points`, `navigate`) to control the active context.
+- **Registry-based Navigation**: The bridge provides dedicated tools (`get_manifest`, `navigate`) to control the active context.
 - **Session Isolation**: Every agent (SSE connection) receives an isolated bridge instance with its own navigation state.
 - **Token Efficiency**: Reduction of static tool descriptions through dynamic delivery of instructions in case of errors.
 
@@ -13,7 +13,7 @@ Elemm provides native support for the Model Context Protocol (MCP). This allows 
 
 Unlike flat MCP servers, Elemm uses a hierarchical model:
 
-1. **list_navigation_points**: Lists all available modules and landmarks in the current area.
+1. **get_manifest**: Returns the Markdown manifest of available landmarks and global tools.
 2. **navigate**: Allows switching to a specific module. After the switch, the bridge dynamically updates the list of available tools.
 
 This process minimizes the number of simultaneously visible tools and significantly increases reliability for large tool catalogs.

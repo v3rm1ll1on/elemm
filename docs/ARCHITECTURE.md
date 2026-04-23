@@ -45,10 +45,12 @@ graph TD
 A core feature of Elemm is the automatic generation of navigation points.
 
 ### Technical Distinction: Tool vs. ID
-It is important to distinguish between the **Tool** used by the agent and the **Landmark ID** it targets:
-- **list_navigation_points**: This is the MCP Tool the agent calls to discover where it can go.
-- **navigate**: This is the MCP Tool used to move between modules.
-- **explore_{tag_id}**: This is the technical **ID** of a landmark (e.g., `explore_it`). When calling `navigate`, the agent provides this ID as the `landmark_id` argument.
+It is important to distinguish between the **Core Tools** used by the agent and the **Native Tools** discovered within landmarks:
+- **get_manifest**: This is the primary discovery tool. It returns a Markdown manifest containing the available landmarks (navigation points) and a list of global tools.
+- **navigate**: Used to move between modules. When calling `navigate`, the agent provides a `landmark_id`.
+- **Native Tools**: Once an agent has navigated to a landmark (e.g. `it_ops`), all tools belonging to that group are exposed directly to the agent's toolbelt. The agent can call them **natively** (e.g. `query_logs()`) instead of using a generic executor.
+- **execute_action**: A protocol-level fallback tool used to run any registered action by its ID.
+- **explore_{tag_id}**: This is the default technical **ID** of a navigation landmark generated from FastAPI tags (e.g., `explore_it`).
 
 ### How it works
 Elemm analyzes the `openapi_tags` of a FastAPI application. If a route has a tag defined in the metadata, Elemm automatically generates a navigation landmark.
