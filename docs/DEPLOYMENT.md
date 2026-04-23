@@ -4,7 +4,27 @@ Deploying landmark-enabled APIs requires attention to how proxies handle long-li
 
 ## 1. Dockerization
 
-A standard FastAPI deployment with Elemm:
+### 1.1 Native Python (No Framework)
+
+A pure Python MCP server (e.g., using `run_mcp_stdio` or the `mcp` CLI) doesn't need to expose network ports:
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install elemm
+
+COPY . .
+
+# Run via stdio (The container runs indefinitely waiting for MCP stdin)
+CMD ["python", "my_module.py"]
+```
+
+### 1.2 FastAPI Integration (SSE)
+
+A standard FastAPI deployment with Elemm (using SSE):
 
 ```dockerfile
 FROM python:3.11-slim
@@ -64,3 +84,55 @@ ai.bind_mcp_sse(app, route_prefix="/mcp")
 ```
 
 Elemm automatically detects the `root_path` and adjusts the SSE and manifest URLs accordingly.
+
+## 5. Integrating with LLM Clients (EverythingLLM / Claude Desktop)
+
+Native MCP servers (framework-agnostic) can be integrated directly into desktop LLM clients using the Model Context Protocol (Stdio transport).
+
+### 5.1 AnythingLLM / Claude Desktop Config
+
+Add the following to your `mcpServers.json` configuration file:
+
+```json
+{
+  "mcpServers": {
+    "elemm-system-guardian": {
+      "command": "python3",
+      "args": [
+        "path/to/your/elemm_script.py"
+      ],
+      "env": {
+        "PYTHONPATH": "src"
+      }
+    }
+  }
+}
+```
+
+### 5.2 WSL / Remote Integration
+
+If your Elemm code resides in WSL but the LLM client is running on Windows, use the following "Bridge" configuration:
+
+```json
+{
+  "mcpServers": {
+    "elemm-wsl-node": {
+      "command": "wsl.exe",
+      "args": [
+        "-u", "your_user",
+        "-d", "your_distro",
+        "bash", "-c",
+        "cd /home/user/my_project && PYTHONPATH=src ./venv/bin/python3 my_elemm_script.py"
+      ]
+    }
+  }
+}
+```
+
+### 5.3 Verify Connection
+
+Once configured:
+1. Restart your LLM Client.
+2. Check the logs for `[MCP] Connected to elemm-system-guardian`.
+3. Ask the agent: "Which landmarks are available?". The agent should respond with the hierarchical map defined in your `navigation_landmarks`.
+

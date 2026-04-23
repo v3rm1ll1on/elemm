@@ -11,7 +11,7 @@ The Elemm Gateway is a specialized MCP server that acts as a centralized hub for
 
 ## Architecture: The Broker Model
 
-Unlike a standard Elemm bridge which is bound to a single FastAPI app, the Gateway starts with an empty toolbelt (except for core protocol tools) and populates itself dynamically.
+Unlike a standard Elemm bridge which is bound to a single application (FastAPI or Native Python), the Gateway starts with an empty toolbelt (except for core protocol tools) and populates itself dynamically.
 
 ```mermaid
 graph LR
@@ -67,7 +67,7 @@ One of the most critical tasks of the Gateway is managing credentials. If a tool
 
 | Feature | Elemm Bridge (Standard) | Elemm Gateway |
 | :--- | :--- | :--- |
-| **Binding** | Hard-bound to one FastAPI app | Dynamic (Connects via URL) |
+| **Binding** | Hard-bound to one application (Python/FastAPI) | Dynamic (Connects via URL) |
 | **Tool Source** | Local Python functions | Remote Manifests (.md) |
 | **Discovery** | JIT via internal registry | HTTP fetching & Regex parsing |
 | **Multi-Host** | No | Yes (Unified Hub) |

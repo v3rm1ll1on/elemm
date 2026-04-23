@@ -27,6 +27,24 @@ def map_type(annotation: Any) -> Tuple[str, Optional[List[Any]]]:
     if inspect.isclass(annotation) and issubclass(annotation, Enum):
         return "string", [e.value for e in annotation]
 
+    # Handle Pydantic BaseModel (Recursive Schema)
+    from pydantic import BaseModel
+    if inspect.isclass(annotation) and issubclass(annotation, BaseModel):
+        # We return 'object' and use the model's schema as options for processing
+        try:
+            schema = annotation.model_json_schema() if hasattr(annotation, "model_json_schema") else annotation.schema()
+            return "object", schema
+        except:
+            return "object", None
+
+    # Handle Annotated (for Field constraints)
+    if hasattr(annotation, "__metadata__"):
+        actual_type = annotation.__origin__
+        metadata = annotation.__metadata__
+        p_type, p_options = map_type(actual_type)
+        # Return the type and merge metadata if possible (simplified for now)
+        return p_type, p_options
+
     raw_type = str(getattr(annotation, "__name__", annotation)).lower()
     
     # If it's a dict from JSON schema processing
@@ -35,6 +53,10 @@ def map_type(annotation: Any) -> Tuple[str, Optional[List[Any]]]:
         enum_vals = annotation.get("enum")
         if enum_vals:
             return "string", enum_vals
+        
+        # Check for numeric constraints
+        # ... logic can be expanded here
+        return raw_type, None
 
     mapping = {
         "str": "string", "string": "string",
@@ -42,7 +64,8 @@ def map_type(annotation: Any) -> Tuple[str, Optional[List[Any]]]:
         "float": "number", "number": "number",
         "bool": "boolean", "boolean": "boolean",
         "list": "array", "array": "array",
-        "dict": "object", "object": "object"
+        "dict": "object", "object": "object",
+        "list[str]": "array", "list[int]": "array"
     }
     return mapping.get(raw_type, "string"), None
 
@@ -105,7 +128,11 @@ def convert_actions_to_mcp_tools(actions: List[Any]) -> List[Any]:
                 "description": desc
             }
             if p_enum:
-                properties[name]["enum"] = p_enum
+                if p_type == "object" and isinstance(p_enum, dict):
+                    # It's a Pydantic model schema
+                    properties[name] = p_enum 
+                else:
+                    properties[name]["enum"] = p_enum
                 
             if (hasattr(p, "required") and p.required) or (isinstance(p, dict) and p.get("required")):
                 required_fields.append(name)

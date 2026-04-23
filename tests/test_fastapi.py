@@ -3,7 +3,7 @@ from fastapi import FastAPI, Header, Depends, Request
 from pydantic import BaseModel, Field
 from enum import Enum
 from elemm import Elemm
-from elemm.mcp import LandmarkBridge
+from elemm.mcp.bridge import LandmarkBridge
 
 class Color(str, Enum):
     RED = "red"

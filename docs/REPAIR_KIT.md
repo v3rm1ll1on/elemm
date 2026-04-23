@@ -1,54 +1,115 @@
 # Elemm Resilience: The Agent Repair Kit
 
-AI agents are prone to errors such as typos, incorrect date formats, or hallucinating parameters. In these cases, traditional APIs often only deliver technical error messages (e.g., "422 Unprocessable Entity"), which frequently leads to infinite loops where the agent repeats the same mistake.
+AI agents are prone to failures such as typos, hallucinated parameters, or incorrect data types. Traditional APIs typically respond with raw technical errors (e.g., `422 Unprocessable Entity`), which often causes agents to "stall" or enter infinite loops of the same mistake.
 
-The Elemm Agent Repair Kit breaks these loops through proactive, semantic self-healing.
+The **Elemm Agent Repair Kit** solves this by providing **Self-Healing Infrastructure**. It intercepts errors and injects human-readable, action-oriented instructions back to the agent in real-time.
 
-## 1. Dynamic Correction Hints (Remedies)
+---
 
-Every landmark can define a `remedy`. This is a specific instruction that is transmitted to the agent **only** when it makes an error.
+## 1. How It Works: The Semantic Loop
 
-### Example:
+Instead of cluttering tool descriptions with every possible validation rule (which wastes expensive tokens), Elemm delivers instructions **Just-in-Time**—only when an error actually occurs.
+
+```mermaid
+sequenceDiagram
+    participant A as AI Agent
+    participant B as Elemm Bridge
+    participant C as Core Logic
+    
+    A->>B: Call tool with invalid data (e.g. "age": "five")
+    B->>C: Execute Tool
+    C-->>B: Error (ValueError or 422)
+    Note over B: Intercept & Enrich
+    B-->>A: "REMEDY: Use numeric digits for age. <br/> Res: {'error': 'Invalid format'}"
+    A->>B: Self-Correction (Call with "age": 5)
+    B->>C: Execute Tool
+    C-->>A: Success
+```
+
+---
+
+## 2. Static vs. Dynamic Remedies
+
+Elemm supports two levels of repair, depending on the complexity of your business rules.
+
+### A. Static Remedies (via Decorator)
+Used for constant rules that apply to every call of the tool.
+
 ```python
 @ai.action(
     id="update_profile",
-    remedy="Use only the YYYY-MM-DD format for dates."
+    remedy="Always use YYYY-MM-DD for dates. Do not use month names."
 )
-@app.post("/profile")
-async def update(birth_date: str):
-    # If the AI sends 'June 12th', a 422 error is thrown.
-    # Elemm intercepts this and adds the remedy.
+def update(birth_date: str):
+    ...
 ```
 
-Instead of keeping these instructions permanently in the tool description (which costs tokens), they are delivered only in case of an error. This keeps the context window clean and efficient.
+### B. Dynamic Remedies (via In-Code Logic)
+Used when the correction hint depends on the **actual input** provided by the agent.
 
-## 2. Automated Noise Detection
+#### Native Python: The `ActionError` Pattern
+In pure Python environments, use the `ActionError` exception to signal specific recovery paths.
 
-AI agents often invent parameters that do not exist in the API (e.g., a `confirm: true` field during a deletion process).
+```python
+from elemm.core.exceptions import ActionError
 
-The repair kit recognizes these deviations:
-- It compares the received JSON keys with the parameters defined in the manifest.
-- Surplus fields are identified and returned to the agent as a `noise_warning`.
-- The response then reads: "The action does not support these parameters: ['confirm']. Stick strictly to the manifest."
+@manager.action(id="transfer_funds")
+def transfer(amount: int, target_account: str):
+    if amount > 5000:
+        raise ActionError(
+            message="Daily limit exceeded",
+            remedy="For amounts > 5000, you must first call 'request_limit_increase()'."
+        )
+    if not target_account.startswith("IBAN"):
+        raise ActionError(
+            message="Invalid account",
+            remedy="Target account must be a valid IBAN starting with 'IBAN'."
+        )
+```
 
-## 3. Zero-Shot Error Recovery Flow
+#### FastAPI: The Response Pattern
+In FastAPI, you can simply return a dictionary containing the `remedy` key, or raise a `HTTPException` which the Elemm middleware will enrich.
 
-The correction process runs fully automatically:
+---
 
-1. **Attempted Call**: The agent sends an erroneous request.
-2. **Interception**: The Elemm protocol manager recognizes the error (HTTP 422).
-3. **Enrichment**: The error response is enriched with the specific `remedy` and, if applicable, a `noise_warning`.
-4. **Instruction**: The agent is explicitly told: "Use the above remedy to correct your parameters and try again."
-5. **Self-Correction**: The agent uses the hint and executes a successful call on the second attempt.
+## 3. Automated Noise Detection
 
-## 4. Writing Effective Remedies
+Agents often "hallucinate" parameters that do not exist in your API (e.g., adding `force=True` to a delete call because it "feels" right).
 
-Good correction hints are precise and action-oriented.
+Elemm automatically identifies these:
+1. It validates the incoming arguments against the **Landmark Manifest**.
+2. If unexpected parameters are found, it injects a `noise_warning`.
+3. **Agent Feedback:** `"The action does not support these parameters: ['force']. Stick strictly to the manifest parameters."`
 
-| Bad Remedy | Good Remedy |
-| :--- | :--- |
-| "Invalid input" | "The ID must start with 'USR-' followed by 4 digits." |
-| "Check the date" | "Ensure the date is ISO-8601 formatted (e.g., 2024-01-01)." |
-| "Value too high" | "The amount must be between 1 and 100." |
+---
 
-With the Agent Repair Kit, every error becomes a learning moment for the agent, which significantly increases the success rate for complex tasks.
+## 4. The Response Structure
+
+When the Repair Kit is triggered, the agent receives a multi-layered response designed to force correction:
+
+1.  **REMEDY**: The primary instruction (What to do now).
+2.  **NOTE**: Additional context (Why it failed).
+3.  **Result**: The actual technical error from the backend.
+
+**Example Agent Output:**
+> **REMEDY**: Use numeric digits for the 'amount' field.  
+> **NOTE**: The system rejected 'ten' as a non-integer value.  
+> **Res [pay]**: {"error": "invalid literal for int()", "status": "error"}
+
+---
+
+## 5. Writing "Agent-Grade" Remedies
+
+Good remedies are **imperative** and **unambiguous**.
+
+| Context | Bad (Technical) | Good (Agent-Grade) |
+| :--- | :--- | :--- |
+| **Validation** | "Invalid ID" | "IDs must start with 'USR-' followed by 4 digits (e.g., USR-1234)." |
+| **Workflow** | "Unauthorized" | "You lack permission. Navigate to 'explore_auth' and call 'get_token' first." |
+| **Data Type** | "422: Unprocessable" | "Ensure the 'items' list contains at least one object with a 'sku' field." |
+
+---
+
+## 6. Summary: Zero-Shot Vision
+
+The Repair Kit is the backbone of Elemm's **Zero-Shot Vision**. It allows you to build complex, enterprise-grade AI integrations without writing a single line of prompt engineering. The protocol itself guides the agent through the infrastructure, correcting its path every time it veers off course.

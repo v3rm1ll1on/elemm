@@ -18,7 +18,7 @@ When used via web interfaces (SSE), Elemm ensures that no data leakage occurs be
 
 ## 3. Explicit Key Management
 
-In version 0.6.0, Elemm has removed predefined internal keys (formerly `INTERNAL_KEY`). Administrative access to the full manifest (`_INTERNAL_ALL_`) now requires explicit configuration of the `internal_access_key` in the `FastAPIProtocolManager`.
+In version 0.6.0, Elemm has removed predefined internal keys (formerly `INTERNAL_KEY`). Administrative access to the full manifest (`_INTERNAL_ALL_`) now requires explicit configuration of the `internal_access_key` in the `BaseAIProtocolManager` (or `FastAPIProtocolManager`).
 
 To gain administrative access, provide the configured key via the `X-Elemm-Internal-Key` header:
 

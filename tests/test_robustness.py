@@ -2,7 +2,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from elemm import Elemm
-from elemm.models import AIAction
+from elemm.core.models import AIAction
 
 def test_duplicate_id_protection():
     manager = Elemm(agent_welcome="Welcome")
@@ -93,7 +93,7 @@ def test_well_known_error_handling():
     
     # Alternatively, just mock ManifestGenerator.generate_markdown
     from unittest.mock import patch
-    with patch("elemm.manifest.ManifestGenerator.generate_markdown", side_effect=RuntimeError("Something went wrong internally")):
+    with patch("elemm.mcp.manifest.ManifestGenerator.generate_markdown", side_effect=RuntimeError("Something went wrong internally")):
         response = client.get("/.well-known/elemm-manifest.md")
         
         assert response.status_code == 200

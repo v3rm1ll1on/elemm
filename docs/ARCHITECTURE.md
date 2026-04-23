@@ -48,16 +48,16 @@ A core feature of Elemm is the automatic generation of navigation points.
 It is important to distinguish between the **Core Tools** used by the agent, internal HTTP endpoints, and the **Native Tools**:
 - **get_manifest**: This is the primary discovery tool. It returns a Markdown manifest containing the available landmarks (navigation points) and a list of global tools.
 - **navigate**: The official MCP tool used to move between modules. When calling `navigate`, the agent provides a `landmark_id`.
-- **enter_module**: The internal FastAPI HTTP endpoint equivalent to `navigate`. The MCP bridge (`mcp.py`) automatically maps `enter_module` to `navigate` to maintain protocol equivalence. While it may appear in OpenAPI/Swagger as `enter_module`, the agent always interacts with `navigate`.
+- **enter_module**: The internal HTTP endpoint (in FastAPI) equivalent to `navigate`. The MCP bridge (`mcp/bridge.py`) automatically maps `enter_module` to `navigate` to maintain protocol equivalence.
 - **inspect_landmark**: Retrieves detailed documentation, available tools, and specific instructions for a subsystem without actively switching the context.
 - **Native Tools**: Once an agent has navigated to a landmark (e.g. `it_ops`), all tools belonging to that group are exposed directly to the agent's toolbelt. The agent can call them **natively** (e.g. `query_logs()`) instead of using a generic executor.
 - **execute_action**: A protocol-level fallback tool used to run any registered action by its ID.
 - **explore_{tag_id}**: This is the default technical **ID** of a navigation landmark generated from FastAPI tags (e.g., `explore_it`). This ID is passed to `navigate`.
 
 ### How it works
-Elemm analyzes the `openapi_tags` of a FastAPI application. If a route has a tag defined in the metadata, Elemm automatically generates a navigation landmark.
+Elemm analyzes the `openapi_tags` of a FastAPI application (if using the integration) or directly auto-discovers Python modules. If a route has a tag defined, Elemm automatically generates a navigation landmark.
 - **FastAPI Auto-Discovery**: Groups automatically receive the prefix `explore_{tag_id}` to clearly mark them as navigation signposts.
-- **Manual Registration (`base.py`)**: When using the framework-agnostic base directly, navigation entries are generated using the raw group name (without the `explore_` prefix). This allows for custom naming schemes independent of FastAPI tags.
+- **Native Auto-Discovery (`core/manager.py`)**: When using the framework-agnostic base directly, navigation entries are generated using the raw group name (without the `explore_` prefix). This allows for custom naming schemes independent of FastAPI tags.
 - **Sanitization**: Special characters are cleaned (e.g., `User & Admin` becomes `explore_user_and_admin`).
 
 ## 3. Hybrid Mode (Auto-Flattening)

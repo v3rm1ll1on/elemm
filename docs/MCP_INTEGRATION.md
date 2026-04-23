@@ -18,7 +18,26 @@ Unlike flat MCP servers, Elemm uses a hierarchical model:
 
 This process minimizes the number of simultaneously visible tools and significantly increases reliability for large tool catalogs.
 
-## Configuration in FastAPI
+## 1. Native Python Integration (Stdio)
+
+If you are using Elemm without FastAPI, you can run the MCP bridge directly via standard input/output streams.
+
+```python
+import asyncio
+from elemm.core.manager import BaseAIProtocolManager
+from elemm.mcp.bridge import LandmarkBridge
+import my_tools
+
+manager = BaseAIProtocolManager(agent_instructions="You are an AI assistant.")
+manager.bind_module(my_tools)
+
+# Stdio is perfect for local agents (e.g. Claude Desktop)
+from elemm.integrations.fastapi.mcp import run_mcp_stdio
+# Note: Currently run_mcp_stdio relies on the FastAPI integration package structure, 
+# but you can interact directly with the LandmarkBridge for custom transports.
+```
+
+## 2. Configuration in FastAPI (SSE & Stdio)
 
 ### SSE (Server-Sent Events)
 
@@ -69,4 +88,4 @@ Elemm avoids writing detailed instructions and remedies into every static tool d
 
 The MCP bridge acts as a gateway:
 - Tools are only callable if they are visible in the agent's current context or have global access.
-- Session data is managed via isolated instances in the FastAPI middleware or the SSE handler to prevent data leakage between different agent sessions.
+- Session data is managed via isolated instances in the connection middleware or the SSE handler to prevent data leakage between different agent sessions.

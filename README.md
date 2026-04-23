@@ -39,16 +39,40 @@ Elemm solves this by introducing **Landmarks**:
 ### Installation
 
 ```bash
+# Core package (Native Python, Framework-Agnostic)
 pip install elemm
+
+# With FastAPI integration
+pip install elemm[fastapi]
 ```
 
-### Server-Side: FastAPI + MCP
+### Option A: Native Python (Framework-Agnostic)
+
+Turn any Python module into a hierarchical MCP server without needing a web framework.
+
+```python
+import asyncio
+from elemm.core.manager import BaseAIProtocolManager
+from elemm.mcp.bridge import LandmarkBridge
+import my_tools_module # Your file containing @manager.tool decorated functions
+
+manager = BaseAIProtocolManager(agent_instructions="You are an AI assistant.")
+
+# Auto-discover and register native python functions
+manager.bind_module(my_tools_module)
+
+# Create the MCP bridge and expose via Stdio
+bridge = LandmarkBridge(manager=manager)
+# You can now connect this to any MCP client!
+```
+
+### Option B: FastAPI Integration
 
 Turn any FastAPI application into a hierarchical MCP server with just a few decorators.
 
 ```python
 from fastapi import FastAPI
-from elemm.fastapi import FastAPIProtocolManager as Elemm
+from elemm.integrations.fastapi.manager import FastAPIProtocolManager as Elemm
 
 app = FastAPI()
 ai = Elemm(agent_instructions="You are an IT Support Agent. Navigate landmarks to find tools.")
