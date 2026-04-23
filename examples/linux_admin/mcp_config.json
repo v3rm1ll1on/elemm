@@ -1,0 +1,27 @@
+{
+  "mcpServers": {
+    "elemm-linux-guardian": {
+      "command": "python3",
+      "args": [
+        "examples/linux_admin/guardian.py"
+      ],
+      "env": {
+        "PYTHONPATH": "src"
+      },
+      "description": "Native Linux administration tools powered by Elemm Landmark Protocol."
+    }
+  }
+}
+
+/* 
+  NOTES FOR WSL / REMOTE USERS:
+  If you are running AnythingLLM on Windows but your code is in WSL:
+  
+  "command": "wsl.exe",
+  "args": [
+    "-u", "YOUR_USER",
+    "-d", "YOUR_DISTRO",
+    "bash", "-c",
+    "cd /path/to/elemm/ai_landmarks_pkg && PYTHONPATH=src ./venv/bin/python3 examples/linux_admin/guardian.py"
+  ]
+*/

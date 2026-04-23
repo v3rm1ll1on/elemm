@@ -45,23 +45,27 @@ graph TD
 A core feature of Elemm is the automatic generation of navigation points.
 
 ### Technical Distinction: Tool vs. ID
-It is important to distinguish between the **Core Tools** used by the agent and the **Native Tools** discovered within landmarks:
+It is important to distinguish between the **Core Tools** used by the agent, internal HTTP endpoints, and the **Native Tools**:
 - **get_manifest**: This is the primary discovery tool. It returns a Markdown manifest containing the available landmarks (navigation points) and a list of global tools.
-- **navigate**: Used to move between modules. When calling `navigate`, the agent provides a `landmark_id`.
+- **navigate**: The official MCP tool used to move between modules. When calling `navigate`, the agent provides a `landmark_id`.
+- **enter_module**: The internal HTTP endpoint (in FastAPI) equivalent to `navigate`. The MCP bridge (`mcp/bridge.py`) automatically maps `enter_module` to `navigate` to maintain protocol equivalence.
+- **inspect_landmark**: Retrieves detailed documentation, available tools, and specific instructions for a subsystem without actively switching the context.
 - **Native Tools**: Once an agent has navigated to a landmark (e.g. `it_ops`), all tools belonging to that group are exposed directly to the agent's toolbelt. The agent can call them **natively** (e.g. `query_logs()`) instead of using a generic executor.
 - **execute_action**: A protocol-level fallback tool used to run any registered action by its ID.
-- **explore_{tag_id}**: This is the default technical **ID** of a navigation landmark generated from FastAPI tags (e.g., `explore_it`).
+- **explore_{tag_id}**: This is the default technical **ID** of a navigation landmark generated from FastAPI tags (e.g., `explore_it`). This ID is passed to `navigate`.
 
 ### How it works
-Elemm analyzes the `openapi_tags` of a FastAPI application. If a route has a tag defined in the metadata, Elemm automatically generates a navigation landmark.
-- **ID Generation**: Groups automatically receive the prefix `explore_{tag_id}`.
+Elemm analyzes the `openapi_tags` of a FastAPI application (if using the integration) or directly auto-discovers Python modules. If a route has a tag defined, Elemm automatically generates a navigation landmark.
+- **FastAPI Auto-Discovery**: Groups automatically receive the prefix `explore_{tag_id}` to clearly mark them as navigation signposts.
+- **Native Auto-Discovery (`core/manager.py`)**: When using the framework-agnostic base directly, navigation entries are generated using the raw group name (without the `explore_` prefix). This allows for custom naming schemes independent of FastAPI tags.
 - **Sanitization**: Special characters are cleaned (e.g., `User & Admin` becomes `explore_user_and_admin`).
 
 ## 3. Hybrid Mode (Auto-Flattening)
 
 Elemm adapts to the size of the API.
-- **Flat View**: If an API has fewer than the `hybrid_threshold` (default: 10) landmarks and no explicit group structure, Elemm removes the filtering.
+- **Flat View**: If an API has fewer than the `hybrid_threshold` (default: 10) landmarks and no explicit group structure, Elemm removes the filtering. All tools become globally visible.
 - **Hierarchical View**: As soon as the API grows or groups are defined, it switches to structured mode.
+- **Mass-API Consideration**: For enterprise environments with hundreds of tools (e.g., the 200+ tools benchmark scenario), ensuring the API exceeds this threshold (or has explicit groups) is critical. Otherwise, "Auto-Flattening" would expose all tools at once, completely destroying the token-efficiency and context advantage.
 - **Configuration**: The threshold can be adjusted during initialization: `Elemm(..., hybrid_threshold=5)`.
 
 ## 4. Versioning and Deprecation

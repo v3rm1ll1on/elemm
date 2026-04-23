@@ -83,7 +83,7 @@ class ManifestGenerator:
             
             # Use provided tools or extract from manager
             mcp_data_raw = tools or (manager.actions if manager and hasattr(manager, "actions") else [])
-            from .discovery import convert_actions_to_mcp_tools
+            from ..core.discovery import convert_actions_to_mcp_tools
             mcp_data = convert_actions_to_mcp_tools(mcp_data_raw)
             
             lines.append(json.dumps([t.model_dump() for t in mcp_data], indent=2))
