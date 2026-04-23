@@ -1,15 +1,17 @@
 # Elemm Roadmap & TODOs
 
-## Architektur & Refactoring
-- [ ] **Multi-Framework Support**: `LandmarkBridge` in `mcp.py` framework-agnostisch halten.
-- [ ] **Adapter-Pattern**: Weitere Adapter für Frameworks wie Flask, Django oder Litestar erstellen (analog zu `mcp_fastapi.py`).
-- [ ] **Discovery Engine**: Die Logik in `discovery.py` weiter verfeinern, um noch mehr Edge-Cases von Pydantic v2 und komplexen FastAPI-Abhängigkeiten abzudecken.
+## Architektur & Core (v0.9.0 Status: Achieved)
+- [x] **Framework-Agnostic Core**: LandmarkBridge ist nun vollständig entkoppelt von FastAPI.
+- [x] **Native Auto-Discovery**: Pydantic & Enum Support für reine Python-Module implementiert.
+- [x] **Agent Repair Kit (Native)**: ActionError Support für CLI/Stdio Umgebungen.
 
-## Features
-- [ ] **Auto-Remedy**: KI-gestützte Vorschläge für Korrekturen bei Validierungsfehlern (über das aktuelle statische System hinaus).
-- [ ] **Tool-Chaining**: Unterstützung für die Definition von Abhängigkeiten zwischen Landmarks direkt im Code.
-- [ ] **Auth-Bridge**: Einheitliches System zur Weitergabe von Auth-Headern zwischen MCP-Clients und den internen API-Routen.
+## Features & Next Steps
+- [ ] **AI-Powered Remedies**: Integration von LLM-Calls zur Generierung von dynamischen Korrekturvorschlägen (Auto-Fix).
+- [ ] **Landmark Chaining**: Deklarative Definition von Abhängigkeiten zwischen Landmarks direkt im Code.
+- [ ] **Auth-Scoping 2.0**: Verbesserte Unterstützung für Multi-Tenant Umgebungen im Gateway.
+- [ ] **Plugin System**: Erleichterte Integration von Drittanbieter-Tools (z.B. LangChain Tools) in Landmarks.
 
-## MCP Integration
-- [ ] **Dynamic Tool Listing**: Performance-Optimierung für `list_tools`, wenn die Anzahl der Landmarks sehr groß wird.
-- [ ] **Stateful Navigation**: Verbesserte Session-Isolierung für den SSE-Transport.
+## MCP & Client Support
+- [ ] **Browser-Based Discovery**: Ein interaktiver Landmark-Explorer für Entwickler.
+- [ ] **Stateful SSE**: Noch robustere Session-Isolierung für Cloud-Deployments.
+- [ ] **Telemetry**: Opt-in Metriken über Navigationspfade und Tool-Usage für Agenten-Audits.

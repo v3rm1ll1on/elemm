@@ -1,5 +1,3 @@
-<div align="center">
-  <img src="https://raw.githubusercontent.com/v3rm1ll1on/elemm/main/assets/logo.png" alt="Elemm Logo" width="200" onerror="this.style.display='none'">
   <h1>Elemm: LLM Landmark Protocol</h1>
   <p><strong>Hierarchical API Discovery for Enterprise AI Agents</strong></p>
 
