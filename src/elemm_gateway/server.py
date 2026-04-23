@@ -21,6 +21,7 @@ class ElemmGateway(LandmarkBridge):
         self.connected_sites = {} 
         self.active_site_url = None
         self.ctx = "root"
+        self.session_headers = {} # Ensure persistence store exists
 
         # Explicitly register the connect tool
         @self.server.list_tools()
@@ -49,9 +50,15 @@ class ElemmGateway(LandmarkBridge):
         ]
 
         # 2. Add Core Elemm Tools (inherited from LandmarkBridge logic)
-        # These are always available and act as proxies once connected
         core_tools = await super()._handle_list_tools()
         tools.extend(core_tools)
+
+        # 3. Add Remote Technical Tools (if connected)
+        if self.active_site_url:
+            remote_info = self.connected_sites.get(self.active_site_url, {})
+            remote_tools = remote_info.get("tools", [])
+            for t_dict in remote_tools:
+                tools.append(types.Tool(**t_dict))
             
         return tools
 
@@ -64,6 +71,17 @@ class ElemmGateway(LandmarkBridge):
         if name in ["get_manifest", "navigate", "execute_action", "inspect_landmark"]:
             return await self._handle_remote_core_tool(name, arguments)
 
+        # 3. Dynamic Proxy: If it's a known remote tool, execute it via execute_action proxy
+        if self.active_site_url:
+            remote_info = self.connected_sites.get(self.active_site_url, {})
+            remote_tools = remote_info.get("tools", [])
+            if any(t.get("name") == name for t in remote_tools):
+                # Proxy the call
+                return await self._handle_remote_core_tool("execute_action", {
+                    "action_id": name,
+                    "parameters": arguments
+                })
+
         return [types.TextContent(type="text", text=f"Error: Tool '{name}' not found. Use 'connect_to_site' first.")]
 
     async def _connect(self, url: str) -> List[types.TextContent]:
@@ -72,34 +90,42 @@ class ElemmGateway(LandmarkBridge):
         try:
             async with httpx.AsyncClient() as client:
                 manifest_url = f"{url}/.well-known/elemm-manifest.md"
-                resp = await client.get(manifest_url)
+                # Request with technical=true to get the json-elemm block
+                resp = await client.get(manifest_url, params={"technical": "true"})
                 if resp.status_code != 200:
                     return [types.TextContent(type="text", text=f"Failed to find Elemm manifest at {manifest_url}. Status: {resp.status_code}")]
 
+                # Semantic Manifest for the Agent
                 md_content = resp.text
                 
-                # Discovery of technical tools (just for the agent's info)
-                match = re.search(r"```json-elemm\s+(.*?)\s+```", md_content, re.DOTALL)
-                tools_info = []
-                if match:
+                # Simple extraction for directive
+                def get_section(name):
+                    pattern = rf"^### {name}\s*\n(.*?)(?=\n###|\n##|$)"
+                    m = re.search(pattern, md_content, re.MULTILINE | re.DOTALL)
+                    return m.group(1).strip() if m else None
+
+                directive = get_section("AGENT DIRECTIVE") or "Execute tasks according to the available tools."
+
+                # Extract Technical Tools from json-elemm block
+                mcp_tools = []
+                json_match = re.search(r"```json-elemm\n(.*?)\n```", md_content, re.DOTALL)
+                if json_match:
                     try:
-                        tools_info = json.loads(match.group(1))
-                    except Exception as je:
-                        logger.warning(f"Failed to parse technical metadata: {je}")
+                        mcp_tools = json.loads(json_match.group(1))
+                        logger.info(f"Gateway: Discovered {len(mcp_tools)} technical tools via json-elemm.")
+                    except Exception as e:
+                        logger.warning(f"Gateway: Failed to parse json-elemm block: {e}")
 
                 self.connected_sites[url] = {
                     "manifest": md_content,
-                    "tools": tools_info
+                    "tools": mcp_tools
                 }
                 self.active_site_url = url
                 
-                tool_list_str = ", ".join([t.get("name") for t in tools_info]) if tools_info else "No functional tools found."
-                
                 welcome_msg = (
-                    f"✅ Successfully connected to {url}.\n\n"
-                    f"**Discovered Tools**: {tool_list_str}\n\n"
-                    f"**Instructions**:\n{md_content[:500]}...\n\n"
-                    f"PROTIP: You can now use `get_manifest`, `navigate`, and `execute_action` to interact with this site."
+                    f"Connected to {url} successfully.\n\n"
+                    f"Instructions: {directive}\n\n"
+                    f"Discovered {len(mcp_tools)} tools. Use get_manifest or navigation tools to explore the site."
                 )
                 return [types.TextContent(type="text", text=welcome_msg)]
         except Exception as e:
@@ -110,10 +136,17 @@ class ElemmGateway(LandmarkBridge):
         if not self.active_site_url:
             return [types.TextContent(type="text", text="Error: Not connected. Call 'connect_to_site' first.")]
 
+        # Sync context for potential internal dependencies
+        from elemm.fastapi import session_headers
+        token_ctx = session_headers.set(self.session_headers)
+
         try:
             async with httpx.AsyncClient() as client:
                 if name == "get_manifest":
-                    return [types.TextContent(type="text", text=self.connected_sites[self.active_site_url]["manifest"])]
+                    raw_md = self.connected_sites[self.active_site_url]["manifest"]
+                    # Token Optimization: Strip the technical json-elemm block for the agent
+                    clean_md = re.sub(r"\n---\n### Technical Discovery.*```json-elemm.*?```", "", raw_md, flags=re.DOTALL)
+                    return [types.TextContent(type="text", text=clean_md.strip())]
                 
                 if name == "inspect_landmark":
                     lid = arguments.get("landmark_id")
@@ -128,20 +161,44 @@ class ElemmGateway(LandmarkBridge):
                 if name == "execute_action":
                     aid = arguments.get("action_id")
                     params = arguments.get("parameters", {})
+                    
+                    # Scoped Auth: Get headers for this specific host
+                    from urllib.parse import urlparse
+                    host_key = urlparse(self.active_site_url).netloc
+                    current_headers = self.session_headers.get(host_key, {})
+                    
+                    if current_headers:
+                        logger.debug(f"Gateway: Injecting auth headers for {host_key}")
+
                     resp = await client.post(
                         f"{self.active_site_url}/.well-known/elemm/execute",
-                        json={"action_id": aid, "parameters": params}
+                        json={"action_id": aid, "parameters": params},
+                        headers=current_headers
                     )
+                    
                     if resp.status_code != 200:
+                        logger.error(f"Gateway: Remote Error {resp.status_code} for {aid}")
                         return [types.TextContent(type="text", text=f"Remote Error ({resp.status_code}): {resp.text}")]
                     
                     res = resp.json()
+
+                    # Auto-Capture Auth Tokens from Remote Result
+                    if isinstance(res, dict) and "access_token" in res:
+                        new_token = res["access_token"]
+                        host_headers = self.session_headers.get(host_key, {}).copy()
+                        host_headers["Authorization"] = f"Bearer {new_token}"
+                        self.session_headers[host_key] = host_headers
+                        logger.info(f"Gateway: Auto-captured access_token for host '{host_key}'")
+
                     # We use the base class stringifier for consistency
                     output_text = self._stringify_result(res)
                     return [types.TextContent(type="text", text=f"### RESULT: {aid}\n{output_text}")]
 
         except Exception as e:
+            logger.error(f"Gateway Proxy Error: {e}")
             return [types.TextContent(type="text", text=f"Proxy Error ({name}): {e}")]
+        finally:
+            session_headers.reset(token_ctx)
         
         return [types.TextContent(type="text", text=f"Tool {name} not implemented for remote sites.")]
 

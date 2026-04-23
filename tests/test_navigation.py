@@ -29,6 +29,7 @@ def test_auto_navigation_generation():
     assert "explore_secretmodule" in nav_ids
     assert "explore_secretmodule" not in action_ids # Clean toolbelt!
     assert "classified_tool" not in action_ids # Hidden in root!
+    assert "enter_module" in nav_ids # Now a navigation tool!
 
     # 2. Check Navigation Tool Details
     nav_tool = next(n for n in manifest["navigation"] if n["id"] == "explore_secretmodule")

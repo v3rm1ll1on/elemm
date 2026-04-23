@@ -40,9 +40,16 @@ async def agent_repair_handler(manager, request: Request, exc: RequestValidation
     if matched_action.remedy:
         response_body["remedy"] = matched_action.remedy
     else:
-        # Dynamic guidance based on groups
+        # Guidance based on landmark groups and parameters
         target_group = matched_action.groups[0] if matched_action.groups else "root"
-        response_body["remedy"] = f"CRITICAL: Parameter mismatch for '{matched_action.id}'. Please call 'inspect_landmark(\"{target_group}\")' to verify the exact parameter names and types required for this tool."
+        
+        response_body["remedy"] = f"Parameter validation failed for '{matched_action.id}'."
+        
+        if matched_action.groups:
+            groups_str = ", ".join(matched_action.groups)
+            response_body["remedy"] += f" Note: This tool belongs to [{groups_str}]. Verify your parameters against the manifest definitions for these landmarks."
+        else:
+            response_body["remedy"] += f" Please call 'inspect_landmark(\"{target_group}\")' to verify the required parameter names and types."
     
     if matched_action.instructions:
         response_body["instruction"] = matched_action.instructions
@@ -53,9 +60,12 @@ async def agent_repair_handler(manager, request: Request, exc: RequestValidation
     try:
         received_params = []
         if method in ["POST", "PUT", "PATCH"]:
-            body = await request.json()
-            if isinstance(body, dict):
-                received_params = list(body.keys())
+            # Use body() to safely access raw content (caches automatically in Starlette)
+            raw_body = await request.body()
+            if raw_body:
+                body = json.loads(raw_body)
+                if isinstance(body, dict):
+                    received_params = list(body.keys())
         
         allowed_params = []
         if matched_action.parameters:

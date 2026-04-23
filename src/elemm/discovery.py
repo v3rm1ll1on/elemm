@@ -66,3 +66,73 @@ def resolve_refs(item: Any, definitions: Dict[str, Any], depth: int = 0) -> Any:
         item["properties"] = {k: resolve_refs(v, definitions, depth + 1) for k, v in item["properties"].items()}
     
     return item
+
+def convert_actions_to_mcp_tools(actions: List[Any]) -> List[Any]:
+    """
+    Converts internal actions to MCP tool format.
+    Centralized here to avoid circular imports and ensure consistent type mapping.
+    """
+    import mcp.types as types
+    mcp_tools = []
+    
+    for a in actions:
+        # Normalize to dict
+        action = a if isinstance(a, dict) else {
+            "id": getattr(a, "id", ""),
+            "description": getattr(a, "description", ""),
+            "parameters": getattr(a, "parameters", []),
+            "payload": getattr(a, "payload", None)
+        }
+        
+        action_id = action.get("id") or action.get("name")
+        action_desc = action.get("description") or ""
+        a_params = action.get("parameters") or []
+        a_payload = action.get("payload")
+
+        properties = {}
+        required_fields = []
+
+        # Helper to process params using map_type
+        def add_param(p):
+            name = p.name if hasattr(p, "name") else p.get("name")
+            desc = p.description if hasattr(p, "description") else p.get("description", "")
+            # Use central map_type logic
+            p_type_raw = p.type if hasattr(p, "type") else p.get("type", "string")
+            p_type, p_enum = map_type(p_type_raw)
+            
+            properties[name] = {
+                "type": p_type,
+                "description": desc
+            }
+            if p_enum:
+                properties[name]["enum"] = p_enum
+                
+            if (hasattr(p, "required") and p.required) or (isinstance(p, dict) and p.get("required")):
+                required_fields.append(name)
+
+        # Parameters (Path/Query)
+        if a_params:
+            for p in a_params: add_param(p)
+
+        # Payload (Body)
+        if a_payload:
+            if isinstance(a_payload, list):
+                for p in a_payload: add_param(p)
+            elif isinstance(a_payload, dict):
+                for key, info in a_payload.items():
+                    properties[key] = {"type": "string", "description": str(info)}
+                    if "[required]" in str(info):
+                        required_fields.append(key)
+
+        clean_desc = action_desc[:160].strip() + ("..." if len(action_desc) > 160 else "")
+        
+        mcp_tools.append(types.Tool(
+            name=action_id,
+            description=clean_desc,
+            inputSchema={
+                "type": "object",
+                "properties": properties,
+                "required": list(set(required_fields))
+            }
+        ))
+    return mcp_tools

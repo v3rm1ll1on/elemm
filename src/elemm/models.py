@@ -1,8 +1,8 @@
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional, Union
+from pydantic import BaseModel, ConfigDict
+from typing import List, Dict, Any, Optional, Union, Callable
 
 class ActionParam(BaseModel):
-    name: str
+    name: Optional[str] = None
     description: str
     type: str = "string"
     required: bool = False
@@ -14,6 +14,8 @@ class ActionParam(BaseModel):
     managed_by: Optional[str] = None # e.g., "protocol", "user", "environment"
 
 class AIAction(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
     id: str
     type: str
     description: str
@@ -32,6 +34,7 @@ class AIAction(BaseModel):
     context_dependencies: Optional[List[str]] = None
     response_schema: Optional[Dict[str, Any]] = None
     hidden: bool = False
+    handler: Optional[Callable] = None
 
 class AIProtocolManifest(BaseModel):
     version: str = "v1-lmlmm"

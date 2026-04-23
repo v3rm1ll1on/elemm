@@ -18,6 +18,7 @@ class BaseAIProtocolManager:
     def __init__(self, agent_welcome: Optional[str] = None, version: str = "v1-lmlmm", protocol_instructions: Optional[str] = None, internal_access_key: Optional[str] = None, hybrid_threshold: int = 10, agent_instructions: Optional[str] = None, navigation_landmarks: Optional[List[Dict[str, Any]]] = None):
         self.version = version
         self.agent_welcome = agent_welcome
+        self.agent_instructions = agent_instructions
         self.protocol_instructions = protocol_instructions or DEFAULT_PROTOCOL_INSTRUCTIONS
         self.actions: List[AIAction] = []
         self._registered_ids = set()
@@ -50,27 +51,40 @@ class BaseAIProtocolManager:
 
     # Aliases for better developer experience
     def tool(self, **kwargs):
-        """Alias for landmark(type='read')"""
-        kwargs.setdefault("type", "read")
-        return self.landmark(**kwargs)
+        def decorator(func):
+            if "id" not in kwargs:
+                kwargs["id"] = func.__name__
+            kwargs.setdefault("type", "read")
+            self.register_action(func, **kwargs)
+            return func
+        return decorator
     
     def action(self, **kwargs):
-        """Alias for landmark(type='write')"""
-        kwargs.setdefault("type", "write")
-        return self.landmark(**kwargs)
+        def decorator(func):
+            if "id" not in kwargs:
+                kwargs["id"] = func.__name__
+            kwargs.setdefault("type", "write")
+            self.register_action(func, **kwargs)
+            return func
+        return decorator
 
-    def register_action(self, **kwargs):
+    def register_action(self, handler: Optional[Callable] = None, **kwargs):
         """
         Manually register an action in the manifest.
         """
         action_id = kwargs.get("id")
         if action_id in self._registered_ids:
-            logger.warning(f"Landmark ID '{action_id}' is already registered. Overwriting.")
-            # We remove the old one if we want to overwrite, or we could just append. 
-            # Protocol-wise, ID must be unique. Let's filter out the old one.
+            logger.debug(f"Landmark ID '{action_id}' is being updated with new metadata.")
             self.actions = [a for a in self.actions if a.id != action_id]
         
-        action = AIAction(**kwargs)
+        # LLM Metadata Hierarchy: instructions > description > docstring
+        doc = handler.__doc__.strip() if handler and handler.__doc__ else None
+        
+        # We prioritize 'instructions' as the primary LLM guidance if provided
+        final_description = kwargs.get("instructions") or kwargs.get("description") or doc or f"Action: {action_id}"
+        kwargs["description"] = final_description
+
+        action = AIAction(handler=handler, **kwargs)
         self.actions.append(action)
         if action_id:
             self._registered_ids.add(action_id)
@@ -184,66 +198,3 @@ class BaseAIProtocolManager:
             exclude_fields = {"groups", "global_access", "tags", "hidden", "headers", "context_dependencies", "required_auth"}
             return action.model_dump(exclude=exclude_fields, exclude_none=True)
         return action.model_dump(exclude_none=True)
-
-    def get_mcp_tools(self, group: Optional[str] = None, internal_key: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Export registered landmarks as MCP-compatible tool definitions, optionally filtered by group.
-        """
-        mcp_tools = []
-        # We need agent_view=False here to preserve 'groups' and other metadata 
-        # required by the MCP bridge for auto-context-switching.
-        manifest_data = self.get_manifest(group=group, agent_view=False, internal_key=internal_key)
-        actions = [AIAction(**a) if isinstance(a, dict) else a for a in manifest_data.get("actions", [])]
-
-        for action in actions:
-            properties = {}
-            required_fields = []
-
-            # Convert ActionParams to JSON Schema properties
-            if action.parameters:
-                for p in action.parameters:
-                    p_type = p.type if p.type in ["string", "number", "integer", "boolean", "array", "object"] else "string"
-                    properties[p.name] = {
-                        "type": p_type,
-                        "description": p.description
-                    }
-                    if p.required:
-                        required_fields.append(p.name)
-
-            # Convert Payload to JSON Schema properties
-            if action.payload:
-                if isinstance(action.payload, list):
-                    # Structured ActionParam List (Preferred)
-                    for p in action.payload:
-                        p_type = p.type if p.type in ["string", "number", "integer", "boolean", "array", "object"] else "string"
-                        properties[p.name] = {
-                            "type": p_type,
-                            "description": p.description
-                        }
-                        if p.required:
-                            required_fields.append(p.name)
-                else:
-                    # Legacy Dictionary Support
-                    for key, info in action.payload.items():
-                        properties[key] = {
-                            "type": "string",
-                            "description": str(info)
-                        }
-                        if "[required]" in str(info):
-                            required_fields.append(key)
-
-            mcp_tools.append({
-                "name": action.id,
-                "description": (
-                    f"{action.description}\n\n"
-                    f"Agent Instructions: {action.instructions or 'Follow API semantics.'}\n"
-                    f"Remedy: {action.remedy or 'If error occurs, check parameters and try again.'}"
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": list(set(required_fields))
-                }
-            })
-        
-        return mcp_tools

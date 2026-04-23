@@ -87,6 +87,19 @@ To push the protocol to its absolute theoretical limit, we performed an **extrem
 
 ---
 
-## 6. Conclusion
+---
+
+## 7. Reproduce this Benchmark
+
+You can verify these results independently by running the provided enterprise simulation in this repository.
+
+1.  **Navigate to the example**: `cd examples/enterprise_hub`
+2.  **Start the server**: `python server.py`
+3.  **Connect an agent**: Use the `elemm-connect` gateway to bridge your preferred agent (Claude, GPT, etc.) to the local server.
+4.  **Execute the mission**: Ask the agent to "Investigate Ticket SEC-404 and execute full remediation."
+
+---
+
+## 8. Conclusion
 
 ELEMM demonstrates that **hierarchical navigation is the only viable path for large-scale enterprise AI**. While Classic MCP is sufficient for simple, small APIs, it collapses under the weight of enterprise-grade toolsets. ELEMM provides the necessary structure to keep agents efficient, fast, and reliable.

@@ -36,12 +36,12 @@ async def test_bridge_handle_core_tools(mock_manager):
     # Test get_manifest
     res = await bridge._handle_core_dispatch("get_manifest", {})
     assert isinstance(res[0], types.TextContent)
-    assert "# ELEMM: Test AI" in res[0].text
+    assert "# ELEMM MANIFEST: Test AI" in res[0].text
 
     # Test navigate
     res = await bridge._handle_navigate("navigate", {"landmark_id": "hr"})
     assert bridge.ctx == "hr"
-    assert "Context switched to: hr" in res[0].text
+    assert "Switched to hr." in res[0].text
 
 @pytest.mark.asyncio
 async def test_bridge_auto_pilot(mock_manager):
@@ -62,16 +62,15 @@ async def test_bridge_format_result(mock_manager):
     res = {"data": 123, "remedy": "Fixed it", "instruction": "Look here"}
     output = bridge._format_action_result("my_tool", res, action_meta, auto_switched=True)
     
-    assert "--- [REMEDY / HINT] ---" in output
-    assert "Fixed it" in output
-    assert "Look here" in output
-    assert "data: 123" in output
-    assert "Automatically switched context" in output
+    assert "NOTE: Look here" in output
+    assert "REMEDY: Fixed it" in output
+    assert '{"data":123}' in output.replace(" ", "") # Whitespace insensitive
+    assert "(Switched)" in output
 
 @pytest.mark.asyncio
 async def test_bridge_error_formatting():
     bridge = LandmarkBridge(manager=None)
     e = Exception("Something went wrong")
     output = bridge._format_error_feedback(e)
-    assert "--- [PROTOCOL REMEDY] ---" in output
-    assert "Something went wrong" in output
+    assert "ERR: Something went wrong" in output
+    assert "ACTION:" in output

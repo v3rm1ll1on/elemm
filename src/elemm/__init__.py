@@ -5,5 +5,5 @@ from .models import AIAction, ActionParam
 # Alias for backward compatibility
 AIProtocolManager = FastAPIProtocolManager
 
-__version__ = "0.4.1"
+__version__ = "0.5.4"
 __all__ = ["Elemm", "AIProtocolManager", "FastAPIProtocolManager", "BaseAIProtocolManager", "AIAction", "ActionParam"]

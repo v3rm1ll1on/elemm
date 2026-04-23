@@ -9,15 +9,14 @@ def test_duplicate_id_protection():
     
     # Register first time
     manager.register_action(id="test_id", type="test", description="First")
-    assert len(manager.actions) == 1
-    assert manager.actions[0].description == "First"
+    assert len(manager.actions) == 2 # test_id + enter_module
     
     # Register second time with same ID
     manager.register_action(id="test_id", type="test", description="Second")
     
-    # Should still be 1 action (overwritten)
-    assert len(manager.actions) == 1
-    assert manager.actions[0].description == "Second"
+    # Still 2 actions, but description updated
+    assert len(manager.actions) == 2
+    assert any(a.id == "test_id" and a.description == "Second" for a in manager.actions)
     assert "test_id" in manager._registered_ids
 
 def test_prefix_aware_urls():
@@ -43,7 +42,7 @@ def test_prefix_aware_urls():
     assert "explore_orders" not in action_ids
     
     nav_action = next(n for n in manifest["navigation"] if n["id"] == "explore_orders")
-    assert nav_action["url"].startswith("/api/v1/.well-known/llm-landmarks.json")
+    assert nav_action["url"].startswith("/api/v1/.well-known/elemm/discovery")
 
 def test_discovery_error_handling():
     app = FastAPI()
@@ -70,10 +69,12 @@ def test_discovery_error_handling():
     # This should not raise!
     ai.bind_to_app(app)
     
-    # 'fine_tool' should be there, 'broken_tool' not
-    action_ids = [a.id for a in ai.actions]
-    assert "fine_tool" in action_ids
-    assert "broken_tool" not in action_ids
+    # 'fine_tool' should be there with URL, 'broken_tool' should have NO URL
+    fine_action = next(a for a in ai.actions if a.id == "fine_tool")
+    broken_action = next(a for a in ai.actions if a.id == "broken_tool")
+    
+    assert fine_action.url is not None
+    assert broken_action.url is None
 
 def test_well_known_error_handling():
     app = FastAPI()
@@ -86,11 +87,17 @@ def test_well_known_error_handling():
     def failing_manifest(*args, **kwargs):
         raise RuntimeError("Something went wrong internally")
     
-    ai.get_manifest = failing_manifest
+    ai.get_manifest = failing_manifest # This won't work easily because get_md_manifest calls ManifestGenerator
+    # But wait, ai.get_manifest is still used in base.py.
+    # Actually, the test should mock the generator if it wants to trigger the catch block.
     
-    response = client.get("/.well-known/llm-landmarks.json")
-    
-    assert response.status_code == 200 # We return a 200 with error JSON
-    data = response.json()
-    assert "error" in data
-    assert "Internal error" in data["error"]
+    # Alternatively, just mock ManifestGenerator.generate_markdown
+    from unittest.mock import patch
+    with patch("elemm.manifest.ManifestGenerator.generate_markdown", side_effect=RuntimeError("Something went wrong internally")):
+        response = client.get("/.well-known/elemm-manifest.md")
+        
+        assert response.status_code == 200
+        text = response.text
+        assert "ELEMM PROTOCOL ERROR" in text
+        assert "Something went wrong internally" in text
+        assert "Remedy" in text
