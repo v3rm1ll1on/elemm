@@ -124,7 +124,7 @@ Explore our comprehensive guides to master Elemm:
 - 🌐 [Elemm Gateway (Universal Broker)](docs/GATEWAY.md)
 - 🏥 [Agent Repair Kit (Self-Healing)](docs/REPAIR_KIT.md)
 - 🔒 [Security & Session Isolation](docs/SECURITY.md)
-- 📊 [Case Study: Solaris ERP Benchmark](docs/CASE_STUDY.md)
+- 📊 [Case Study: Solaris ERP Benchmark](docs/CASE_STUDY.md) *(DEPRECATED - NEW TEST WILL COME SOON)*
 - 🚢 [Deployment Guide](docs/DEPLOYMENT.md)
 - 🔌 [MCP Integration Details](docs/MCP_INTEGRATION.md)
 - 🏷️ [Decorators API Reference](docs/DECORATORS.md)
