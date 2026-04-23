@@ -92,3 +92,22 @@ def search(query: str, limit: int = 10, tags: Optional[list[str]] = None):
 
 ### Constraints and Validation
 Pydantic constraints (when used in type hints or FastAPI routes) such as `ge` (greater than or equal to), `le` (less than or equal to), or `pattern` (Regex) are translated directly into the JSON schema for the agent.
+
+## 4. Native Error Handling
+
+In framework-agnostic environments, use the `ActionError` exception to provide structured feedback to the agent.
+
+```python
+from elemm.core.exceptions import ActionError
+
+@ai.action(id="process")
+def process(value: int):
+    if value < 0:
+        raise ActionError(
+            message="Negative values not allowed",
+            remedy="Please provide a positive integer."
+        )
+```
+
+See [REPAIR_KIT.md](REPAIR_KIT.md) for more details on self-healing.
+
