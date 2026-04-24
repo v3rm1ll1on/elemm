@@ -21,9 +21,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 DEFAULT_PROTOCOL_INSTRUCTIONS = (
-    "ELEMM PROTOCOL: Navigate via 'get_manifest' and 'navigate'. "
-    "Once inside a landmark, all its specific tools are available directly in your toolbelt. "
-    "Call them natively (e.g., query_logs()) instead of using a generic executor."
+    "ELEMM: Use 'get_manifest' for discovery. Navigate landmarks to access tools, "
+    "or call any tool directly via 'execute_action'."
 )
 
 class BaseAIProtocolManager:

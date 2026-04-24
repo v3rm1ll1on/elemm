@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Query, Body, HTTPException, Request
 from fastapi.responses import JSONResponse
 from typing import List, Optional
-from elemm.fastapi import FastAPIProtocolManager as Elemm
+from elemm.integrations.fastapi import FastAPIProtocolManager as Elemm
+import uvicorn
 
 app = FastAPI(title="Solaris Enterprise Hub")
 

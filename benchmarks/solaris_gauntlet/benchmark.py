@@ -34,9 +34,10 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
     log(f"\n🚀 --- STARTING AGENT ---")
     log(f"Target: {server_script} (Protocol: {mode_name.upper()})")
     
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), server_script))
     server_params = StdioServerParameters(
         command=sys.executable,
-        args=[server_script] + (["--mcp"] if not is_classic else []),
+        args=[script_path] + (["--mcp"] if not is_classic else []),
         env=os.environ.copy()
     )
     
@@ -49,17 +50,18 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                 # MODE-SPECIFIC SYSTEM PROMPT
                 if is_classic:
                     system_prompt = (
-                        "You are the Solaris Forensic Auditor.\n"
-                        "Your goal is to resolve the security breach using the provided tools.\n"
-                        "Analyze the situation and execute all necessary remediation steps."
+                        "You are the Solaris Forensic Auditor. This system uses a legacy flat MCP architecture with cross-departmental dependencies.\n"
+                        "### SOLARIS TECHNICAL REFERENCE MANUAL ###\n"
+                        "1. NETWORK & INFRA: Internal IP addresses can be resolved to Hostnames via the NOC. Infrastructure logs are stored in IT and indexed by Hostname.\n"
+                        "2. PERSONNEL & FINANCE: Employee IDs (EMP-XXXX) are used in HR and Finance. Corporate Usernames (CORP-XX) are resolved in HR. Financial accounts are linked to tokens in Banking.\n"
+                        "3. REMEDIATION PROTOCOLS: \n"
+                        "   - All quarantine actions REQUIRE a Corporate Username (NOT EMP-ID) and a matching Evidence Token (RT-XXXX) from IT logs.\n"
+                        "   - Infrastructure restarts require a verified SRV-XXXX hostname.\n"
+                        "   - Final reports must be submitted via the OPS reporter once all mitigation flags are set to SUCCESS in the MISSION_STATE.\n"
+                        "4. COMPLIANCE: Adhere strictly to provided technical schemas. Do not attempt to use unresolved IDs for state-changing operations."
                     )
                 else:
-                    system_prompt = (
-                        "You are the Solaris Forensic Auditor. Use the Elemm Protocol.\n"
-                        "First, call 'get_manifest' to understand the system structure and landmarks.\n"
-                        "Follow the instructions in the manifest to complete the forensic audit.\n"
-                        "Remediate all issues before submitting the final report."
-                    )
+                    system_prompt = "You are the Solaris Forensic Auditor. Use the Elemm Protocol. Be concise. Call tools immediately."
                 
                 messages.append({"role": "system", "content": system_prompt})
                 messages.append({"role": "user", "content": task_prompt})
@@ -129,7 +131,7 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                                 log(f"  📥 Tool Result: {res_text[:500]}...")
                                 
                                 # Update local context tracking for display
-                                if t_name == "navigate" and "Context switched to:" in res_text:
+                                if t_name == "navigate" and "Switched to" in res_text:
                                     current_ctx = t_args.get("landmark_id", current_ctx)
                                 
                                 messages.append({"role": "tool", "name": t_name, "content": res_text})

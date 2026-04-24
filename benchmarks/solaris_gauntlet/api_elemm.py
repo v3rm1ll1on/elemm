@@ -31,10 +31,15 @@ app = FastAPI(title="Solaris Enterprise Hub - PRO-GRADE v7.6")
 MISSION_STATE = {"quarantined": False, "restarted": False, "secured": False}
 
 ai = Elemm(
-    agent_welcome="SOLARIS PRO-GRADE v7.6 - DOCSTRING INTELLIGENCE ACTIVE",
+    agent_welcome="Call 'get_manifest' to see landmarks and available tools.",
     agent_instructions=(
-        "Elite Forensic Auditor Mode. GOAL: Resolve SEC-9982.\n"
-        "Follow the evidence chain: SOC -> NOC -> IT -> Banking -> Finance -> HR -> Remediation."
+        "WARP-DRIVE: Goal < 5 turns. Use 'execute_sequence' to chain EVERYTHING.\n"
+        "EXAMPLE (1-Turn Discovery):\n"
+        "  actions=[{'action_id':'soc.get_alerts'}, {'action_id':'noc.resolve_ip', 'parameters':{'ip':'{{step0[2].ip}}'}}, {'action_id':'it_ops.query_logs', 'parameters':{'hostname':'{{step1.hostname}}', 'q':'EXFIL'}}]\n"
+        "PROTOCOL: \n"
+        "1. Map via 'get_manifest'.\n"
+        "2. Solve the full chain via 'execute_sequence'.\n"
+        "3. Finalize: [quarantine_principal, restart_node, secure_escrow, submit_gauntlet_report]."
     ),
     navigation_landmarks=LANDMARKS_CONFIG
 )
@@ -42,7 +47,7 @@ ai = Elemm(
 # --- DB ---
 DB = {"soc": [], "noc": {}, "it": {}, "banking": {}, "finance": {}, "hr": {}}
 for i in range(20):
-    DB["soc"].append({"id": "SEC-9982" if i==15 else f"SEC-{1000+i}", "level": "CRITICAL" if i==15 else "LOW", "msg": "Exfiltration on 10.0.4.142" if i==15 else f"Anomaly {i}"})
+    DB["soc"].append({"id": "SEC-9982" if i==2 else f"SEC-{1000+i}", "level": "HIGH" if i==2 else "LOW", "msg": "Malicious Exfiltration Detected" if i==2 else f"Anomaly {i}"})
 for i in range(50): DB["noc"][f"10.0.4.{100+i}"] = f"SRV-NODE-{i}"
 for i in range(50): DB["hr"][f"EMP-{5000+i}"] = f"USER_{i}"
 DB["noc"]["10.0.4.142"] = "SRV-FORENSIC-142"
@@ -71,7 +76,7 @@ async def resolve_ip(ip: str = Query(..., description="Target IP (Format: 10.0.4
     if not host: raise HTTPException(status_code=422)
     return {"hostname": host}
 
-@ai.tool(id="query_node_logs", groups=["it_ops"], remedy="Use hostname SRV-XXXX and filter q=EXFIL.")
+@ai.tool(id="query_node_logs", groups=["it_ops"], remedy="Node logs require a verified Hostname (SRV-XXXX) from the NOC landmark. Use q=EXFIL to find evidence tokens.")
 @app.get("/it/logs", tags=["it_ops"], response_model=List[LogEntry])
 async def it_logs(
     hostname: str = Query(..., description="Server Hostname (SRV-XXXX)"), 
@@ -91,7 +96,7 @@ async def bank_link(token: str = Query(..., description="Routing Token (RT-XXXX)
     if not acc: raise HTTPException(status_code=422)
     return {"account_id": acc}
 
-@ai.tool(id="audit_account_owner", groups=["finance"], remedy="Validate Account ID (ACC-XXXX).")
+@ai.tool(id="audit_account_owner", groups=["finance"], remedy="Account IDs (ACC-XXXX) must be retrieved from the BANKING landmark using an evidence token (RT-XXXX).")
 @app.get("/finance/audit", tags=["finance"])
 async def fin_audit(account_id: str = Query(..., description="Account Identifier (ACC-XXXX)")):
     """Identify employee ID linked to ACC-XXXX account."""
@@ -99,7 +104,7 @@ async def fin_audit(account_id: str = Query(..., description="Account Identifier
     if not emp: raise HTTPException(status_code=422)
     return {"employee_id": emp}
 
-@ai.tool(id="resolve_principal", groups=["hr"], remedy="Format: EMP-XXXX. Mandatory step before quarantine.")
+@ai.tool(id="resolve_principal", groups=["hr"], remedy="Employee IDs (EMP-XXXX) must be obtained from the FINANCE landmark after auditing the account owner.")
 @app.get("/hr/principal", tags=["hr"])
 async def hr_resolve(employee_id: str = Query(..., description="Employee ID (EMP-XXXX)")):
     """Map EMP-XXXX to corporate principal (username)."""
@@ -110,8 +115,8 @@ async def hr_resolve(employee_id: str = Query(..., description="Employee ID (EMP
 @ai.action(
     id="quarantine_principal", 
     groups=["remediation"],
-    instructions="Lockdown principal. Requires resolved Username (CORP-XX) and Token. MANDATORY: Verify via HR first.",
-    remedy="Mismatch. Principal MUST be the Username (CORP-XX) resolved via HR, NOT the EMP-ID."
+    instructions="Lockdown principal. Requires resolved Username (CORP-XX) and the Evidence Token (RT-XXXX) from the logs.",
+    remedy="Mismatch! Ensure 'username' is the CORP-XX ID and 'token' is the RT-XXXX evidence token from the IT logs. They must match the audit trail."
 )
 @app.post("/ops/quarantine", tags=["remediation"])
 async def quarantine(

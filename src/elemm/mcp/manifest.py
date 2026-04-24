@@ -75,7 +75,7 @@ class ManifestGenerator:
                 
                 # Use pre-grouped actions
                 landmark_tools = actions_by_group.get(l_id, [])
-                summary = ManifestGenerator._get_summary_string(landmark_tools) if landmark_tools else ""
+                summary = ManifestGenerator._get_summary_string(l_id, landmark_tools) if landmark_tools else ""
                 lines.append(f"- **{l_id}**: {l_notes}{summary}")
         elif tools:
             lines.append("\n## Available Tools (Flat View)")
@@ -109,20 +109,52 @@ class ManifestGenerator:
         return "\n".join(lines)
 
     @staticmethod
-    def _get_summary_string(landmark_tools: List[Any], limit: int = 3) -> str:
+    def _get_summary_string(l_id: str, landmark_tools: List[Any], limit: int = 10) -> str:
         action_ids = []
+        is_noise_landmark = True
+        
         for t in landmark_tools:
             aid = t.get("id") or t.get("name") if isinstance(t, dict) else getattr(t, "id", getattr(t, "name", None))
-            if aid:
-                action_ids.append(aid)
+            if not aid:
+                continue
+                
+            # THE SMART HOT-SIGNAL: A tool is 'Hot' if it has protocol metadata (Remedy/Instructions)
+            remedy = (t.get("remedy") or "") if isinstance(t, dict) else (getattr(t, "remedy", "") or "")
+            instr = (t.get("instructions") or "") if isinstance(t, dict) else (getattr(t, "instructions", "") or "")
+            desc = (t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "")).lower()
+            
+            # If it has a remedy, instructions, or a non-generic description, it's NOT noise
+            if remedy or instr or ("internal operation" not in desc and desc != ""):
+                is_noise_landmark = False
+
+            # Get parameters for compact signature
+            params = t.get("parameters") if isinstance(t, dict) else getattr(t, "parameters", [])
+            param_names = [p.name if hasattr(p, "name") else p.get("name") for p in params] if params else []
+            p_str = f"({', '.join(param_names)})" if param_names else "()"
+            
+            hint = ""
+            if remedy:
+                hint = f" [REQ: {str(remedy).split('.')[0].strip()}]"
+            elif instr:
+                hint = f" [DEP: {str(instr).split('.')[0].strip() if '.' in str(instr) else str(instr).split('(')[0].strip()}]"
+            
+            action_ids.append(f"{l_id}.{aid}{p_str}{hint}")
 
         if not action_ids:
             return ""
             
-        summary = ", ".join(action_ids[:limit])
+        # NOISE SUPPRESSION: Collapse pure background landmarks
+        if is_noise_landmark and len(action_ids) > 2:
+            return f"\n  └─ {len(action_ids)} maintenance tools (hidden)"
+
+        summary_lines = []
+        for aid in action_ids[:limit]:
+            summary_lines.append(f"\n  └─ {aid}")
+            
         if len(action_ids) > limit:
-            summary += f", ... (+{len(action_ids) - limit} more)"
-        return f" (Actions: {summary})"
+            summary_lines.append(f"\n  └─ ... (+{len(action_ids) - limit} more). Call 'navigate' to explore this landmark.")
+            
+        return "".join(summary_lines)
 
     @staticmethod
     def generate_detailed_landmark(landmark_id: str, tools: List[Dict[str, Any]]) -> str:
