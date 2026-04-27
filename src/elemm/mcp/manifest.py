@@ -1,166 +1,123 @@
-# This file is part of Elemm.
-#
-# Elemm is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# Elemm is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with Elemm.  If not, see <https://www.gnu.org/licenses/>.
-
-import logging
-from typing import List, Dict, Any
-
-logger = logging.getLogger("elemm-manifest")
+from typing import List, Dict, Any, Optional, Union
+import json
+import re
 
 class ManifestGenerator:
-    """
-    Generates a token-efficient Markdown manifest from Elemm landmarks and tools.
-    """
-    
-    @staticmethod
-    def generate_markdown(
-        manager: Any = None,
-        system_name: str = "Elemm System",
-        instructions: str = "",
-        landmarks: List[Dict[str, Any]] = None,
-        tools: List[Dict[str, Any]] = None,
-        include_technical_metadata: bool = False,
-        parts: List[str] = None,
-        is_root: bool = True,
-        **kwargs
-    ) -> str:
-        lines = []
-        # If no parts specified, determine based on is_root
-        if parts is None:
-            # Navigation Strategy (instructions) should ALWAYS be visible when landmarks are listed
-            if is_root:
-                requested = ["welcome", "instructions", "landmarks"]
-            else:
-                requested = ["instructions", "landmarks"] # Show local instructions in sub-landmarks
-        else:
-            requested = parts
-        
-        if "welcome" in requested or "title" in requested:
-            lines.append(f"# ELEMM MANIFEST: {system_name}")
-            
-        if "instructions" in requested and instructions:
-            lines.append(f"""
- ### AGENT DIRECTIVE
- {instructions}""")
-            
-        # Optimize: Group actions by landmark once before the loop
-        actions_by_group = {}
-        all_actions = (manager.actions if manager and hasattr(manager, "actions") else (tools or []))
-        for a in all_actions:
-            groups = (a.get("groups", []) if isinstance(a, dict) else getattr(a, "groups", []))
-            for g in groups:
-                if g not in actions_by_group: actions_by_group[g] = []
-                actions_by_group[g].append(a)
-            if not groups:
-                if "root" not in actions_by_group: actions_by_group["root"] = []
-                actions_by_group["root"].append(a)
+    def __init__(self, manager):
+        self.manager = manager
 
-        if "landmarks" in requested and landmarks:
-            if lines: lines.append("") # Spacer
-            lines.append("## Landmarks Map")
-            for landmark in landmarks:
-                l_id = landmark.get("id")
-                l_notes = landmark.get("notes") or landmark.get("description", "")
-                
-                # Use pre-grouped actions
-                landmark_tools = actions_by_group.get(l_id, [])
-                summary = ManifestGenerator._get_summary_string(l_id, landmark_tools) if landmark_tools else ""
-                lines.append(f"- **{l_id}**: {l_notes}{summary}")
-        elif tools:
-            lines.append("\n## Available Tools (Flat View)")
-            for t in tools:
-                # Robustly handle both object and dict types
-                if isinstance(t, dict):
-                    tid = t.get("id") or t.get("name", "unknown")
-                    desc = t.get("description", "").split("\n")[0]
-                else:
-                    tid = getattr(t, "id", getattr(t, "name", "unknown"))
-                    desc = getattr(t, "description", "").split("\n")[0]
-                lines.append(f"- **{tid}**: {desc}")
-
-        if include_technical_metadata:
-            import json
-            # We embed the technical MCP definitions in a hidden-ish block for Gateways/Bridges
-            lines.append("\n---")
-            lines.append("### Technical Discovery (Machine Readable)")
-            lines.append("> [!NOTE]")
-            lines.append("> This block contains the full technical definitions for Elemm Gateways.")
-            lines.append("```json-elemm")
-            
-            # Use provided tools or extract from manager
-            mcp_data_raw = tools or (manager.actions if manager and hasattr(manager, "actions") else [])
-            from ..core.discovery import convert_actions_to_mcp_tools
-            mcp_data = convert_actions_to_mcp_tools(mcp_data_raw)
-            
-            lines.append(json.dumps([t.model_dump() for t in mcp_data], indent=2))
-            lines.append("```")
+    def generate_summary(self) -> str:
+        """Returns a high-level summary of all landmarks."""
+        lines = ["# ELEMM REGISTRY: Landmarks Summary", ""]
+        lines.append("### DIRECTIVE")
+        lines.append("1. DISCOVER: Call 'inspect_landmark(id)' to see tools for a namespace.")
+        lines.append("2. EXECUTE: Call 'execute_sequence' for multi-step tasks.\n")
+        lines.append("## Available Landmarks")
         
+        landmarks = self.manager.landmarks
+        for l in landmarks:
+            is_dict = isinstance(l, dict)
+            l_id = l.get("id") if is_dict else getattr(l, "id", "unknown")
+            l_desc = (l.get("notes") or l.get("description", "")) if is_dict else (getattr(l, "notes", "") or getattr(l, "description", ""))
+            lines.append(f"- **{l_id}**: {l_desc}")
+            
         return "\n".join(lines)
 
-    @staticmethod
-    def _get_summary_string(l_id: str, landmark_tools: List[Any], limit: int = 10) -> str:
-        action_ids = []
-        is_noise_landmark = True
+    def generate_full(self) -> str:
+        """Returns the COMPLETE manifest: all landmarks with all tool signatures."""
+        all_ids = []
+        for l in self.manager.landmarks:
+            is_dict = isinstance(l, dict)
+            l_id = l.get("id") if is_dict else getattr(l, "id", "unknown")
+            all_ids.append(l_id)
         
-        for t in landmark_tools:
-            aid = t.get("id") or t.get("name") if isinstance(t, dict) else getattr(t, "id", getattr(t, "name", None))
-            if not aid:
+        return self.generate_landmark_detail(all_ids)
+
+    def generate_landmark_detail(self, landmark_ids: Union[str, List[str]]) -> str:
+        """Returns detailed tool signatures for one or more landmarks."""
+        if not landmark_ids: return "Error: No landmark_ids provided."
+        
+        ids = [landmark_ids] if isinstance(landmark_ids, str) else landmark_ids
+        landmarks = self.manager.landmarks
+        
+        final_sections = []
+        
+        for lid in ids:
+            target_id = str(lid).strip().lower()
+            landmark = None
+            for l in landmarks:
+                curr_id = str(l.get("id") if isinstance(l, dict) else getattr(l, "id", "")).strip().lower()
+                if curr_id == target_id:
+                    landmark = l
+                    break
+            
+            if not landmark:
+                final_sections.append(f"### Landmark '{lid}' NOT FOUND")
                 continue
-                
-            # THE SMART HOT-SIGNAL: A tool is 'Hot' if it has protocol metadata (Remedy/Instructions)
-            remedy = (t.get("remedy") or "") if isinstance(t, dict) else (getattr(t, "remedy", "") or "")
-            instr = (t.get("instructions") or "") if isinstance(t, dict) else (getattr(t, "instructions", "") or "")
-            desc = (t.get("description", "") if isinstance(t, dict) else getattr(t, "description", "")).lower()
-            
-            # If it has a remedy, instructions, or a non-generic description, it's NOT noise
-            if remedy or instr or ("internal operation" not in desc and desc != ""):
-                is_noise_landmark = False
 
-            # Get parameters for compact signature
-            params = t.get("parameters") if isinstance(t, dict) else getattr(t, "parameters", [])
-            param_names = [p.name if hasattr(p, "name") else p.get("name") for p in params] if params else []
-            p_str = f"({', '.join(param_names)})" if param_names else "()"
-            
-            hint = ""
-            if remedy:
-                hint = f" [REQ: {str(remedy).split('.')[0].strip()}]"
-            elif instr:
-                hint = f" [DEP: {str(instr).split('.')[0].strip() if '.' in str(instr) else str(instr).split('(')[0].strip()}]"
-            
-            action_ids.append(f"{l_id}.{aid}{p_str}{hint}")
+            lines = [f"## LANDMARK: {lid}", ""]
+            l_desc = (landmark.get("notes") or landmark.get("description", "")) if isinstance(landmark, dict) else (getattr(landmark, "notes", "") or getattr(landmark, "description", ""))
+            if l_desc: lines.append(f"> {l_desc}\n")
 
-        if not action_ids:
+            actions = [a for a in self.manager.actions if lid in getattr(a, "groups", [])]
+            if not actions:
+                lines.append("- No tools available.")
+            else:
+                for a in actions:
+                    # Robust Param Extraction
+                    p_list = []
+                    params = getattr(a, "parameters", []) or []
+                    for p in params:
+                        p_name = getattr(p, "name", "param")
+                        p_required = getattr(p, "required", True)
+                        p_list.append(f"{p_name}{'' if p_required else '?'}")
+                    
+                    p_str = ", ".join(p_list)
+                    type_tag = "[W]" if any(w in a.id.lower() for w in ["set", "update", "delete", "post", "quarantine", "restart", "secure", "submit"]) else "[R]"
+                    
+                    # Extract Response Fields for Piping
+                    r_display = self._get_fields_display(getattr(a, "response_schema", {}))
+                    r_str = f" -> {r_display}" if r_display else ""
+                    
+                    lines.append(f"- {type_tag} **{a.id}**({p_str}){r_str}")
+                    if a.description:
+                        lines.append(f"  * {a.description}")
+                    
+                    remedy = getattr(a, "remedy", None)
+                    if remedy:
+                        lines.append(f"  * [REMEDY: {remedy}]")
+            
+            final_sections.append("\n".join(lines))
+            
+        return "\n\n---\n\n".join(final_sections)
+
+    def _get_fields_display(self, schema: Dict[str, Any]) -> str:
+        """Returns a string representation of the schema fields with compact descriptions."""
+        if not schema or not isinstance(schema, dict):
             return ""
             
-        # NOISE SUPPRESSION: Collapse pure background landmarks
-        if is_noise_landmark and len(action_ids) > 2:
-            return f"\n  └─ {len(action_ids)} maintenance tools (hidden)"
-
-        summary_lines = []
-        for aid in action_ids[:limit]:
-            summary_lines.append(f"\n  └─ {aid}")
+        s_type = schema.get("type")
+        
+        # 1. Array handling
+        if s_type == "array" or "items" in schema:
+            inner = self._get_fields_display(schema.get("items", {}))
+            return f"[{inner}]" if inner else "[]"
             
-        if len(action_ids) > limit:
-            summary_lines.append(f"\n  └─ ... (+{len(action_ids) - limit} more). Call 'navigate' to explore this landmark.")
+        # 2. Object handling
+        props = schema.get("properties", {})
+        if not props:
+            if "properties" not in schema and s_type == "object":
+                return "{...}"
+            return ""
             
-        return "".join(summary_lines)
-
-    @staticmethod
-    def generate_detailed_landmark(landmark_id: str, tools: List[Dict[str, Any]]) -> str:
-        header = [f"# LANDMARK DETAILS: {landmark_id}", "", "### Available Tools"]
-        if not tools:
-            return "\n".join(header + ["_No tools registered in this landmark._"])
+        field_strs = []
+        for k, v in props.items():
+            desc = v.get("description")
+            # Compact description: only take first 20 chars and remove 'The ', 'A ' etc.
+            if desc:
+                clean_desc = re.sub(r"^(the|a|an)\s+", "", str(desc), flags=re.IGNORECASE)
+                field_strs.append(f"{k}: {clean_desc[:25]}")
+            else:
+                field_strs.append(k)
             
-        tool_lines = [f"- **{t.get('id', t.get('name'))}**: {t.get('description', '')}" for t in tools]
-        return "\n".join(header + tool_lines)
+        return f"{{{', '.join(field_strs)}}}"

@@ -1,0 +1,47 @@
+  + Exception Group Traceback (most recent call last):
+  |   File "/home/siddy/elemm/ai_landmarks_pkg/benchmarks/solaris_gauntlet/api_elemm.py", line 175, in <module>
+  |     ai.run_mcp_stdio("api_elemm:app", port=8008)
+  |   File "/home/siddy/elemm/ai_landmarks_pkg/src/elemm/integrations/fastapi/manager.py", line 716, in run_mcp_stdio
+  |     run_mcp_stdio(self, app_import_path, host, port)
+  |   File "/home/siddy/elemm/ai_landmarks_pkg/src/elemm/integrations/fastapi/mcp.py", line 67, in run_mcp_stdio
+  |     bridge.run_stdio()
+  |   File "/home/siddy/elemm/ai_landmarks_pkg/src/elemm/mcp/bridge.py", line 314, in run_stdio
+  |     asyncio.run(main())
+  |   File "/usr/lib/python3.12/asyncio/runners.py", line 194, in run
+  |     return runner.run(main)
+  |            ^^^^^^^^^^^^^^^^
+  |   File "/usr/lib/python3.12/asyncio/runners.py", line 118, in run
+  |     return self._loop.run_until_complete(task)
+  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |   File "/usr/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+  |     return future.result()
+  |            ^^^^^^^^^^^^^^^
+  |   File "/home/siddy/elemm/ai_landmarks_pkg/src/elemm/mcp/bridge.py", line 306, in main
+  |     async with stdio_server() as (read, write):
+  |   File "/usr/lib/python3.12/contextlib.py", line 217, in __aexit__
+  |     await anext(self.gen)
+  |   File "/home/siddy/elemm/ai_landmarks_pkg/venv/lib/python3.12/site-packages/mcp/server/stdio.py", line 85, in stdio_server
+  |     async with anyio.create_task_group() as tg:
+  |   File "/home/siddy/elemm/ai_landmarks_pkg/venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 799, in __aexit__
+  |     raise BaseExceptionGroup(
+  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/home/siddy/elemm/ai_landmarks_pkg/venv/lib/python3.12/site-packages/mcp/server/stdio.py", line 81, in stdout_writer
+    |     await stdout.flush()
+    |   File "/home/siddy/elemm/ai_landmarks_pkg/venv/lib/python3.12/site-packages/anyio/_core/_fileio.py", line 140, in flush
+    |     return await to_thread.run_sync(self._fp.flush)
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/home/siddy/elemm/ai_landmarks_pkg/venv/lib/python3.12/site-packages/anyio/to_thread.py", line 63, in run_sync
+    |     return await get_async_backend().run_sync_in_worker_thread(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |   File "/home/siddy/elemm/ai_landmarks_pkg/venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 2518, in run_sync_in_worker_thread
+    |     return await future
+    |            ^^^^^^^^^^^^
+    |   File "/home/siddy/elemm/ai_landmarks_pkg/venv/lib/python3.12/site-packages/anyio/_backends/_asyncio.py", line 1002, in run
+    |     result = context.run(func, *args)
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^
+    | BrokenPipeError: [Errno 32] Broken pipe
+    +------------------------------------
+Exception ignored in: <_io.TextIOWrapper name='<stdout>' mode='w' encoding='utf-8'>
+BrokenPipeError: [Errno 32] Broken pipe

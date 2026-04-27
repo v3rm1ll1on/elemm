@@ -1,554 +1,230 @@
-# This file is part of Elemm.
-#
-# Elemm is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# Elemm is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with Elemm.  If not, see <https://www.gnu.org/licenses/>.
-
 import asyncio
-import httpx
 import logging
 import json
-import sys
 import re
-from urllib.parse import urlparse
-from typing import List, Dict, Any, Callable, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import mcp.types as types
 from mcp.server import Server
+from ..core.context import landmark_ctx, session_headers
+from .manifest import ManifestGenerator
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING) 
-logging.getLogger("mcp").setLevel(logging.WARNING)   
 logger = logging.getLogger("elemm-bridge")
 
-# Thread-safe session context
-from ..core.context import landmark_ctx, session_headers
-
 class LandmarkBridge:
-    """
-    Hybrid Bridge between ELEMM Protocol and MCP Standard.
-    Implements JIT (Just-in-Time) Context Injection for maximum efficiency.
-    """
+    """Elemm Protocol v1.0 Gateway: Discovery, Inspection, and Execution."""
+    
     def __init__(self, manager: Optional[Any] = None, base_url: str = "http://localhost:8001", server_name: str = "elemm-bridge"):
         self.manager = manager
         self.base_url = base_url
-        
-        # Use agent_welcome as server name if available
-        actual_name = manager.agent_welcome if manager and hasattr(manager, "agent_welcome") and manager.agent_welcome else server_name
-        self.server_name = actual_name
-        self.server = Server(actual_name)
-        self.ctx = "root"
+        self.server_name = server_name
+        self.server = Server(server_name)
+        self.manifest = ManifestGenerator(manager)
+        self.history = [] # Global result history for piping
         
         self._setup_server()
 
     def _setup_server(self):
         @self.server.list_tools()
         async def handle_list_tools() -> List[types.Tool]:
-            landmark_ctx.set(self.ctx)
-            return await self._handle_list_tools()
+            return [
+                types.Tool(
+                    name="get_landmarks",
+                    description="Get the map of namespaces (landmarks) and their objectives.",
+                    inputSchema={"type": "object", "properties": {}}
+                ),
+                types.Tool(
+                    name="get_manifest",
+                    description="Get the FULL manifest with ALL tool signatures across ALL landmarks in one call.",
+                    inputSchema={"type": "object", "properties": {}}
+                ),
+                types.Tool(
+                    name="inspect_landmark",
+                    description="Get detailed tool signatures for a specific landmark.",
+                    inputSchema={
+                        "type": "object", 
+                        "properties": {"landmark_id": {"type": "string"}},
+                        "required": ["landmark_id"]
+                    }
+                ),
+                types.Tool(
+                    name="execute_sequence",
+                    description="Execute a chain of tools. Use $alias.field or $0.field to pipe results.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "actions": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "action": {"type": "string", "description": "The ID of the tool to execute."},
+                                        "alias": {"type": "string", "description": "Optional name for result piping (e.g. 'logs')."},
+                                        "parameters": {"type": "object", "description": "Arguments for the tool."}
+                                    },
+                                    "required": ["action"]
+                                }
+                            }
+                        },
+                        "required": ["actions"]
+                    }
+                )
+            ]
 
         @self.server.call_tool()
         async def handle_call_tool(name: str, arguments: dict) -> List[types.TextContent]:
-            name = self._strip_namespace(name)
-            landmark_ctx.set(self.ctx)
-            
-            # 1. Syntax Flexibility: Handle 'landmark:action' or 'landmark.action'
-            # If the agent calls it as a single string, we split it.
-            target_landmark = None
-            target_action = None
-            
-            if ":" in name:
-                target_landmark, target_action = name.split(":", 1)
-            elif "." in name:
-                target_landmark, target_action = name.split(".", 1)
-            
-            landmark_ids = [l.get("id") for l in self.manager.navigation_landmarks] if self.manager else []
-            
-            if target_landmark in landmark_ids:
-                return await self._execute_native_action(target_action, arguments, landmark_override=target_landmark)
+            try:
+                name = name.split(":")[-1].split(".")[-1].strip()
+                
+                if name == "get_landmarks":
+                    return [types.TextContent(type="text", text=self.manifest.generate_summary())]
+                if name == "get_manifest":
+                    return [types.TextContent(type="text", text=self.manifest.generate_full())]
+                if name == "inspect_landmark":
+                    lid = arguments.get("landmark_id") or arguments.get("landmark_ids")
+                    return [types.TextContent(type="text", text=self.manifest.generate_landmark_detail(lid))]
+                if name == "execute_sequence":
+                    actions = arguments.get("actions", [])
+                    return await self._handle_execute_sequence(actions)
+                
+                res_text = await self._execute_single(name, arguments)
+                return [types.TextContent(type="text", text=res_text)]
+            except Exception as e:
+                logger.exception(f"Tool execution failed: {e}")
+                return [types.TextContent(type="text", text=f"Critical Error: {str(e)}")]
 
-            # 2. Landmark-as-Tool Dispatch (e.g. soc(action='...'))
-            if name in landmark_ids:
-                action_id = arguments.get("action", "")
-                params = arguments.get("parameters", {})
-                return await self._execute_native_action(action_id, params, landmark_override=name)
-
-            # 3. Core Protocol Tools Dispatch
-            if name in ["get_manifest", "navigate", "execute_action", "inspect_landmark", "execute_sequence"]:
-                return await self._handle_core_dispatch(name, arguments)
-            
-            # 4. Native Action Execution (Direct call if in context)
-            return await self._execute_native_action(name, arguments)
-
-    def _get_core_tools(self) -> List[types.Tool]:
-        """Returns the base protocol tools that are always available."""
-        instructions = self.manager.protocol_instructions if self.manager else "Navigate via 'get_manifest' and 'navigate'."
-        
-        return [
-            types.Tool(
-                name="get_manifest",
-                description=f"ELEMM PROTOCOL: {instructions}. Returns the available landmarks and subsystems.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "landmark_id": {"type": "string", "description": "Optional: Specific landmark to inspect."}
-                    }
-                },
-            ),
-            types.Tool(
-                name="navigate",
-                description="CONTEXT SWITCH: Activate a specific subsystem to access its specialized toolset and local instructions.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "landmark_id": {"type": "string", "description": "The ID of the subsystem to activate (found via get_manifest)."},
-                    },
-                    "required": ["landmark_id"],
-                },
-            ),
-            types.Tool(
-                name="inspect_landmark",
-                description="LANDMARK INSPECTION: Retrieve detailed documentation, available tools, and specific instructions for a subsystem without switching context.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "landmark_id": {"type": "string", "description": "The ID of the subsystem to inspect."},
-                    },
-                    "required": ["landmark_id"],
-                },
-            ),
-            types.Tool(
-                name="execute_action",
-                description="DIRECT EXECUTION: Execute a single landmark tool directly (Format: 'landmark.action').",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "action_id": {"type": "string", "description": "Full action ID (e.g., 'soc.get_alerts')"},
-                        "parameters": {"type": "object", "description": "Tool parameters"}
-                    },
-                    "required": ["action_id"],
-                },
-            ),
-            types.Tool(
-                name="execute_sequence",
-                description="WARP-DRIVE: The primary execution engine. Run one or more tools in a sequence. Use '{{step0.path}}' for deep-piping results.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "actions": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "action_id": {"type": "string", "description": "The tool ID (e.g., 'soc.get_alerts')"},
-                                    "parameters": {"type": "object", "description": "Tool parameters"}
-                                },
-                                "required": ["action_id"]
-                            },
-                            "minItems": 1
-                        }
-                    },
-                    "required": ["actions"]
-                },
-            ),
-        ]
-
-    async def _handle_list_tools(self) -> List[types.Tool]:
-        """Core logic to generate the list of available tools."""
-        # Synchronize local state with ContextVar (Source of Truth)
-        # If the ContextVar was reset (common in some MCP transports), we restore from self.ctx
-        current_ctx = landmark_ctx.get()
-        if current_ctx == "root" and self.ctx != "root":
-            current_ctx = self.ctx
-            landmark_ctx.set(current_ctx)
-        
-        self.ctx = current_ctx
-        
-        # Core Tools are always available
-        tools = self._get_core_tools()
-        
-        # LANDMARK GATEWAYS: Only visible if NOT in root or specifically enabled
-        # This reduces bloat and forces use of get_manifest + execute_sequence
-        if self.ctx != "root" and self.manager:
-            for l_config in self.manager.navigation_landmarks:
-                l_id = l_config.get("id")
-                l_notes = l_config.get("notes", "")
-                tools.append(
-                    types.Tool(
-                        name=l_id,
-                        description=f"ACCESS LANDMARK: {l_id}. {l_notes}",
-                        inputSchema={
-                            "type": "object",
-                            "properties": {
-                                "action": {"type": "string", "description": "Tool ID within this landmark"},
-                                "parameters": {"type": "object", "description": "Parameters for the tool"}
-                            },
-                            "required": ["action"]
-                        }
-                    )
-                )
-
-        if self.manager and self.ctx != "root":
-            # We filter actions based on current context
-            manifest_data = self.manager.get_manifest(group=current_ctx, agent_view=False)
-            actions = manifest_data.get("actions", [])
-            from ..core.discovery import convert_actions_to_mcp_tools
-            native_tools = convert_actions_to_mcp_tools(actions)
-            tools.extend(native_tools)
-        
-        return tools
-
-
-    def get_full_mcp_definitions(self) -> List[Dict[str, Any]]:
-        """Returns ALL tool definitions in MCP format for technical discovery (e.g. Gateway)."""
-        if not self.manager:
-            return []
-        
-        # Use direct access to actions to avoid internal auth checks
-        actions = self.manager.actions
-        from ..core.discovery import convert_actions_to_mcp_tools
-        mcp_tools = convert_actions_to_mcp_tools(actions)
-        return [t.model_dump() for t in mcp_tools]
-
-    def _strip_namespace(self, name: str) -> str:
-        """Strips 'server-name' or 'landmark.id' prefixes."""
-        if ":" in name:
-            return name.split(":")[-1]
-        if "." in name:
-            # Support 'soc.get_alerts' syntax
-            return name.split(".")[-1]
-        if "-" not in name:
-            return name
-        
-        potential_action = name.split("-")[-1]
-        is_core = potential_action in ["get_manifest", "navigate", "execute_action", "inspect_landmark", "enter_module"]
-        is_manager_action = self.manager and hasattr(self.manager, "_registered_ids") and potential_action in self.manager._registered_ids
-        
-        if is_manager_action or is_core:
-            return potential_action
-        
-        return name
-
-    async def _handle_core_dispatch(self, name: str, arguments: dict) -> List[types.TextContent]:
-        if name == "get_manifest":
-            return await self._handle_get_manifest(name, arguments)
-        
-        if name == "navigate":
-            res = await self._handle_navigate(name, arguments)
-            await self._notify_tool_list_changed()
-            return res
-            
-        if name == "execute_action":
-            target_id = arguments.get("action_id", "")
-            target_params = arguments.get("parameters", {})
-            if not target_id:
-                return [types.TextContent(type="text", text="Error: Missing 'action_id' parameter.")]
-            target_id = self._strip_namespace(target_id)
-            return await self._execute_native_action(target_id, target_params)
-
-        if name == "execute_batch":
-            actions = arguments.get("actions", [])
-            tasks = [self._execute_native_action(self._strip_namespace(a.get("action_id", "")), a.get("parameters", {})) for a in actions]
-            results = await asyncio.gather(*tasks)
-            combined = [f"Res [{actions[i].get('action_id')}]: " + "\n".join([c.text for c in r if hasattr(c, "text")]) for i, r in enumerate(results)]
-            return [types.TextContent(type="text", text="\n\n".join(combined))]
-
-        if name == "execute_sequence":
-            return await self._handle_execute_sequence(arguments)
-            
-        if name == "inspect_landmark":
-            return await self._handle_inspect_landmark(name, arguments)
-            
-        if name == "enter_module":
-            return await self._handle_navigate(name, arguments)
-            
-        return [types.TextContent(type="text", text=f"Error: Unknown core tool '{name}'.")]
-
-    async def _handle_execute_sequence(self, arguments: dict) -> List[types.TextContent]:
-        actions = arguments.get("actions", [])
-        history = {}
-        final_output = []
+    async def _handle_execute_sequence(self, actions: List[Dict]) -> List[types.TextContent]:
+        results = []
+        local_results = {} # Maps index (str) OR alias to result
+        failed_steps = set()
         
         for i, act in enumerate(actions):
-            aid = self._strip_namespace(act.get("action_id", ""))
+            raw_aid = act.get("action", "") or act.get("action_id", "")
             params = act.get("parameters", {})
+            alias = act.get("alias")
             
-            # DEEP PIPING LOGIC: Support {{step0.key}}, {{step0.2.ip}}, etc.
-            if history:
-                param_str = json.dumps(params)
-                # Find all {{stepX.path}} patterns
-                placeholders = re.findall(r"\{\{step(\d+)\.([^}]+)\}\}", param_str)
-                for step_idx_str, path in placeholders:
-                    step_idx = int(step_idx_str)
-                    if step_idx in history:
-                        # Traverse path (e.g., "items.0.id" or "2.ip")
-                        val = history[step_idx]
-                        for part in path.split("."):
-                            if isinstance(val, dict) and part in val:
-                                val = val[part]
-                            elif isinstance(val, list) and part.isdigit() and int(part) < len(val):
-                                val = val[int(part)]
-                            else:
-                                val = f"MISSING_{part}"
-                                break
-                        
-                        full_placeholder = f"{{{{step{step_idx_str}.{path}}}}}"
-                        param_str = param_str.replace(full_placeholder, str(val))
-                
-                params = json.loads(param_str)
+            aid = raw_aid.strip()
+            if ":" in aid: aid = aid.split(":")[-1].strip()
+            if "." in aid: aid = aid.split(".")[-1].strip()
             
-            # Execute
-            res_list = await self._execute_native_action(aid, params)
-            res_text = "\n".join([c.text for c in res_list if hasattr(c, "text")])
-            final_output.append(f"Step {i} [{aid}]: {res_text}")
+            if self._depends_on_failed(params, failed_steps, local_results):
+                results.append(f"Step {i} ({aid}): SKIPPED")
+                failed_steps.add(str(i))
+                if alias: failed_steps.add(alias)
+                continue
             
-            # Parse result for next steps
-            try:
-                clean_res = res_text.split("]:")[-1].strip()
-                history[i] = json.loads(clean_res)
-            except: pass
-                    
-        return [types.TextContent(type="text", text="\n\n".join(final_output))]
-            
-        if name == "inspect_landmark":
-            return await self._handle_inspect_landmark(name, arguments)
-            
-        if name == "enter_module":
-            # Map enter_module to navigate (protocol equivalence)
-            return await self._handle_navigate(name, arguments)
-            
-        return [types.TextContent(type="text", text=f"Error: Unknown core tool '{name}'.")]
-
-    async def _execute_native_action(self, name: str, arguments: dict, landmark_override: str = None) -> List[types.TextContent]:
-        if not self.manager:
-            return [types.TextContent(type="text", text="Error: No protocol manager bound.")]
-
-        action_meta = next((a for a in self.manager.actions if a.id == name), None)
-        if not action_meta:
-            return [types.TextContent(type="text", text=f"Error: Tool '{name}' not found. Use 'get_manifest' to verify.")]
-
-        # Inject session headers into context for this task
-        from ..core.context import session_headers
-        if not hasattr(self, "session_headers"):
-            self.session_headers = {}
-        token = session_headers.set(self.session_headers)
-
-        try:
-            res = await self.manager.call_action(name, arguments)
-            
-            # Auto-Capture Auth Tokens (Scoped Session Management)
-            if isinstance(res, dict) and "access_token" in res:
-                # ... (rest of auth logic)
-                parsed = urlparse(action_meta.url)
-                host_key = parsed.netloc if parsed.netloc else "elemm-internal"
-                new_token = res["access_token"]
-                all_sessions = session_headers.get().copy()
-                host_headers = all_sessions.get(host_key, {}).copy()
-                host_headers["Authorization"] = f"Bearer {new_token}"
-                all_sessions[host_key] = host_headers
-                self.session_headers = all_sessions
-                session_headers.set(all_sessions)
-
-            output_text = self._format_action_result(name, res, action_meta, False)
-            return [types.TextContent(type="text", text=output_text)]
-        except Exception as e:
-            return [types.TextContent(type="text", text=self._format_error_feedback(e))]
-        finally:
-            session_headers.reset(token)
-
-    async def _handle_auto_pilot(self, action_meta) -> bool:
-        """Switches context automatically if the tool belongs to a different landmark."""
-        current_ctx = landmark_ctx.get()
-        tool_groups = action_meta.groups
-        is_global = action_meta.global_access
-        
-        if current_ctx in tool_groups or is_global or not tool_groups:
-            return False
-            
-        new_ctx = tool_groups[0]
-        self.ctx = new_ctx
-        landmark_ctx.set(new_ctx)
-        await self._notify_tool_list_changed()
-        return True
-
-    async def _notify_tool_list_changed(self):
-        try:
-            # We use a safe task creation to avoid blocking the main flow
-            asyncio.create_task(self.server.request_context.session.send_tool_list_changed())
-        except:
-            pass
-
-    def _format_action_result(self, name: str, res: Any, action_meta, auto_switched: bool) -> str:
-        # 1. Unpack tuples (e.g. (data, 200) -> data, status)
-        status_code = 200
-        if isinstance(res, (list, tuple)) and len(res) == 2 and isinstance(res[1], int):
-            status_code = res[1]
-            res = res[0]
-
-        # Extract dynamic metadata
-        remedy = None
-        instruction = None
-        is_error = status_code >= 400 or (isinstance(res, dict) and res.get("status") == "error")
-
-        if isinstance(res, dict):
-            remedy = res.get("remedy")
-            instruction = res.get("instruction")
-            # Clean display data
-            res = {k: v for k, v in res.items() if k not in ["remedy", "instruction"]}
-        
-        # Static Remedy Fallback (Native Python & Uncaught exceptions)
-        if is_error and not remedy and action_meta and getattr(action_meta, "remedy", None):
-            remedy = action_meta.remedy
-        
-        # AGGRESSIVE ERROR SUPPRESSION
-        if status_code >= 400 and remedy:
-            # Wrap remedy in a result-like block to keep the agent in "tool mode"
-            return f"Result: {{\"error\": \"Action Required\", \"remedy\": \"{remedy}\"}}"
-
-        # Build Text
-        data_text = self._stringify_result(res)
-        sections = [f"Res [{name}]: {data_text}"]
-        
-        # Deduplicate: only add headers if not already in the data_text
-        if remedy and remedy not in data_text:
-            sections.insert(0, f"REMEDY: {remedy}")
-        if instruction and instruction not in data_text:
-            sections.insert(0, f"NOTE: {instruction}")
-        
-        if auto_switched:
-            sections.append(f"[Ctx: {self.ctx}] (Switched)")
-            
-        return "\n".join(sections)
-
-    def _stringify_result(self, res: Any) -> str:
-        # 1. Truncate long lists
-        if isinstance(res, list):
-            orig_len = len(res)
-            if orig_len > 50:
-                res = res[:50]
-                suffix = f"\n... (+{orig_len - 50} items)"
+            if aid in ["inspect_landmark", "get_landmarks"]:
+                res_text = self.manifest.generate_summary() if aid == "get_landmarks" else self.manifest.generate_landmark_detail(params.get("landmark_id"))
+                res_obj = self._parse_result(res_text)
             else:
-                suffix = ""
-            return "\n".join([f"- {json.dumps(item, separators=(',', ':'))}" for item in res]) + suffix
+                resolved_params, pipe_error = self._resolve_params(params, local_results)
+                if pipe_error:
+                    results.append(f"Step {i} ({aid}): FAILED. {pipe_error}")
+                    failed_steps.add(str(i))
+                    if alias: failed_steps.add(alias)
+                    continue
+                
+                res_text = await self._execute_single(aid, resolved_params)
+                res_obj = self._parse_result(res_text)
             
-        # 2. Smart Compaction (Success Pattern matching)
-        if isinstance(res, dict):
-            status = str(res.get("status") or res.get("result") or "").upper()
-            msg = res.get("message") or res.get("msg")
+            local_results[str(i)] = res_obj
+            if alias: local_results[alias] = res_obj
+            self.history.append(res_obj)
             
-            if status in ["SUCCESS", "OK", "DONE"]:
-                if msg and len(res) <= 2:
-                    return f"OK: {msg}"
-                if len(res) <= 1:
-                    return "OK"
+            if isinstance(res_obj, dict) and res_obj.get("status") == "error":
+                failed_steps.add(str(i))
+                if alias: failed_steps.add(alias)
+            
+            formatted_res = self._format_result(aid, res_text)
+            results.append(f"Step {i}{' (' + alias + ')' if alias else ''} ({aid}): {formatted_res}")
+            
+        return [types.TextContent(type="text", text="\n\n".join(results))]
 
-        # 3. Default JSON stringification
-        if isinstance(res, (dict, list)):
-            return json.dumps(res, separators=(',', ':'))
-        
-        return str(res)
+    def _depends_on_failed(self, params: Dict, failed_steps: set, local_results: Dict) -> bool:
+        if not params or not failed_steps: return False
+        param_str = json.dumps(params)
+        placeholders = re.findall(r"\$([a-zA-Z0-9_-]+)(?:\[(\d+)\])?\.([a-zA-Z0-9_-]+)", param_str)
+        for step_key, _, _ in placeholders:
+            if step_key in failed_steps: return True
+        return False
 
-    async def _call_tool(self, landmark_id: str, action_id: str, params: dict) -> str:
-        url = f"{self.manager.base_url}/{landmark_id}/{action_id}"
-        headers = self.session_headers.get(urlparse(url).netloc, {})
-        
+    def _format_result(self, tool_name: str, raw_text: str) -> str:
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(url, json=params, headers=headers)
-                
-                # Extract remedy if it exists in JSON
-                if resp.status_code == 422:
-                    try:
-                        remedy = resp.json().get("remedy")
-                    except:
-                        pass
-                
-                if resp.status_code >= 400:
-                    if remedy:
-                        # PURE REMEDY: No technical noise
-                        return f"REMEDY: {remedy}"
-                    return f"REMEDY: Infrastructure Error ({resp.status_code}).\nResult: {resp.text}"
+            data = json.loads(raw_text)
+            if isinstance(data, dict):
+                if data.get("status") == "error":
+                    msg = data.get("remedy") or data.get("message") or "Unknown error"
+                    return f"FAILED. {msg}"
+                if len(data) == 1 and "status" in data: return str(data["status"])
+                return json.dumps(data)
+            return raw_text
+        except: return raw_text
 
-                # Success
-                res_data = resp.json() if resp.headers.get("content-type") == "application/json" else resp.text
-                return self._stringify_result(res_data)
-        except Exception as e:
-            return f"REMEDY: Connection Error. Ensure the landmark server is running.\nDetails: {str(e)}"
+    def _resolve_params(self, params: Any, local_results: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
+        if isinstance(params, str):
+            pattern = r"\$([a-zA-Z0-9_-]+)(?:\[(\d+)\])?\.([a-zA-Z0-9_-]+)"
+            matches = re.finditer(pattern, params)
+            new_val = params
+            for m in matches:
+                full_match, step_key, index_str, field_name = m.group(0), m.group(1), m.group(2), m.group(3)
+                if step_key not in local_results:
+                    return params, f"PIPE_ERROR: Step or Alias '{step_key}' not found."
+                data = local_results[step_key]
+                if isinstance(data, list):
+                    if not data: return params, f"PIPE_ERROR: Step '{step_key}' returned empty list."
+                    idx = int(index_str) if index_str is not None else 0
+                    if idx >= len(data): return params, f"PIPE_ERROR: Index [{idx}] out of bounds for '{step_key}'."
+                    data = data[idx]
+                elif index_str is not None:
+                    return params, f"PIPE_ERROR: Index [{index_str}] used on non-list at '{step_key}'."
+                if not isinstance(data, dict) or field_name not in data:
+                    avail = ", ".join(data.keys()) if isinstance(data, dict) else "none"
+                    return params, f"PIPE_ERROR: Field '{field_name}' not found in '{step_key}'. Available: {avail}"
+                val = data[field_name]
+                if params == full_match: return val, None
+                new_val = new_val.replace(full_match, str(val))
+            return new_val, None
+        if isinstance(params, dict):
+            new_dict = {}
+            for k, v in params.items():
+                res, err = self._resolve_params(v, local_results)
+                if err: return {}, err
+                new_dict[k] = res
+            return new_dict, None
+        if isinstance(params, list):
+            new_list = []
+            for item in params:
+                res, err = self._resolve_params(item, local_results)
+                if err: return [], err
+                new_list.append(res)
+            return new_list, None
+        return params, None
 
-    def _format_error_feedback(self, e: Exception) -> str:
-        msg = str(e)
-        if "detail" in msg:
-            try:
-                d = json.loads(msg.replace("'", '"')).get("detail", msg)
-                msg = d.get("message", d.get("error", str(d))) if isinstance(d, dict) else d
-            except: pass
-        logger.warning(f"Tool error: {msg}")
-        return f"ERR: {msg}. ACTION: Resolve and retry."
+    def _parse_result(self, text: str) -> Any:
+        try:
+            clean = text.strip()
+            if clean.startswith("- "): clean = clean[2:]
+            match = re.search(r"(\{.*\}|\[.*\])", clean, re.DOTALL)
+            if match: return json.loads(match.group(1))
+            return clean
+        except: return text
 
-    async def _handle_get_manifest(self, _name: str, arguments: dict) -> List[types.TextContent]:
-        from .manifest import ManifestGenerator
-        landmark_id = arguments.get("landmark_id")
-        
-        # If a specific landmark is requested, we show its details
-        if landmark_id and landmark_id != "root":
-            manifest = self.manager.get_manifest(group=landmark_id)
-            md = ManifestGenerator.generate_markdown(
-                landmarks=[manifest.get("landmark")] if manifest.get("landmark") else [],
-                is_root=False
-            )
-            return [types.TextContent(type="text", text=md)]
-
-        # Default: show root manifest
-        instructions = self.manager.protocol_instructions if self.manager else ""
-        
-        md = ManifestGenerator.generate_markdown(
-            manager=self.manager,
-            system_name=self.manager.agent_welcome if self.manager else "Solaris Hub",
-            instructions=instructions,
-            landmarks=self.manager.navigation_landmarks if self.manager else [],
-            tools=self.manager.actions if self.manager else [],
-            is_root=(self.ctx == "root")
-        )
-        return [types.TextContent(type="text", text=md)]
-
-    async def _handle_inspect_landmark(self, _name: str, arguments: dict) -> List[types.TextContent]:
-        from .manifest import ManifestGenerator
-        landmark_id = arguments.get("landmark_id", "")
-        if not landmark_id:
-            return [types.TextContent(type="text", text="Error: Missing 'landmark_id' parameter.")]
-            
-        manifest = self.manager.get_manifest(group=landmark_id)
-        actions = manifest.get("actions", [])
-        
-        # Only list IDs and short descriptions to save tokens
-        tool_list = "\n".join([f"- {a['id']}: {a.get('description', '')[:100]}" for a in actions])
-        return [types.TextContent(type="text", text=f"Landmark '{landmark_id}' Tools:\n{tool_list}")]
-
-    async def _handle_navigate(self, _name: str, arguments: dict) -> List[types.TextContent]:
-        landmark_id = arguments.get("landmark_id", "")
-        self.ctx = landmark_id
-        landmark_ctx.set(landmark_id)
-        
-        # Get tool names for preview
-        manifest = self.manager.get_manifest(group=landmark_id)
-        tool_names = [a["id"] for a in manifest.get("actions", [])]
-        preview = f" Tools: {', '.join(tool_names)}" if tool_names else ""
-        
-        await self._notify_tool_list_changed()
-        return [types.TextContent(type="text", text=f"Switched to {landmark_id}.{preview}")]
+    async def _execute_single(self, action_id: str, parameters: Dict) -> str:
+        action = self.manager.get_action(action_id)
+        if not action: return f"Error: Tool '{action_id}' not found."
+        lid = action.groups[0] if action.groups else "root"
+        landmark_ctx.set(lid)
+        try:
+            res, _ = await self.manager.call_action(action_id, parameters)
+            return json.dumps(res) if isinstance(res, (dict, list)) else str(res)
+        except Exception as e: return f"Execution Error: {str(e)}"
 
     def run_stdio(self):
+        """Runs the MCP server over STDIO."""
         from mcp.server.stdio import stdio_server
-        async def _run():
+        async def main():
             async with stdio_server() as (read, write):
                 await self.server.run(read, write, self.server.create_initialization_options())
-        asyncio.run(_run())
+        try:
+            asyncio.run(main())
+        except KeyboardInterrupt:
+            pass

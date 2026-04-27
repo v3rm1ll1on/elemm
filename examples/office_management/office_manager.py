@@ -16,8 +16,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 ai = Elemm(
     agent_welcome="Welcome to UrbanCoWorking. How may I assist with your workspace today?",
-    agent_instructions="Concierge-style support: Provide warm, elegant booking assistance and only confirm reservations via tool-issued IDs.",
-    protocol_instructions="Verify availability via 'list_offices' before booking.",
+    agent_instructions="Concierge-style support: Provide warm, elegant booking assistance. Proactively match user needs (e.g. group size, quietness) to the most suitable available workspace IDs.",
+    protocol_instructions="STRATEGY: [list_offices -> Match room 'type' and 'price' to user needs -> book_workspace]. Always verify availability before confirming.",
     navigation_landmarks=[
         {"id": "locations", "notes": "Start here to see available cities."},
         {"id": "bookings", "notes": "Manage existing reservations and cancellations."}
@@ -95,7 +95,7 @@ async def list_offices(city: str):
     instructions="Process each booking separately. You MUST call this tool to confirm any booking.",
     remedy="If you get a 400/422 error, ensure you use 'room_id' and 'hours' (integer). DO NOT use 'start_time', 'duration_hours' or 'city' in this call."
 )
-async def book_room(data: BookingRequest):
+async def book_workspace(data: BookingRequest):
     # Search for room
     all_rooms = [r for sublist in LOCATIONS.values() for r in sublist]
     room = next((r for r in all_rooms if r["id"] == data.room_id), None)

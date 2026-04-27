@@ -103,6 +103,13 @@ def resolve_refs(item: Any, definitions: Dict[str, Any], depth: int = 0) -> Any:
     if "properties" in item:
         item["properties"] = {k: resolve_refs(v, definitions, depth + 1) for k, v in item["properties"].items()}
     
+    # Recurse into items if it's an array
+    if "items" in item:
+        if isinstance(item["items"], dict):
+            item["items"] = resolve_refs(item["items"], definitions, depth + 1)
+        elif isinstance(item["items"], list):
+            item["items"] = [resolve_refs(i, definitions, depth + 1) for i in item["items"]]
+    
     return item
 
 def convert_actions_to_mcp_tools(actions: List[Any]) -> List[Any]:

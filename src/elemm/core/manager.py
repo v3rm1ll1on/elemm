@@ -20,10 +20,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_PROTOCOL_INSTRUCTIONS = (
-    "ELEMM: Use 'get_manifest' for discovery. Navigate landmarks to access tools, "
-    "or call any tool directly via 'execute_action'."
-)
+DEFAULT_PROTOCOL_INSTRUCTIONS = "ELEMM: [MNFST -> NAV -> EXEC]. Use 'execute_sequence' for BATCHING (multiple tools in one turn) and PIPING (chain results via $N.field or $N[index].field)."
 
 class BaseAIProtocolManager:
     """
@@ -40,6 +37,11 @@ class BaseAIProtocolManager:
         self.internal_access_key = internal_access_key
         self.hybrid_threshold = hybrid_threshold
         self.navigation_landmarks = navigation_landmarks or []
+
+    @property
+    def landmarks(self) -> List[Dict[str, Any]]:
+        """Returns all registered landmarks for discovery."""
+        return self._get_navigation_entries("root")
 
     async def call_action(self, action_id: str, arguments: Dict[str, Any]) -> tuple[Any, int]:
         """
@@ -67,8 +69,11 @@ class BaseAIProtocolManager:
             if e.instruction: res["instruction"] = e.instruction
             return res, e.status_code
         except Exception as e:
-            logger.error(f"Action {action_id} failed: {e}")
             return {"error": str(e), "status": "error"}, 500
+
+    def get_action(self, action_id: str) -> Optional[AIAction]:
+        """Returns a registered action by its ID."""
+        return next((a for a in self.actions if a.id == action_id), None)
 
     def landmark(self, id: str, type: str, instructions: Optional[str] = None, description: Optional[str] = None, **kwargs):
         """
@@ -92,6 +97,21 @@ class BaseAIProtocolManager:
             if "id" not in kwargs:
                 kwargs["id"] = func.__name__
             kwargs.setdefault("type", "read")
+            
+            # Attach metadata for discovery
+            meta = {
+                "id": kwargs["id"],
+                "type": kwargs["type"],
+                "instructions": kwargs.get("instructions"),
+                "description": kwargs.get("description"),
+                "extra": {k: v for k, v in kwargs.items() if k not in ["id", "type", "instructions", "description", "remedy"]}
+            }
+            # Put remedy in extra if exists
+            if "remedy" in kwargs:
+                meta["extra"]["remedy"] = kwargs["remedy"]
+                
+            setattr(func, "_llm_landmark", meta)
+            
             self.register_action(func, **kwargs)
             return func
         return decorator
@@ -101,7 +121,34 @@ class BaseAIProtocolManager:
             if "id" not in kwargs:
                 kwargs["id"] = func.__name__
             kwargs.setdefault("type", "write")
+            
+            # Attach metadata for discovery
+            meta = {
+                "id": kwargs["id"],
+                "type": kwargs["type"],
+                "instructions": kwargs.get("instructions"),
+                "description": kwargs.get("description"),
+                "extra": {k: v for k, v in kwargs.items() if k not in ["id", "type", "instructions", "description", "remedy"]}
+            }
+            # Put remedy in extra if exists
+            if "remedy" in kwargs:
+                meta["extra"]["remedy"] = kwargs["remedy"]
+                
+            setattr(func, "_llm_landmark", meta)
+            
             self.register_action(func, **kwargs)
+            return func
+        return decorator
+
+    def returns(self, fields: Dict[str, str]):
+        """
+        Decorator to document return fields for an action.
+        Example: @ai.returns({"token": "The evidence token (RT-XXXX)"})
+        """
+        def decorator(func: Callable):
+            existing = getattr(func, "_llm_returns", {})
+            existing.update(fields)
+            setattr(func, "_llm_returns", existing)
             return func
         return decorator
 
@@ -117,9 +164,61 @@ class BaseAIProtocolManager:
         # LLM Metadata Hierarchy: instructions > description > docstring
         doc = handler.__doc__.strip() if handler and handler.__doc__ else None
         
+        # Infer output schema from return type hint if available (Pydantic Magic)
+        response_schema = kwargs.get("response_schema")
+        if not response_schema and handler:
+            # Infer output schema from return type hint if available
+            from typing import get_type_hints, get_origin, get_args
+            try:
+                hints = get_type_hints(handler)
+                return_hint = hints.get('return')
+                if return_hint:
+                    # 1. Pydantic Models
+                    if hasattr(return_hint, "model_json_schema"):
+                        response_schema = return_hint.model_json_schema()
+                    elif hasattr(return_hint, "__pydantic_model__"):
+                        response_schema = return_hint.__pydantic_model__.model_json_schema()
+                    # 2. Lists (Generic Aliases)
+                    elif get_origin(return_hint) is list:
+                        inner = get_args(return_hint)[0]
+                        inner_schema = {"type": "string"}
+                        if hasattr(inner, "model_json_schema"):
+                            inner_schema = inner.model_json_schema()
+                        elif inner is dict:
+                            inner_schema = {"type": "object"}
+                        response_schema = {"type": "array", "items": inner_schema}
+                    # 3. Simple types
+                    elif return_hint is list:
+                        response_schema = {"type": "array", "items": {"type": "object"}}
+                    elif return_hint is dict:
+                        response_schema = {"type": "object"}
+                    elif return_hint is str:
+                        response_schema = {"type": "string"}
+            except Exception as e:
+                logger.debug(f"Could not infer output schema: {e}")
+        
+        # Manual 'returns' override/supplement
+        returns = kwargs.get("returns") or (getattr(handler, "_llm_returns", None) if handler else None)
+        if returns and not response_schema:
+            if isinstance(returns, list):
+                response_schema = {"type": "object", "properties": {k: {"type": "string"} for k in returns}}
+            elif isinstance(returns, dict):
+                response_schema = {"type": "object", "properties": {k: {"type": "string", "description": v} for k, v in returns.items()}}
+        
+        # If schema exists but we have documented returns, merge descriptions
+        if response_schema and isinstance(returns, dict):
+            props = response_schema.get("properties", {})
+            if response_schema.get("type") == "array":
+                props = response_schema.get("items", {}).get("properties", {})
+            
+            for k, v in returns.items():
+                if k in props:
+                    props[k]["description"] = v
+        
         # We prioritize 'instructions' as the primary LLM guidance if provided
         final_description = kwargs.get("instructions") or kwargs.get("description") or doc or f"Action: {action_id}"
         kwargs["description"] = final_description
+        kwargs["response_schema"] = response_schema
 
         if "parameters" not in kwargs and handler:
             import inspect
@@ -268,6 +367,11 @@ class BaseAIProtocolManager:
             nav_entry["opens_group"] = action.opens_group
         return nav_entry
 
+    def _format_action_for_manifest(self, action, agent_view: bool, is_internal: bool) -> Dict[str, Any]:
+        if agent_view and not is_internal:
+            exclude_fields = {"groups", "global_access", "tags", "hidden", "headers", "context_dependencies", "required_auth"}
+            return action.model_dump(exclude=exclude_fields, exclude_none=True)
+        return action.model_dump(exclude_none=True)
     def _format_action_for_manifest(self, action, agent_view: bool, is_internal: bool) -> Dict[str, Any]:
         if agent_view and not is_internal:
             exclude_fields = {"groups", "global_access", "tags", "hidden", "headers", "context_dependencies", "required_auth"}

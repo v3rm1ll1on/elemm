@@ -13,7 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with Elemm.  If not, see <https://www.gnu.org/licenses/>.
 
-from fastapi import APIRouter, FastAPI, params, Request, Body, Header
+from fastapi import APIRouter, FastAPI, params, Request, Body, Header, Query
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.exceptions import HTTPException, RequestValidationError
 from fastapi.routing import APIRoute
@@ -142,46 +142,22 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                 )
 
         @router_or_app.get("/.well-known/elemm-manifest.md", include_in_schema=False)
-        async def get_md_manifest(request: Request, landmark_id: Optional[str] = None, part: Optional[str] = None, technical: bool = False):
+        async def get_md_manifest(request: Request, landmark_id: Optional[Union[str, List[str]]] = Query(None)):
             from ...mcp.manifest import ManifestGenerator
             from fastapi import Response
             
-            # Split comma-separated parts if provided
-            parts = part.split(",") if part else None
+            generator = ManifestGenerator(self)
             
             try:
                 if landmark_id:
-                    # Filter tools for the specific landmark
-                    actions = []
-                    for a in self.actions:
-                        groups = a.groups if hasattr(a, "groups") else []
-                        if landmark_id in groups:
-                            actions.append({
-                                "id": a.id if hasattr(a, "id") else "",
-                                "description": a.description if hasattr(a, "description") else ""
-                            })
-                    
-                    md_content = ManifestGenerator.generate_detailed_landmark(landmark_id, actions)
+                    md_content = generator.generate_landmark_detail(landmark_id)
                 else:
-                    md_content = ManifestGenerator.generate_markdown(
-                        manager=self,
-                        system_name=self.agent_welcome or "Elemm Protocol",
-                        instructions=self.protocol_instructions or "",
-                        landmarks=self.navigation_landmarks or [],
-                        include_technical_metadata=technical,
-                        parts=parts or (["landmarks"] if not self.debug else ["welcome", "instructions", "landmarks"])
-                    )
+                    md_content = generator.generate_summary()
+                
+                return Response(content=md_content, media_type="text/markdown")
             except Exception as e:
                 logger.error(f"Failed to generate manifest: {e}")
-                md_content = f"""# ELEMM PROTOCOL ERROR
- 
- ## Internal Error
- {str(e)}
- 
- ## Remedy
- Please try to refresh the session or use the 'navigate' tool to recover."""
-            
-            return Response(content=md_content, media_type="text/markdown")
+                return Response(content=f"Error: {str(e)}", status_code=500)
 
     def bind_to_app(self, app: "FastAPI"):
         """Scans all routes in the FastAPI app and registers those marked with @landmark."""
@@ -235,37 +211,35 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
         for route in app.routes:
             if isinstance(route, APIRoute):
                 try:
-                    # Strategy 1: Explicit Attribute (Fastest)
-                    endpoint = route.endpoint
-                    landmark_meta = getattr(endpoint, "_llm_landmark", None)
-                    
-                    if not landmark_meta and hasattr(endpoint, "__wrapped__"):
-                        endpoint = endpoint.__wrapped__
-                        landmark_meta = getattr(endpoint, "_llm_landmark", None)
-
-                    if landmark_meta:
-                        self._register_from_route(route, landmark_meta)
-                        count += 1
-                    else:
-                        # Strategy 2: Match by handler (fallback for decorated functions)
-                        # Find any action that was pre-registered via @tool/@action
-                        matching_action = next((a for a in self.actions if a.handler == route.endpoint or (hasattr(route.endpoint, "__wrapped__") and a.handler == route.endpoint.__wrapped__)), None)
-                        if matching_action:
-                            # Re-register to pick up URL/Method from route
-                            fake_meta = {
-                                "id": matching_action.id, 
-                                "type": matching_action.type, 
-                                "description": matching_action.description,
-                                "instructions": matching_action.instructions,
-                                "extra": {
-                                    "remedy": matching_action.remedy,
-                                    "global_access": matching_action.global_access,
-                                    "groups": matching_action.groups
+                    for method in route.methods:
+                        if method not in ["GET", "POST", "PUT", "DELETE"]:
+                            continue
+                            
+                        # Strategy 1: Explicit Attribute (Fastest)
+                        meta = getattr(route.endpoint, "_llm_landmark", None)
+                        
+                        # If not found, try to find by handler comparison (Strategy 2)
+                        if not meta:
+                            matching_action = next((a for a in self.actions if a.handler == route.endpoint or (hasattr(route.endpoint, "__wrapped__") and a.handler == route.endpoint.__wrapped__)), None)
+                            if matching_action:
+                                meta = {
+                                    "id": matching_action.id,
+                                    "type": matching_action.type,
+                                    "instructions": matching_action.instructions,
+                                    "description": matching_action.description,
+                                    "extra": {
+                                        "remedy": matching_action.remedy,
+                                        "groups": matching_action.groups,
+                                        "global_access": matching_action.global_access
+                                    }
                                 }
-                            }
-                            self._register_from_route(route, fake_meta)
-                            count += 1
-                            pass
+
+                        if not meta:
+                            # Strategy 3: Auto-discovery based on tags
+                            meta = {"id": route.name, "type": "read", "extra": {}}
+                        
+                        self._register_from_route(route, meta)
+                        count += 1
                 except Exception as e:
                     logger.error(f"Failed to register landmark from route {route.path}: {e}")
         
@@ -275,7 +249,8 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
     def _register_navigation_landmarks(self, app: FastAPI, tags_meta: List[Dict[str, Any]]):
         known_tags = {tm.get("name") for tm in tags_meta if tm.get("name")}
         
-        # Add tags from routes
+        # Add tags from routes (restored for benchmark integrity)
+        from fastapi.routing import APIRoute
         for route in app.routes:
             if isinstance(route, APIRoute) and route.tags:
                 for tag in route.tags:
@@ -323,8 +298,11 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
         
         # LLM Metadata Hierarchy: instructions > description > docstring
         doc = route.endpoint.__doc__.strip() if route.endpoint and route.endpoint.__doc__ else None
-        description = (meta.get("instructions") or meta.get("description") or doc or route.description or route.summary or "").strip()
-        instructions = meta.get("instructions") or ""
+        
+        # Robust extraction from meta dict
+        meta_extra = meta.get("extra", {})
+        instructions = (meta.get("instructions") or meta_extra.get("instructions") or "").strip()
+        description = (meta.get("description") or meta_extra.get("description") or instructions or doc or route.description or route.summary or "").strip()
 
         payload = self._extract_payload(route, meta)
         actual_parameters, context_deps = self._extract_parameters(route, meta)
@@ -367,24 +345,45 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
         payload = meta["extra"].get("payload")
         if payload: return payload
         
-        model = None
-        if route.body_field:
-            model = getattr(route.body_field, "annotation", None) or getattr(route.body_field, "type_", None)
-        
-        if not model and hasattr(route, "dependant") and route.dependant.body_params:
-            for param in route.dependant.body_params:
-                model = getattr(param, "annotation", None) or getattr(param, "type_", None)
-                if model: break
-        
-        if not model:
-            sig = inspect.signature(route.endpoint)
-            for name, param in sig.parameters.items():
-                ann = param.annotation
-                if hasattr(ann, "model_json_schema") or hasattr(ann, "schema"):
-                    model = ann
-                    break
+        # Discover body parameters
+        body_params = []
+        if hasattr(route, "dependant") and route.dependant.body_params:
+            body_params = route.dependant.body_params
+        elif route.body_field:
+            body_params = [route.body_field]
+            
+        if not body_params:
+            # Fallback to single model detection if no flat body params found
+            return None
 
-        if not model: return None
+        # Check if we have a single Pydantic model as the body
+        if len(body_params) == 1:
+            param = body_params[0]
+            model = getattr(param, "annotation", None) or getattr(param, "type_", None)
+            if model and hasattr(model, "model_json_schema"):
+                return model.model_json_schema()
+
+        # Handle multiple individual Body fields (embed=True case)
+        discovered_params = []
+        for param in body_params:
+            name = param.name
+            desc = ""
+            required = True
+            
+            # Extract metadata from FieldInfo if present
+            field_info = getattr(param, "field_info", None)
+            if field_info:
+                desc = field_info.description or ""
+                from pydantic_core import PydanticUndefined
+                required = (field_info.default is PydanticUndefined and field_info.default_factory is None)
+            
+            discovered_params.append(ActionParam(
+                name=name,
+                description=desc,
+                required=required
+            ))
+            
+        return discovered_params if discovered_params else None
         
         try:
             schema = model.model_json_schema() if hasattr(model, "model_json_schema") else (model.schema() if hasattr(model, "schema") else None)
@@ -533,7 +532,8 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
              headers: Optional[Dict[str, str]] = None,
              payload: Optional[Union[Dict[str, Any], List[ActionParam]]] = None,
              required_auth: Optional[str] = None,
-             context_dependencies: Optional[List[str]] = None
+             context_dependencies: Optional[List[str]] = None,
+             returns: Optional[Union[List[str], Dict[str, Any]]] = None
             ):
         """Decorator to mark a FastAPI route as an ELEMM tool."""
         final_groups = list(set((groups or []) + (tags or [])))

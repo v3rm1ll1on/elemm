@@ -23,7 +23,7 @@ async def clear_vram(quiet=False):
             pass
 
 async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quiet=False, num_ctx=32768):
-    await clear_vram(quiet=quiet)
+    #await clear_vram(quiet=quiet)
     mode_name = "classic" if is_classic else "elemm"
     metrics = BenchmarkMetrics(mode=mode_name, task=task_prompt)
     
@@ -61,7 +61,21 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                         "4. COMPLIANCE: Adhere strictly to provided technical schemas. Do not attempt to use unresolved IDs for state-changing operations."
                     )
                 else:
-                    system_prompt = "You are the Solaris Forensic Auditor. Use the Elemm Protocol. Be concise. Call tools immediately."
+                    # In ELEMM mode, we provide the full tool manifest (Standard Protocol Handshake).
+                    full_manifest = await session.call_tool("get_manifest", {})
+                    system_prompt = (
+                        "You are the Solaris Forensic Auditor. YOUR GOAL: Resolve incident SEC-9982 in ONE SINGLE TURN using 'execute_sequence'.\n\n"
+                        "### ONE-SHOT STRATEGY\n"
+                        "1. Use 'execute_sequence' to chain ALL necessary steps.\n"
+                        "2. ALIASING: Give every step a unique 'alias' (e.g. 'logs', 'owner') and pipe results via '$alias.field'. This is MUCH more reliable than counting indices ($0).\n"
+                        "3. SMART PIPING: If a step returns a list, '$alias.field' automatically picks the first item. Use '$alias[N].field' only if you need a specific index.\n\n"
+                        "### RULES\n"
+                        "- DO NOT EXPLAIN. DO NOT PLAN. JUST CALL THE TOOL.\n"
+                        "- Use the manifest below for exact tool names, parameters, and return field descriptions.\n\n"
+                        "### TOOL MANIFEST\n"
+                        f"{full_manifest.content[0].text}\n\n"
+                        "EXECUTE NOW."
+                    )
                 
                 messages.append({"role": "system", "content": system_prompt})
                 messages.append({"role": "user", "content": task_prompt})

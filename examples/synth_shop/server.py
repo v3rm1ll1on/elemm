@@ -201,9 +201,10 @@ async def list_products(category: Optional[str] = None, min_price: float = 0.0, 
     return results
 
 @ai.action(groups=["catalog"])
-async def get_catalog(category: str = ActionParam(description="Category to filter by")):
+async def get_catalog(category: str = ActionParam(default="", description="Category to filter by")):
     """Browse products within a specific category."""
-    return [p for p in PRODUCTS if category.lower() in p["category"].lower()]
+    cat_val = str(category) if not isinstance(category, ActionParam) else ""
+    return [p for p in PRODUCTS if cat_val.lower() in p["category"].lower()]
 
 @ai.action(id="add_to_cart", groups=["cart"], instructions="Add item to session-based cart. Requires JWT.")
 @app.post("/cart/add")

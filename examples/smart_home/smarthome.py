@@ -147,7 +147,10 @@ def control_device(device_id: str, request: ControlRequest):
     }
 
 @app.get("/energy/summary", tags=["analytics"])
-@ai.tool(id="energy_report", instructions="Use this to warn the user if power usage is too high (total > 1000W).")
+@ai.tool(
+    id="energy_report", 
+    instructions="Use this to warn the user if power usage is too high (total > 1000W)."
+)
 def energy_summary():
     """Returns the total energy consumption of the house."""
     total = sum(d.power_usage for devices in DB.values() for d in devices)
