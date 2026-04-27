@@ -216,7 +216,8 @@ class LandmarkBridge:
         try:
             res, _ = await self.manager.call_action(action_id, parameters)
             return json.dumps(res) if isinstance(res, (dict, list)) else str(res)
-        except Exception as e: return f"Execution Error: {str(e)}"
+        except Exception as e: 
+            return json.dumps({"status": "error", "message": str(e), "remedy": "Technical execution error. Verify parameters and tool connectivity."})
 
     def run_stdio(self):
         """Runs the MCP server over STDIO."""

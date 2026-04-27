@@ -5,6 +5,8 @@ from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
 from elemm import Elemm
 
+from shared_db import get_shared_database
+
 # --- SCHEMAS ---
 class Alert(BaseModel):
     id: str = Field(..., description="Unique Alert ID")
@@ -18,13 +20,13 @@ class LogEntry(BaseModel):
     token: Optional[str] = None
 
 LANDMARKS_CONFIG = [
-    {"id": "soc", "notes": "Analyze SEC-9982. Evidence: IP 10.0.4.142."},
-    {"id": "noc", "notes": "IP-to-Host resolution for VPC internal ranges."},
-    {"id": "it_ops", "notes": "Access node logs (SRV-XXXX) for session discovery."},
-    {"id": "banking", "notes": "Resolve RT-XXXX tokens to Account IDs."},
-    {"id": "finance", "notes": "Link ACC-XXXX to EMP-XXXX identifiers."},
-    {"id": "hr", "notes": "Final principal resolution (EMP-ID to Username)."},
-    {"id": "remediation", "notes": "Execute lockdown and recovery protocols."}
+    {"id": "soc", "notes": "Security Operation Center: Analyze alerts and identify security incidents."},
+    {"id": "noc", "notes": "Network Operations Center: IP-to-Host resolution for VPC internal ranges."},
+    {"id": "it_ops", "notes": "IT Operations: Access node logs (SRV-XXXX) for session discovery."},
+    {"id": "banking", "notes": "Banking Gateway: Resolve transaction tokens to Account IDs."},
+    {"id": "finance", "notes": "Finance Hub: Link financial accounts to employee identifiers."},
+    {"id": "hr", "notes": "Human Resources: Map employee IDs to corporate principals (usernames)."},
+    {"id": "remediation", "notes": "Security Remediation: Execute lockdown and recovery protocols."}
 ]
 
 app = FastAPI(title="Solaris Enterprise Hub - PRO-GRADE v7.6")
@@ -43,20 +45,7 @@ ai = Elemm(
 )
 
 # --- DB ---
-DB = {"soc": [], "noc": {}, "it": {}, "banking": {}, "finance": {}, "hr": {}}
-for i in range(20):
-    DB["soc"].append({"id": "SEC-9982" if i==2 else f"SEC-{1000+i}", "level": "HIGH" if i==2 else "LOW", "msg": "Malicious Exfiltration Detected" if i==2 else f"Anomaly {i}"})
-for i in range(50): DB["noc"][f"10.0.4.{100+i}"] = f"SRV-NODE-{i}"
-for i in range(50): DB["hr"][f"EMP-{5000+i}"] = f"USER_{i}"
-DB["noc"]["10.0.4.142"] = "SRV-FORENSIC-142"
-DB["hr"]["EMP-8821"] = "CORP-BS-09"
-DB["banking"]["RT-EXFIL-99"] = "ACC-FIN-88"
-DB["finance"]["ACC-FIN-88"] = "EMP-8821"
-for i in range(10):
-    h = "SRV-FORENSIC-142" if i==5 else f"SRV-NODE-{500+i}"
-    logs = [{"ts": "10:00", "user": "SYSTEM", "action": "BOOT"}]
-    if i==5: logs.append({"ts": "10:05", "user": "CORP-BS-09", "action": "EXFIL", "token": "RT-EXFIL-99"})
-    DB["it"][h] = logs
+DB = get_shared_database()
 
 # --- API ---
 
@@ -160,7 +149,10 @@ async def secure():
 @app.post("/ops/report", tags=["remediation"])
 async def report(incident_id: str = Body(...), summary: str = Body(...)):
     """Submit final audit report. Requires SUCCESS on all previous steps."""
-    if not all(MISSION_STATE.values()): raise HTTPException(status_code=422)
+    if not all(MISSION_STATE.values()): 
+        raise HTTPException(status_code=422, detail="MISSION INCOMPLETE. All remediation steps must be SUCCESS.")
+    if incident_id != "SEC-9982":
+        raise HTTPException(status_code=422, detail="INVALID_INCIDENT_ID. This report does not match the active investigation.")
     return {"status": "MISSION_SUCCESS"}
 
 # --- NOISE ---

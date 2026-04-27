@@ -124,6 +124,7 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
                     
                     # Protocol Enrichment: If the action failed (>=400), inject the tool-specific remedy
                     if status_code >= 400 and isinstance(result, dict):
+                        result["status"] = "error" # Mark for Protocol Bridge
                         action = next((a for a in self.actions if a.id == action_id), None)
                         if action and getattr(action, "remedy", None):
                             result["remedy"] = action.remedy
@@ -684,6 +685,7 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             
             # Protocol Enrichment: Inject remedy for failed actions (>= 400)
             if resp.status_code >= 400 and isinstance(result, dict):
+                result["status"] = "error" # Ensure Bridge recognizes failure
                 if action.remedy:
                     result["remedy"] = action.remedy
                 elif resp.status_code == 404:

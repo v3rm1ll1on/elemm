@@ -4,6 +4,8 @@ from fastapi import FastAPI, Query, Body, HTTPException
 from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
 
+from shared_db import get_shared_database
+
 # --- SCHEMAS ---
 class Alert(BaseModel):
     id: str = Field(..., description="Unique Alert ID")
@@ -19,20 +21,7 @@ class LogEntry(BaseModel):
 app = FastAPI(title="Solaris Enterprise Hub - CLASSIC LEGACY API")
 
 # --- DB ---
-DB = {"soc": [], "noc": {}, "it": {}, "banking": {}, "finance": {}, "hr": {}}
-for i in range(20):
-    DB["soc"].append({"id": "SEC-9982" if i==2 else f"SEC-{1000+i}", "level": "HIGH" if i==2 else "LOW", "msg": "Exfiltration on 10.0.4.142" if i==2 else f"Anomaly {i}"})
-for i in range(50): DB["noc"][f"10.0.4.{100+i}"] = f"SRV-NODE-{i}"
-for i in range(50): DB["hr"][f"EMP-{5000+i}"] = f"USER_{i}"
-DB["noc"]["10.0.4.142"] = "SRV-FORENSIC-142"
-DB["hr"]["EMP-8821"] = "CORP-BS-09"
-DB["banking"]["RT-EXFIL-99"] = "ACC-FIN-88"
-DB["finance"]["ACC-FIN-88"] = "EMP-8821"
-for i in range(10):
-    h = "SRV-FORENSIC-142" if i==5 else f"SRV-NODE-{500+i}"
-    logs = [{"ts": "10:00", "user": "SYSTEM", "action": "BOOT"}]
-    if i==5: logs.append({"ts": "10:05", "user": "CORP-BS-09", "action": "EXFIL", "token": "RT-EXFIL-99"})
-    DB["it"][h] = logs
+DB = get_shared_database()
 
 MISSION_STATE = {"quarantined": False, "restarted": False, "secured": False}
 
@@ -54,7 +43,9 @@ async def query_node_logs(hostname: str = Query(...), q: Optional[str] = Query(N
     """Retrieve system logs. Remedy: Node logs require a verified Hostname (SRV-XXXX) from the NOC landmark. Use q=EXFIL."""
     if hostname not in DB["it"]: raise HTTPException(status_code=422, detail="Node logs require a verified Hostname (SRV-XXXX).")
     logs = DB["it"][hostname]
-    if q: logs = [l for l in logs if q.lower() in str(l).lower()]
+    if q: 
+        search_term = q.replace("q=", "") # Defense against LLM hallucination
+        logs = [l for l in logs if search_term.lower() in str(l).lower()]
     return logs
 
 @app.get("/banking/link", tags=["banking"])
@@ -105,7 +96,10 @@ async def secure():
 @app.post("/ops/report", tags=["remediation"])
 async def report(incident_id: str = Body(...), summary: str = Body(...)):
     """Submit final audit report."""
-    if not all(MISSION_STATE.values()): raise HTTPException(status_code=422, detail="MISSION INCOMPLETE. Ensure quarantine, restart, and secure are SUCCESS.")
+    if not all(MISSION_STATE.values()): 
+        raise HTTPException(status_code=422, detail="MISSION INCOMPLETE. Ensure quarantine, restart, and secure are SUCCESS.")
+    if incident_id != "SEC-9982":
+        raise HTTPException(status_code=422, detail="INVALID_INCIDENT_ID. This report does not match the active investigation.")
     return {"status": "MISSION_SUCCESS"}
 
 # --- NOISE (The Context Killer) ---

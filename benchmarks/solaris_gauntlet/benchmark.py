@@ -48,9 +48,14 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                 
                 messages = []
                 # MODE-SPECIFIC SYSTEM PROMPT
+                shared_persona = (
+                    "You are the Solaris Forensic Auditor. Your style is purely technical, silent, and decisive. "
+                    "DO NOT EXPLAIN. DO NOT PLAN. Output ONLY valid tool calls to resolve the incident. Results are the only metric of success."
+                )
+
                 if is_classic:
                     system_prompt = (
-                        "You are the Solaris Forensic Auditor. This system uses a legacy flat MCP architecture with cross-departmental dependencies.\n"
+                        f"{shared_persona}\n\n"
                         "### SOLARIS TECHNICAL REFERENCE MANUAL ###\n"
                         "1. NETWORK & INFRA: Internal IP addresses can be resolved to Hostnames via the NOC. Infrastructure logs are stored in IT and indexed by Hostname.\n"
                         "2. PERSONNEL & FINANCE: Employee IDs (EMP-XXXX) are used in HR and Finance. Corporate Usernames (CORP-XX) are resolved in HR. Financial accounts are linked to tokens in Banking.\n"
@@ -64,15 +69,14 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                     # In ELEMM mode, we provide the full tool manifest (Standard Protocol Handshake).
                     full_manifest = await session.call_tool("get_manifest", {})
                     system_prompt = (
-                        "You are the Solaris Forensic Auditor. YOUR GOAL: Resolve incident SEC-9982 in ONE SINGLE TURN using 'execute_sequence'.\n\n"
-                        "### ONE-SHOT STRATEGY\n"
-                        "1. Use 'execute_sequence' to chain ALL necessary steps.\n"
-                        "2. ALIASING: Give every step a unique 'alias' (e.g. 'logs', 'owner') and pipe results via '$alias.field'. This is MUCH more reliable than counting indices ($0).\n"
-                        "3. SMART PIPING: If a step returns a list, '$alias.field' automatically picks the first item. Use '$alias[N].field' only if you need a specific index.\n\n"
-                        "### RULES\n"
-                        "- DO NOT EXPLAIN. DO NOT PLAN. JUST CALL THE TOOL.\n"
-                        "- Use the manifest below for exact tool names, parameters, and return field descriptions.\n\n"
-                        "### TOOL MANIFEST\n"
+                        f"{shared_persona}\n\n"
+                        "### STRATEGY: ONE-SHOT EXECUTION\n"
+                        "1. Use 'execute_sequence' to chain ALL necessary steps in a single turn.\n"
+                        "2. ALIASING: Give every step a unique 'alias' (e.g. 'logs', 'owner') and pipe results via '$alias.field'.\n"
+                        "3. SMART PIPING: If a step returns a list, '$alias.field' automatically picks the first item.\n\n"
+                        "### TOOL MANIFEST (PRE-LOADED)\n"
+                        "The tool manifest is already provided below. DO NOT call 'get_manifest' again. "
+                        "Construct your sequence immediately using these definitions:\n\n"
                         f"{full_manifest.content[0].text}\n\n"
                         "EXECUTE NOW."
                     )
@@ -184,8 +188,9 @@ async def main():
     args = parser.parse_args()
     
     TASK = (
-        "Role: Forensic Audit Specialist. Target: Solaris Enterprise Hub.\n"
-        "Your mission is to resolve the active security breach in the system:\n"
+        "Your mission is to resolve the active security breach in the Solaris Enterprise Hub.\n"
+        "Initial Intelligence: Incident ID SEC-9982 has been flagged. The activity is originating from IP 10.0.4.142.\n\n"
+        "Tasks:\n"
         "1. Identify the compromised server node and the malicious actor's identity.\n"
         "2. Locate the actor's corporate credentials and audit their last financial transaction.\n"
         "3. Remediation: Quarantine the account, restart the infrastructure node, and secure the risk capital.\n"
