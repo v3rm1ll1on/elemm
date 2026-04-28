@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, AsyncMock
 from elemm.mcp.bridge import LandmarkBridge
 from elemm.core.models import AIAction
 import mcp.types as types
+import json
 
 @pytest.fixture
 def mock_manager():
@@ -18,59 +19,67 @@ def mock_manager():
     manager.actions = [action1, action2]
     
     # Mock methods
-    manager.get_manifest = MagicMock(return_value={"actions": [{"id": "get_users", "parameters": []}]})
-    manager.call_action = AsyncMock(return_value={"status": "ok", "remedy": "Try again"})
+    manager.get_action = MagicMock(side_effect=lambda aid: next((a for a in manager.actions if a.id == aid), None))
+    manager.call_action = AsyncMock(return_value=({"status": "ok", "remedy": "Try again"}, 200))
     
     return manager
-
-@pytest.mark.asyncio
-async def test_bridge_strip_namespace():
-    bridge = LandmarkBridge(manager=None)
-    assert bridge._strip_namespace("my-server-get_manifest") == "get_manifest"
-    assert bridge._strip_namespace("unknown-tool") == "unknown-tool"
 
 @pytest.mark.asyncio
 async def test_bridge_handle_core_tools(mock_manager):
     bridge = LandmarkBridge(manager=mock_manager)
     
-    # Test get_manifest
-    res = await bridge._handle_core_dispatch("get_manifest", {})
-    assert isinstance(res[0], types.TextContent)
-    assert "# ELEMM MANIFEST: Test AI" in res[0].text
+    # Get handle_call_tool from the server
+    # We need to find it because it's registered as a decorator
+    # The mcp.server.Server stores it in an internal list
+    # For testing, we can just call it if we can find where it's stored, 
+    # but it's easier to just mock the server or call the bridge's internal methods if they were accessible.
+    
+    # Actually, LandmarkBridge registers them in _setup_server.
+    # We can't easily get the local function back.
+    # So let's test _execute_single and _format_result which are public-ish.
+    
+    # Test _format_result
+    res_text = json.dumps({"status": "error", "remedy": "Fixed it"})
+    formatted = bridge._format_result("get_users", res_text)
+    assert "FAILED. Fixed it" in formatted
 
-    # Test navigate
-    res = await bridge._handle_navigate("navigate", {"landmark_id": "hr"})
-    assert bridge.ctx == "hr"
-    assert "Switched to hr." in res[0].text
+    # Test _execute_single
+    res = await bridge._execute_single("get_users", {"param": "val"})
+    assert "ok" in res
 
 @pytest.mark.asyncio
-async def test_bridge_auto_pilot(mock_manager):
+async def test_bridge_piping_resolution(mock_manager):
     bridge = LandmarkBridge(manager=mock_manager)
-    bridge.ctx = "root"
     
-    action_meta = mock_manager.actions[0] # get_users in group 'hr'
+    local_results = {
+        "0": {"token": "RT-1234", "status": "ok"},
+        "logs": [{"id": "L1"}, {"id": "L2"}]
+    }
     
-    switched = await bridge._handle_auto_pilot(action_meta)
-    assert switched is True
-    assert bridge.ctx == "hr"
+    # Test simple pipe
+    resolved, err = bridge._resolve_params({"id": "$0.token"}, local_results)
+    assert resolved["id"] == "RT-1234"
+    assert err is None
+    
+    # Test list pipe
+    resolved, err = bridge._resolve_params({"log_id": "$logs[1].id"}, local_results)
+    assert resolved["log_id"] == "L2"
+    assert err is None
+    
+    # Test missing alias
+    resolved, err = bridge._resolve_params({"id": "$missing.token"}, local_results)
+    assert "not found" in err
 
 @pytest.mark.asyncio
-async def test_bridge_format_result(mock_manager):
+async def test_bridge_sequence_execution(mock_manager):
     bridge = LandmarkBridge(manager=mock_manager)
-    action_meta = mock_manager.actions[0]
     
-    res = {"data": 123, "remedy": "Fixed it", "instruction": "Look here"}
-    output = bridge._format_action_result("my_tool", res, action_meta, auto_switched=True)
+    actions = [
+        {"action": "get_users", "alias": "users"},
+        {"action": "reset_system", "parameters": {"user": "$users.status"}}
+    ]
     
-    assert "NOTE: Look here" in output
-    assert "REMEDY: Fixed it" in output
-    assert '{"data":123}' in output.replace(" ", "") # Whitespace insensitive
-    assert "(Switched)" in output
-
-@pytest.mark.asyncio
-async def test_bridge_error_formatting():
-    bridge = LandmarkBridge(manager=None)
-    e = Exception("Something went wrong")
-    output = bridge._format_error_feedback(e)
-    assert "ERR: Something went wrong" in output
-    assert "ACTION:" in output
+    contents = await bridge._handle_execute_sequence(actions)
+    assert len(contents) == 1
+    assert 'Step 0 (users) (get_users): {"status": "ok", "remedy": "Try again"}' in contents[0].text
+    assert 'Step 1 (reset_system): {"status": "ok", "remedy": "Try again"}' in contents[0].text

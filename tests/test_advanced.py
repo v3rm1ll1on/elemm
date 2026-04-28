@@ -127,17 +127,16 @@ def test_mcp_legacy_and_list_payload():
         payload=[ActionParam(name="f3", type="boolean", required=True, description="Desc")]
     )
 
-    from elemm.mcp.bridge import LandmarkBridge
-    bridge = LandmarkBridge(manager=manager)
-    mcp_tools = bridge.get_full_mcp_definitions()
+    from elemm.core.discovery import convert_actions_to_mcp_tools
+    mcp_tools = convert_actions_to_mcp_tools(manager.actions)
     
-    legacy_tool = next(t for t in mcp_tools if t["name"] == "legacy")
-    assert legacy_tool["inputSchema"]["properties"]["field1"]["type"] == "string"
-    assert "field1" in legacy_tool["inputSchema"]["required"]
+    legacy_tool = next(t for t in mcp_tools if t.name == "legacy")
+    assert legacy_tool.inputSchema["properties"]["field1"]["type"] == "string"
+    assert "field1" in legacy_tool.inputSchema["required"]
 
-    modern_tool = next(t for t in mcp_tools if t["name"] == "modern")
-    assert modern_tool["inputSchema"]["properties"]["f3"]["type"] == "boolean"
-    assert "f3" in modern_tool["inputSchema"]["required"]
+    modern_tool = next(t for t in mcp_tools if t.name == "modern")
+    assert modern_tool.inputSchema["properties"]["f3"]["type"] == "boolean"
+    assert "f3" in modern_tool.inputSchema["required"]
 
 def test_agent_view_noise_reduction():
     manager = Elemm(agent_welcome="Welcome")

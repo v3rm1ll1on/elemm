@@ -29,8 +29,16 @@ app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
 # --- Elemm Manager
 ai = Elemm(
     agent_welcome="SYSTEM ONLINE: Welcome to the Neon Synth & Cyberware Grid. Keep your credentials close and your chrome shiny.",
-    agent_instructions="Proactive, gritty Tech-Salesman: Sell high-end catalog gear via dialogue only, no physical narration. NO ROLEPLAY",
-    protocol_instructions="Strictly use catalog data for product suggestions.",
+    agent_instructions=(
+        "PROTOCOL STRATEGY: [GET_MANIFEST -> EXECUTE_SEQUENCE].\n"
+        "1. DISCOVERY: Call 'get_manifest' first to map the grid and tool signatures.\n"
+        "2. PIPING: Use '$alias.field' to pass tokens (access_token) or product_ids between steps.\n"
+        "3. BATCHING: Combine Login, Search, and Cart actions in one 'execute_sequence' for maximum efficiency.\n"
+        "Constraint: Proactive, gritty Tech-Salesman. NO ROLEPLAY."
+    ),
+    protocol_instructions="""MANDATORY: Use 'execute_sequence' for ALL multi-step tasks. 
+    SINGLE STEPS ARE INEFFICIENT and must be avoided. 
+    Example: Step 0 'auth' (login) -> Step 1 search -> Step 2 'cart' (add).""",
     navigation_landmarks=[
         {"id": "catalog", "notes": "Browse the latest hardware and neural upgrades."},
         {"id": "cart", "notes": "Manage items and proceed to checkout."},
@@ -148,16 +156,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @ai.action(
     id="login", 
-    groups=["account"],
-    description="Start the secure authentication process. No parameters required for you; they are handled by the secure terminal.",
-    instructions="DONT ASK FOR CREDENTIALS BY YOURSELF! Use this tool to start the authentication process when needed",
-    remedy="Check manifest notes for credentials (test_user/password123). Ensure credentials are correct.",
-    payload=[
-        ActionParam(name="username", description="Your username", required=True, managed_by="user"),
-        ActionParam(name="password", description="Your password", required=True, managed_by="user")
-    ]
+    remedy="Valid credentials: test_user / password123. Ensure you capture the 'access_token' for subsequent steps.",
+    returns={"access_token": "JWT Bearer Token", "token_type": "bearer"}
 )
-@app.post("/auth/login", response_model=TokenResponse)
+@app.post("/auth/login", response_model=TokenResponse, tags=["account"])
 async def login(req: LoginRequest):
     user = USERS.get(req.username)
     if not user or user["password"] != req.password:
@@ -169,8 +171,8 @@ async def login(req: LoginRequest):
     token = create_access_token(data={"sub": req.username})
     return {"access_token": token}
 
-@ai.tool(id="get_profile", description="Get your user profile. Only visible when user is logged in")
-@app.get("/auth/profile", response_model=User)
+@ai.tool(description="Get your user profile. Only visible when user is logged in")
+@app.get("/auth/profile", response_model=User, tags=["account"])
 async def get_profile(username: str = Depends(get_user_from_token)):
     user_data = USERS.get(username)
     return {
@@ -179,17 +181,17 @@ async def get_profile(username: str = Depends(get_user_from_token)):
         "is_premium": user_data.get("premium", False)
     }
 
-@ai.action(groups=["catalog"])
+@ai.action()
+@app.get("/categories", tags=["catalog"])
 async def get_categories():
     """List all available product categories in the synth catalog."""
     return list(set(p["category"] for p in PRODUCTS))
 
 @ai.tool(
-    id="search_products", 
-    groups=["catalog"],
-    description="Search the Synth-Genesis catalog. Pro-tip: If you don't find what you need, search with category=None to see everything."
+    remedy="If no products match, broaden your search by removing the category filter.",
+    returns={"id": "The product_id for add_to_cart", "price": "Current credit cost"}
 )
-@app.get("/products", response_model=List[Product])
+@app.get("/products", response_model=List[Product], tags=["catalog"])
 async def list_products(category: Optional[str] = None, min_price: float = 0.0, max_price: float = 1000000.0):
     results = []
     for p in PRODUCTS:
@@ -200,14 +202,18 @@ async def list_products(category: Optional[str] = None, min_price: float = 0.0, 
             results.append(p)
     return results
 
-@ai.action(groups=["catalog"])
-async def get_catalog(category: str = ActionParam(default="", description="Category to filter by")):
+@ai.action()
+@app.get("/catalog", tags=["catalog"])
+async def get_catalog(category: str = Query("", description="Category to filter by")):
     """Browse products within a specific category."""
     cat_val = str(category) if not isinstance(category, ActionParam) else ""
     return [p for p in PRODUCTS if cat_val.lower() in p["category"].lower()]
 
-@ai.action(id="add_to_cart", groups=["cart"], instructions="Add item to session-based cart. Requires JWT.")
-@app.post("/cart/add")
+@ai.action(
+    remedy="Ensure you have a valid JWT (call login first). product_id must be an exact match (e.g. 'nl-synergy-01').",
+    returns={"status": "success", "message": "Feedback message"}
+)
+@app.post("/cart/add", tags=["cart"])
 async def add_to_cart(
     item: CartItem, 
     username: str = Depends(get_user_from_token)
@@ -228,23 +234,18 @@ async def add_to_cart(
     })
     return {"status": "success", "message": f"Added {product['name']} to cart."}
 
-@ai.tool(
-    id="view_cart", 
-    description="View your current cart and total price. Requires JWT."
-)
-@app.get("/cart", response_model=Cart)
+@ai.tool(description="View your current cart and total price. Requires JWT.")
+@app.get("/cart", response_model=Cart, tags=["cart"])
 async def view_cart(username: str = Depends(get_user_from_token)):
     items = SESSIONS_CART.get(username, [])
     total = sum(p["price"] * p.get("quantity", 1) for p in items)
     return {"items": items, "total_price": total}
 
 @ai.action(
-    id="checkout", 
-    groups=["cart"],
     description="Complete your order. Requires JWT. This clears the cart and returns a confirmation.",
     remedy="Ensure your cart is not empty. Use 'add_to_cart' to add items before checking out."
 )
-@app.post("/checkout")
+@app.post("/checkout", tags=["cart"])
 async def checkout(username: str = Depends(get_user_from_token)):
     if username not in SESSIONS_CART or not SESSIONS_CART[username]:
         raise HTTPException(
@@ -260,7 +261,8 @@ async def checkout(username: str = Depends(get_user_from_token)):
         "order_id": f"ORD-{username[:4]}-777"
     }
 
-@ai.action(groups=["account"])
+@ai.action()
+@app.get("/status", tags=["account"])
 async def get_my_status():
     """Get the current system status and user codename."""
     return {

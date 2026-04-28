@@ -95,15 +95,15 @@ def test_enum_and_pydantic_extraction(app):
     assert payload_fields["color"].options == ["red", "green", "blue"]
 
 def test_mcp_export(app):
-    bridge = LandmarkBridge(manager=app)
-    mcp_tools = bridge.get_full_mcp_definitions()
-    tool_names = [t["name"] for t in mcp_tools]
+    from elemm.core.discovery import convert_actions_to_mcp_tools
+    mcp_tools = convert_actions_to_mcp_tools(app.actions)
+    tool_names = [t.name for t in mcp_tools]
     
     assert "get_item" in tool_names
     assert "create_item" in tool_names
     
-    create_tool = next(t for t in mcp_tools if t["name"] == "create_item")
-    assert "id" in create_tool["inputSchema"]["properties"]
-    assert "color" in create_tool["inputSchema"]["properties"]
+    create_tool = next(t for t in mcp_tools if t.name == "create_item")
+    assert "id" in create_tool.inputSchema["properties"]
+    assert "color" in create_tool.inputSchema["properties"]
     # Internal context deps like 'request' should NOT be in MCP schema
-    assert "request" not in create_tool["inputSchema"]["properties"]
+    assert "request" not in create_tool.inputSchema["properties"]

@@ -9,7 +9,7 @@ class ManifestGenerator:
     def generate_summary(self) -> str:
         """Returns a high-level summary of all landmarks."""
         lines = ["# ELEMM REGISTRY: Landmarks Summary", ""]
-        lines.append("### DIRECTIVE")
+        lines.append("### AGENT DIRECTIVE")
         lines.append("1. DISCOVER: Call 'inspect_landmark(id)' to see tools for a namespace.")
         lines.append("2. EXECUTE: Call 'execute_sequence' for multi-step tasks.\n")
         lines.append("## Available Landmarks")
@@ -81,15 +81,54 @@ class ManifestGenerator:
                     
                     lines.append(f"- {type_tag} **{a.id}**({p_str}){r_str}")
                     if a.description:
-                        lines.append(f"  * {a.description}")
-                    
-                    remedy = getattr(a, "remedy", None)
-                    if remedy:
-                        lines.append(f"  * [REMEDY: {remedy}]")
+                        # Clean up redundant prefixing if description was enriched
+                        clean_desc = a.description.replace("\n\n", " ").replace("\n", " ")
+                        lines.append(f"  * {clean_desc}")
             
             final_sections.append("\n".join(lines))
             
         return "\n\n---\n\n".join(final_sections)
+
+    def generate_technical_block(self, landmark_ids: Optional[Union[str, List[str]]] = None) -> str:
+        """Returns the technical json-elemm block for tool mirroring."""
+        actions = self.manager.actions
+        if landmark_ids:
+            ids = [landmark_ids] if isinstance(landmark_ids, str) else landmark_ids
+            actions = [a for a in actions if any(lid in getattr(a, "groups", []) for lid in ids)]
+        else:
+            # Default to 'root' (global) tools only to avoid manifest bloat
+            actions = [a for a in actions if not getattr(a, "groups", [])]
+        mcp_tools = []
+        for a in actions:
+            # Flatten parameters and payload into a single MCP inputSchema
+            properties = {}
+            required = []
+            
+            all_params = (getattr(a, "parameters", []) or []) + (getattr(a, "payload", []) or [])
+            if isinstance(getattr(a, "payload", None), dict):
+                # Handle dict payload (already a schema)
+                properties.update(a.payload)
+            else:
+                for p in all_params:
+                    p_name = getattr(p, "name", "param")
+                    properties[p_name] = {
+                        "type": getattr(p, "type", "string"),
+                        "description": getattr(p, "description", "")
+                    }
+                    if getattr(p, "required", True):
+                        required.append(p_name)
+
+            mcp_tools.append({
+                "name": a.id,
+                "description": a.description or f"Execute {a.id}",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": required
+                }
+            })
+            
+        return f"\n\n---\n### Technical Discovery\n```json-elemm\n{json.dumps(mcp_tools, indent=2)}\n```"
 
     def _get_fields_display(self, schema: Dict[str, Any]) -> str:
         """Returns a string representation of the schema fields with compact descriptions."""

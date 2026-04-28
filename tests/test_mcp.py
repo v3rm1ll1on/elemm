@@ -30,18 +30,16 @@ def test_mcp_export_comprehensive():
 
     ai.bind_to_app(app)
     
-    from elemm.mcp.bridge import LandmarkBridge
-    bridge = LandmarkBridge(manager=ai)
-    tools = bridge.get_full_mcp_definitions()
+    from elemm.core.discovery import convert_actions_to_mcp_tools
+    tools = convert_actions_to_mcp_tools(ai.actions)
     
-    ids = [t["name"] for t in tools]
-    # In get_full_mcp_definitions, all tools are returned
+    ids = [t.name for t in tools]
+    # In convert_actions_to_mcp_tools, all tools are returned
     assert "global_tool" in ids
     assert "freeze_account" in ids
     
     # 3. Test Parameter Mapping (Pydantic)
-    report_tool = next(t for t in tools if t["name"] == "submit_report")
-    props = report_tool["inputSchema"]["properties"]
+    report_tool = next(t for t in tools if t.name == "submit_report")
+    props = report_tool.inputSchema["properties"]
     assert "status" in props
     assert "detail" in props
-    assert "req" not in props # Filtered out

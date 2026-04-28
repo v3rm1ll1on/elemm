@@ -104,14 +104,10 @@ class BaseAIProtocolManager:
                 "type": kwargs["type"],
                 "instructions": kwargs.get("instructions"),
                 "description": kwargs.get("description"),
-                "extra": {k: v for k, v in kwargs.items() if k not in ["id", "type", "instructions", "description", "remedy"]}
+                "extra": {k: v for k, v in kwargs.items() if k not in ["id", "type", "instructions", "description"]}
             }
-            # Put remedy in extra if exists
-            if "remedy" in kwargs:
-                meta["extra"]["remedy"] = kwargs["remedy"]
-                
-            setattr(func, "_llm_landmark", meta)
             
+            setattr(func, "_llm_landmark", meta)
             self.register_action(func, **kwargs)
             return func
         return decorator
@@ -128,27 +124,11 @@ class BaseAIProtocolManager:
                 "type": kwargs["type"],
                 "instructions": kwargs.get("instructions"),
                 "description": kwargs.get("description"),
-                "extra": {k: v for k, v in kwargs.items() if k not in ["id", "type", "instructions", "description", "remedy"]}
+                "extra": {k: v for k, v in kwargs.items() if k not in ["id", "type", "instructions", "description"]}
             }
-            # Put remedy in extra if exists
-            if "remedy" in kwargs:
-                meta["extra"]["remedy"] = kwargs["remedy"]
-                
-            setattr(func, "_llm_landmark", meta)
             
+            setattr(func, "_llm_landmark", meta)
             self.register_action(func, **kwargs)
-            return func
-        return decorator
-
-    def returns(self, fields: Dict[str, str]):
-        """
-        Decorator to document return fields for an action.
-        Example: @ai.returns({"token": "The evidence token (RT-XXXX)"})
-        """
-        def decorator(func: Callable):
-            existing = getattr(func, "_llm_returns", {})
-            existing.update(fields)
-            setattr(func, "_llm_returns", existing)
             return func
         return decorator
 
@@ -198,7 +178,7 @@ class BaseAIProtocolManager:
                 logger.debug(f"Could not infer output schema: {e}")
         
         # Manual 'returns' override/supplement
-        returns = kwargs.get("returns") or (getattr(handler, "_llm_returns", None) if handler else None)
+        returns = kwargs.get("returns")
         if returns and not response_schema:
             if isinstance(returns, list):
                 response_schema = {"type": "object", "properties": {k: {"type": "string"} for k in returns}}
@@ -215,9 +195,19 @@ class BaseAIProtocolManager:
                 if k in props:
                     props[k]["description"] = v
         
-        # We prioritize 'instructions' as the primary LLM guidance if provided
-        final_description = kwargs.get("instructions") or kwargs.get("description") or doc or f"Action: {action_id}"
-        kwargs["description"] = final_description
+        # LLM Metadata Hierarchy: instructions > description > docstring
+        instructions = kwargs.get("instructions")
+        remedy = kwargs.get("remedy")
+        base_desc = instructions or kwargs.get("description") or doc or f"Action: {action_id}"
+        
+        # Enrich description with Remedy and Instructions for better Agent UX
+        enriched_description = base_desc
+        if instructions and instructions not in enriched_description:
+            enriched_description = f"{instructions}\n{enriched_description}"
+        if remedy:
+            enriched_description += f"\n\nIMPORTANT: {remedy}"
+            
+        kwargs["description"] = enriched_description
         kwargs["response_schema"] = response_schema
 
         if "parameters" not in kwargs and handler:
@@ -316,9 +306,6 @@ class BaseAIProtocolManager:
         if group != "root":
             return []
             
-        if self.navigation_landmarks:
-            return list(self.navigation_landmarks)
-            
         # Auto-generate navigation from action groups
         nav = []
         groups = set()
@@ -326,8 +313,15 @@ class BaseAIProtocolManager:
             for g in action.groups:
                 if g != "root":
                     groups.add(g)
+        
         for g in sorted(list(groups)):
-            nav.append({"id": g, "type": "navigation", "description": f"Navigate to {g}"})
+            # Find purpose from navigation_landmarks if exists
+            purpose = f"Navigate to {g}"
+            if self.navigation_landmarks:
+                match = next((l for l in self.navigation_landmarks if l.get("id") == g), None)
+                if match: purpose = match.get("notes") or match.get("description") or purpose
+            
+            nav.append({"id": g, "type": "navigation", "description": purpose})
         return nav
 
     def _should_include_action(self, action, group: str, is_internal: bool, read_only: bool, is_flattened: bool, agent_view: bool) -> bool:
@@ -367,11 +361,6 @@ class BaseAIProtocolManager:
             nav_entry["opens_group"] = action.opens_group
         return nav_entry
 
-    def _format_action_for_manifest(self, action, agent_view: bool, is_internal: bool) -> Dict[str, Any]:
-        if agent_view and not is_internal:
-            exclude_fields = {"groups", "global_access", "tags", "hidden", "headers", "context_dependencies", "required_auth"}
-            return action.model_dump(exclude=exclude_fields, exclude_none=True)
-        return action.model_dump(exclude_none=True)
     def _format_action_for_manifest(self, action, agent_view: bool, is_internal: bool) -> Dict[str, Any]:
         if agent_view and not is_internal:
             exclude_fields = {"groups", "global_access", "tags", "hidden", "headers", "context_dependencies", "required_auth"}

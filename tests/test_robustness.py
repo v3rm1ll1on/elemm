@@ -91,13 +91,11 @@ def test_well_known_error_handling():
     # But wait, ai.get_manifest is still used in base.py.
     # Actually, the test should mock the generator if it wants to trigger the catch block.
     
-    # Alternatively, just mock ManifestGenerator.generate_markdown
+    # Alternatively, just mock ManifestGenerator.generate_summary
     from unittest.mock import patch
-    with patch("elemm.mcp.manifest.ManifestGenerator.generate_markdown", side_effect=RuntimeError("Something went wrong internally")):
+    with patch("elemm.mcp.manifest.ManifestGenerator.generate_summary", side_effect=RuntimeError("Something went wrong internally")):
         response = client.get("/.well-known/elemm-manifest.md")
         
-        assert response.status_code == 200
+        assert response.status_code == 500
         text = response.text
-        assert "ELEMM PROTOCOL ERROR" in text
-        assert "Something went wrong internally" in text
-        assert "Remedy" in text
+        assert "Error: Something went wrong internally" in text

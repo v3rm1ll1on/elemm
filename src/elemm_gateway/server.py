@@ -21,6 +21,7 @@ import re
 from typing import List, Dict, Any, Optional
 from elemm.mcp import LandmarkBridge
 import mcp.types as types
+from urllib.parse import urlparse
 
 logger = logging.getLogger("elemm-gateway")
 
@@ -30,6 +31,12 @@ class ElemmGateway(LandmarkBridge):
     Acts as a universal broker for any Elemm-compliant site.
     Provides: connect_to_site + Core Protocol Tools (proxied).
     """
+    
+    # Pre-compiled regex for manifest sections
+    SECTION_PATTERN = re.compile(r"### (?:AGENT )?DIRECTIVE\s*\n(.*?)(?=\n###|\n##|---|$)", re.DOTALL)
+    JSON_BLOCK_PATTERN = re.compile(r"```json-elemm\n(.*?)\n```", re.DOTALL)
+    CLEAN_MD_PATTERN = re.compile(r"\n---\n### Technical Discovery.*```json-elemm.*?```", re.DOTALL)
+
     def __init__(self, server_name: str = "elemm-gateway"):
         # No local manager, we are a broker
         super().__init__(manager=None, base_url="", server_name=server_name)
@@ -49,11 +56,10 @@ class ElemmGateway(LandmarkBridge):
 
     async def _handle_list_tools(self) -> List[types.Tool]:
         """Tools: connect_to_site + Core Elemm Tools + Remote Discovery."""
-        # 1. Connect Tool
         tools = [
             types.Tool(
                 name="connect_to_site",
-                description="Connect to an Elemm-compliant website via its base URL.",
+                description="Connect to an Elemm-compliant website via its base URL. Call this FIRST if the user provides a URL or asks for site-specific actions (like booking, searching, etc.).",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -91,7 +97,14 @@ class ElemmGateway(LandmarkBridge):
             ),
             types.Tool(
                 name="execute_sequence",
-                description="Execute a chain of tools on the remote site. Use 'alias' in actions and pipe results via $alias.field (e.g. $logs[0].token).",
+                description=(
+                    "Execute a chain of tools in one turn. Use for multi-step tasks (Search -> Action).\n"
+                    "PIPING: Use $alias.field or $index.field (e.g., $offices[0].id).\n"
+                    "EXAMPLE: {actions: [\n"
+                    "  {action: 'search_tool', alias: 'res', parameters: {q: 'query'}},\n"
+                    "  {action: 'action_tool', parameters: {id: '$res[0].id'}}\n"
+                    "]}"
+                ),
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -101,7 +114,7 @@ class ElemmGateway(LandmarkBridge):
                                 "type": "object",
                                 "properties": {
                                     "action": {"type": "string"},
-                                    "alias": {"type": "string", "description": "Optional name for piping results."},
+                                    "alias": {"type": "string", "description": "Optional name for result piping."},
                                     "parameters": {"type": "object"}
                                 },
                                 "required": ["action"]
@@ -113,63 +126,93 @@ class ElemmGateway(LandmarkBridge):
             )
         ]
 
-        # 3. Add Remote Technical Tools (if connected)
-        if self.active_site_url:
-            remote_info = self.connected_sites.get(self.active_site_url, {})
-            for t_dict in remote_info.get("tools", []):
-                tools.append(types.Tool(**t_dict))
-            
         return tools
 
     async def _handle_call_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
         """Dispatches calls to 'connect' or core tools."""
-        # Normalization (remove landmark prefixes)
-        name = name.split(":")[-1].split(".")[-1].strip()
+        # Robustly strip any server-side prefixes (e.g. 'elemm-gateway-list_offices' -> 'list_offices')
+        tool_id = name
+        if "-" in tool_id:
+            # Check if it starts with the server name or common gateway patterns
+            for prefix in [self.server_name, "elemm-gateway", "gateway"]:
+                if tool_id.startswith(f"{prefix}-"):
+                    tool_id = tool_id[len(prefix)+1:]
+                    break
+        
+        # Also handle colon/dot notation from some clients
+        tool_id = tool_id.split(":")[-1].split(".")[-1].strip()
 
-        if name == "connect_to_site":
+        # Also handle colon/dot notation from some clients
+        tool_id = tool_id.split(":")[-1].split(".")[-1].strip().lower()
+
+        # 1. Gateway-Level Tools (Always handled locally)
+        if tool_id == "connect_to_site":
             return await self._connect(arguments.get("url", ""))
         
-        if not self.active_site_url:
-            return [types.TextContent(type="text", text="Error: Not connected. Call 'connect_to_site' first.")]
-
-        # 1. Handle Core Protocol Tools (Proxied)
-        if name in ["get_manifest", "get_landmarks", "inspect_landmark"]:
-            return await self._proxy_core_tool(name, arguments)
-
-        if name == "execute_sequence":
+        if tool_id == "execute_sequence":
             actions = arguments.get("actions", [])
             return await self._handle_execute_sequence(actions)
 
-        # 2. Handle Dynamic Actions
-        res_text = await self._execute_single(name, arguments)
+        # 2. Protocol Discovery Tools (Proxied)
+        if tool_id in ["get_manifest", "get_landmarks", "inspect_landmark"]:
+            if not self.active_site_url:
+                return [types.TextContent(type="text", text="Error: Not connected. Call 'connect_to_site' first.")]
+            return await self._proxy_core_tool(tool_id, arguments)
+
+        # 3. Dynamic Mirrored Actions (Proxied)
+        if not self.active_site_url:
+            return [types.TextContent(type="text", text=f"Error: Tool '{tool_id}' requires an active connection. Call 'connect_to_site' first.")]
+
+        res_text = await self._execute_single(tool_id, arguments)
         return [types.TextContent(type="text", text=res_text)]
+
+    async def _handle_execute_sequence(self, actions: List[Dict]) -> List[types.TextContent]:
+        """Override to handle 'connect_to_site' inside a sequence."""
+        logger.info(f"Gateway: Executing sequence with {len(actions)} actions.")
+        if not actions: return []
+        
+        # Check if first action is connect_to_site (handle prefixes)
+        first_action = actions[0]
+        aid = first_action.get("action", "").lower()
+        if "connect_to_site" in aid:
+            url = first_action.get("parameters", {}).get("url", "")
+            conn_res = await self._connect(url)
+            # If connection failed, return the error immediately
+            if "successfully" not in conn_res[0].text:
+                return conn_res
+            
+            # Remove connect action and continue with the rest
+            remaining_actions = actions[1:]
+            if not remaining_actions:
+                return conn_res
+            
+            results = [f"Step 0 (connect): {conn_res[0].text}"]
+            sequence_results = await super()._handle_execute_sequence(remaining_actions)
+            results.append(sequence_results[0].text)
+            return [types.TextContent(type="text", text="\n\n".join(results))]
+            
+        return await super()._handle_execute_sequence(actions)
 
     async def _proxy_core_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
         """Proxies core protocol discovery tools to the remote site."""
         try:
             async with httpx.AsyncClient() as client:
                 if name == "get_manifest":
-                    # For get_manifest, we can return the local cached manifest or fetch fresh
-                    raw_md = self.connected_sites[self.active_site_url]["manifest"]
-                    clean_md = re.sub(r"\n---\n### Technical Discovery.*```json-elemm.*?```", "", raw_md, flags=re.DOTALL)
-                    return [types.TextContent(type="text", text=clean_md.strip())]
+                    # Fetch fresh technical manifest
+                    resp = await client.get(f"{self.active_site_url}/.well-known/elemm-manifest.md", params={"technical": "true"})
+                    return [types.TextContent(type="text", text=resp.text)]
                 
-                # Fetch dynamically for landmarks/inspect
-                resp = await client.get(f"{self.active_site_url}/.well-known/elemm-manifest.md", params=arguments)
+                resp = await client.get(f"{self.active_site_url}/.well-known/elemm-inspect.md", params=arguments)
                 return [types.TextContent(type="text", text=resp.text)]
         except Exception as e:
             return [types.TextContent(type="text", text=f"Proxy Error ({name}): {e}")]
 
     async def _execute_single(self, tool_name: str, arguments: Dict) -> str:
-        """
-        UNIVERSAL PROXY: Overrides LandmarkBridge's native executor.
-        Sends the call to the remote site's execution endpoint.
-        """
+        """UNIVERSAL PROXY: Sends the call to the remote site's execution endpoint."""
         if not self.active_site_url:
             return "Error: Gateway not connected to a remote site."
 
         try:
-            from urllib.parse import urlparse
             host_key = urlparse(self.active_site_url).netloc
             current_headers = self.session_headers.get(host_key, {})
 
@@ -195,39 +238,30 @@ class ElemmGateway(LandmarkBridge):
         except Exception as e:
             return f"Gateway Connection Error: {str(e)}"
 
-    def run(self):
-        """Standard MCP runner for Gateway."""
-        from mcp.server.stdio import stdio_server
-        async def _run():
-            async with stdio_server() as (read, write):
-                await self.server.run(read, write, self.server.create_initialization_options())
-        asyncio.run(_run())
-
     async def _connect(self, url: str) -> List[types.TextContent]:
         """Fetches the .md manifest and establishes the session."""
         url = url.rstrip("/")
         try:
             async with httpx.AsyncClient() as client:
                 manifest_url = f"{url}/.well-known/elemm-manifest.md"
-                # Request with technical=true to get the json-elemm block
                 resp = await client.get(manifest_url, params={"technical": "true"})
                 if resp.status_code != 200:
                     return [types.TextContent(type="text", text=f"Failed to find Elemm manifest at {manifest_url}. Status: {resp.status_code}")]
 
-                # Semantic Manifest for the Agent
                 md_content = resp.text
                 
-                # Simple extraction for directive
-                def get_section(name):
-                    pattern = rf"^### {name}\s*\n(.*?)(?=\n###|\n##|$)"
-                    m = re.search(pattern, md_content, re.MULTILINE | re.DOTALL)
-                    return m.group(1).strip() if m else None
-
-                directive = get_section("AGENT DIRECTIVE") or "Execute tasks according to the available tools."
+                # Extract AGENT DIRECTIVE
+                match = self.SECTION_PATTERN.search(md_content)
+                default_directive = (
+                    "STRATEGY: Use 'execute_sequence' for ALL multi-step tasks.\n"
+                    "PIPING: Use '$alias.field' to pass data between steps.\n"
+                    "EFFICIENCY: Do NOT perform one tool call at a time. Batch search and action together."
+                )
+                directive = match.group(1).strip() if match else default_directive
 
                 # Extract Technical Tools from json-elemm block
                 mcp_tools = []
-                json_match = re.search(r"```json-elemm\n(.*?)\n```", md_content, re.DOTALL)
+                json_match = self.JSON_BLOCK_PATTERN.search(md_content)
                 if json_match:
                     try:
                         mcp_tools = json.loads(json_match.group(1))
@@ -250,95 +284,6 @@ class ElemmGateway(LandmarkBridge):
         except Exception as e:
             return [types.TextContent(type="text", text=f"Connection Error: {e}")]
 
-    async def _handle_remote_core_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
-        """Proxy for the 4 core protocol tools."""
-        if not self.active_site_url:
-            return [types.TextContent(type="text", text="Error: Not connected. Call 'connect_to_site' first.")]
-
-        # Sync context for potential internal dependencies
-        from elemm.core.context import session_headers
-        token_ctx = session_headers.set(self.session_headers)
-
-        try:
-            async with httpx.AsyncClient() as client:
-                if name == "get_manifest":
-                    raw_md = self.connected_sites[self.active_site_url]["manifest"]
-                    # Token Optimization: Strip the technical json-elemm block for the agent
-                    clean_md = re.sub(r"\n---\n### Technical Discovery.*```json-elemm.*?```", "", raw_md, flags=re.DOTALL)
-                    return [types.TextContent(type="text", text=clean_md.strip())]
-                
-                if name == "execute_sequence":
-                    # Use the inherited sequence handler from LandmarkBridge
-                    actions = arguments.get("actions", [])
-                    return await self._handle_execute_sequence(actions)
-                
-                if name == "inspect_landmark":
-                    res_content = await self._proxy_core_tool(name, arguments)
-                    return [types.TextContent(type="text", text=res_content[0].text)]
-                
-                if name == "navigate":
-                    # We just update local context, but the real magic is in the remote Post
-                    self.ctx = arguments.get("landmark_id", "root")
-                    return [types.TextContent(type="text", text=f"Context switched to '{self.ctx}'.")]
-
-                if name == "execute_action":
-                    aid = arguments.get("action") or arguments.get("action_id")
-                    params = arguments.get("parameters", {})
-                    
-                    # Scoped Auth: Get headers for this specific host
-                    from urllib.parse import urlparse
-                    host_key = urlparse(self.active_site_url).netloc
-                    current_headers = self.session_headers.get(host_key, {})
-                    
-                    if current_headers:
-                        logger.debug(f"Gateway: Injecting auth headers for {host_key}")
-
-                    resp = await client.post(
-                        f"{self.active_site_url}/.well-known/elemm/execute",
-                        json={"action_id": aid, "parameters": params},
-                        headers=current_headers
-                    )
-                    
-                    if resp.status_code != 200:
-                        logger.error(f"Gateway: Remote Error {resp.status_code} for {aid}")
-                        return [types.TextContent(type="text", text=f"Remote Error ({resp.status_code}): {resp.text}")]
-                    
-                    res = resp.json()
-
-                    # Auto-Capture Auth Tokens from Remote Result
-                    if isinstance(res, dict) and "access_token" in res:
-                        new_token = res["access_token"]
-                        host_headers = self.session_headers.get(host_key, {}).copy()
-                        host_headers["Authorization"] = f"Bearer {new_token}"
-                        self.session_headers[host_key] = host_headers
-                        logger.info(f"Gateway: Auto-captured access_token for host '{host_key}'")
-
-                    # We use the base class stringifier for consistency
-                    output_text = self._stringify_result(res)
-                    return [types.TextContent(type="text", text=f"### RESULT: {aid}\n{output_text}")]
-
-        except Exception as e:
-            logger.error(f"Gateway Proxy Error: {e}")
-            return [types.TextContent(type="text", text=f"Proxy Error ({name}): {e}")]
-        finally:
-            session_headers.reset(token_ctx)
-        
-        return [types.TextContent(type="text", text=f"Tool {name} not implemented for remote sites.")]
-
-    async def _execute_native_action(self, name: str, arguments: dict, landmark_override: str = None) -> List[types.TextContent]:
-        """
-        Overrides the bridge's native executor to proxy calls to the active remote site.
-        This enables 'execute_sequence' to work transparently on the Gateway.
-        """
-        return await self._handle_remote_core_tool("execute_action", {
-            "action_id": name,
-            "parameters": arguments
-        })
-
     def run(self):
-        """Standard MCP runner for Gateway."""
-        from mcp.server.stdio import stdio_server
-        async def _run():
-            async with stdio_server() as (read, write):
-                await self.server.run(read, write, self.server.create_initialization_options())
-        asyncio.run(_run())
+        """Runs the Gateway over STDIO."""
+        self.run_stdio()

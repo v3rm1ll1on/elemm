@@ -16,8 +16,16 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 ai = Elemm(
     agent_welcome="Welcome to UrbanCoWorking. How may I assist with your workspace today?",
-    agent_instructions="Concierge-style support: Provide warm, elegant booking assistance. Proactively match user needs (e.g. group size, quietness) to the most suitable available workspace IDs.",
-    protocol_instructions="STRATEGY: [list_offices -> Match room 'type' and 'price' to user needs -> book_workspace]. Always verify availability before confirming.",
+    agent_instructions=(
+        "PROTOCOL STRATEGY: [GET_MANIFEST -> EXECUTE_SEQUENCE].\n"
+        "1. DISCOVERY: Call 'get_manifest' first to see all landmarks and tools.\n"
+        "2. PIPING: Use '$alias.field' or '$N.field' to pass room_id from search to booking.\n"
+        "3. BATCHING: Always combine search and booking in one 'execute_sequence' call if the user provides enough info.\n"
+        "Constraint: Be professional, efficient, and minimize turns."
+    ),
+    protocol_instructions="""MANDATORY: Use 'execute_sequence' for ALL combined tasks (e.g. search + book). 
+    SINGLE STEPS ARE INEFFICIENT and must be avoided. 
+    Use piping ($offices[0].id) to automate the workflow in one turn.""",
     navigation_landmarks=[
         {"id": "locations", "notes": "Start here to see available cities."},
         {"id": "bookings", "notes": "Manage existing reservations and cancellations."}
@@ -62,38 +70,31 @@ BOOKINGS = {}
 
 # --- LANDMARKS ---
 
-@app.get("/locations", response_model=list[str])
+@app.get("/locations", response_model=list[str], tags=["locations"])
 @ai.tool(
-    id="get_locations", 
     global_access=True,
-    groups=["locations"],
     description="Returns list of cities where we have offices.",
     remedy="If no locations are returned, the system might be undergoing maintenance. Try again in a few minutes."
 )
 async def get_locations():
     return list(LOCATIONS.keys())
 
-@app.get("/locations/{city}/offices", response_model=list[Room])
+@app.get("/locations/{city}/offices", response_model=list[Room], tags=["locations"])
 @ai.tool(
-    id="list_offices", 
     global_access=True,
-    groups=["locations"],
-    description="Lists available workspaces in a city. REQUIRED PARAMETER: 'city' (e.g., 'berlin').",
-    remedy="If you get a 404, ensure you are using the parameter name 'city' and NOT 'location'. Also, verify the city name via 'get_locations'."
+    remedy="Ensure 'city' is lowercased (e.g. 'berlin'). Use 'get_locations' to see valid cities.",
+    returns={"id": "The room_id for booking", "name": "Human-friendly name"}
 )
 async def list_offices(city: str):
     if city.lower() not in LOCATIONS:
         raise HTTPException(status_code=404, detail="City not found")
     return LOCATIONS[city.lower()]
 
-@app.post("/bookings", response_model=BookingResult)
+@app.post("/bookings", response_model=BookingResult, tags=["bookings"])
 @ai.action(
-    id="book_workspace",
     global_access=True,
-    groups=["bookings"],
-    description="Book a workspace. REQUIRED PARAMETERS: room_id, user_name, date, hours (int).",
-    instructions="Process each booking separately. You MUST call this tool to confirm any booking.",
-    remedy="If you get a 400/422 error, ensure you use 'room_id' and 'hours' (integer). DO NOT use 'start_time', 'duration_hours' or 'city' in this call."
+    remedy="Required fields: 'room_id' (from list_offices), 'user_name', 'date' (YYYY-MM-DD), and 'hours' (integer).",
+    returns={"booking_id": "Unique confirmation ID", "total_price": "Price in EUR"}
 )
 async def book_workspace(data: BookingRequest):
     # Search for room
@@ -125,22 +126,18 @@ async def book_workspace(data: BookingRequest):
         "confirmed_until": until
     }
 
-@app.get("/bookings")
+@app.get("/bookings", tags=["bookings"])
 @ai.tool(
-    id="list_all_bookings", 
     global_access=True,
-    groups=["bookings"],
     description="Shows all active workspace bookings. Use this to find booking_ids for cancellations.",
     remedy="If no bookings are shown, verify if you are connected to the correct office server."
 )
 async def list_all_bookings():
     return [{"id": k, **v} for k, v in BOOKINGS.items()]
 
-@app.delete("/bookings/{booking_id}")
+@app.delete("/bookings/{booking_id}", tags=["bookings"])
 @ai.action(
-    id="cancel_booking", 
     global_access=True,
-    groups=["bookings"],
     description="Cancels an existing booking or reservation (Storno).",
     instructions="Use this whenever a user asks to cancel, delete or storno a booking. Requires booking_id.",
     remedy="If you get a 404, verify the booking_id via 'list_all_bookings'. IMPORTANT: Provide 'booking_id' directly as a top-level parameter. Do NOT wrap it in a nested 'parameters' object."

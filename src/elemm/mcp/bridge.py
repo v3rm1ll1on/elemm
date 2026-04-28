@@ -13,6 +13,10 @@ logger = logging.getLogger("elemm-bridge")
 class LandmarkBridge:
     """Elemm Protocol v1.0 Gateway: Discovery, Inspection, and Execution."""
     
+    # Pre-compiled regex for result piping: $alias[index].field or $alias.field or $0.field
+    PIPE_PATTERN = re.compile(r"\$(?:result\[)?([a-zA-Z0-9_-]+)\]?(?:\[(\d+)\])?\.([a-zA-Z0-9_-]+)")
+    RESULT_WRAP_PATTERN = re.compile(r"(\{.*\}|\[.*\])", re.DOTALL)
+
     def __init__(self, manager: Optional[Any] = None, base_url: str = "http://localhost:8001", server_name: str = "elemm-bridge"):
         self.manager = manager
         self.base_url = base_url
@@ -90,7 +94,10 @@ class LandmarkBridge:
                 return [types.TextContent(type="text", text=res_text)]
             except Exception as e:
                 logger.exception(f"Tool execution failed: {e}")
-                return [types.TextContent(type="text", text=f"Critical Error: {str(e)}")]
+                error_msg = f"Critical Error: {str(e)}"
+                if "not found" in str(e).lower():
+                    error_msg += ". Ensure you are using the correct tool name from the manifest."
+                return [types.TextContent(type="text", text=error_msg)]
 
     async def _handle_execute_sequence(self, actions: List[Dict]) -> List[types.TextContent]:
         results = []
@@ -103,7 +110,14 @@ class LandmarkBridge:
             alias = act.get("alias")
             
             aid = raw_aid.strip()
-            if ":" in aid: aid = aid.split(":")[-1].strip()
+            # Strip server prefixes like 'elemm-gateway-list_offices' -> 'list_offices'
+            if "-" in aid:
+                for prefix in ["elemm-gateway", "gateway", "elemm"]:
+                    if aid.startswith(f"{prefix}-"):
+                        aid = aid[len(prefix)+1:]
+                        break
+            # Handle all common separators
+            aid = aid.replace("/", ".").replace(":", ".")
             if "." in aid: aid = aid.split(".")[-1].strip()
             
             if self._depends_on_failed(params, failed_steps, local_results):
@@ -142,7 +156,7 @@ class LandmarkBridge:
     def _depends_on_failed(self, params: Dict, failed_steps: set, local_results: Dict) -> bool:
         if not params or not failed_steps: return False
         param_str = json.dumps(params)
-        placeholders = re.findall(r"\$([a-zA-Z0-9_-]+)(?:\[(\d+)\])?\.([a-zA-Z0-9_-]+)", param_str)
+        placeholders = self.PIPE_PATTERN.findall(param_str)
         for step_key, _, _ in placeholders:
             if step_key in failed_steps: return True
         return False
@@ -161,8 +175,7 @@ class LandmarkBridge:
 
     def _resolve_params(self, params: Any, local_results: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
         if isinstance(params, str):
-            pattern = r"\$([a-zA-Z0-9_-]+)(?:\[(\d+)\])?\.([a-zA-Z0-9_-]+)"
-            matches = re.finditer(pattern, params)
+            matches = self.PIPE_PATTERN.finditer(params)
             new_val = params
             for m in matches:
                 full_match, step_key, index_str, field_name = m.group(0), m.group(1), m.group(2), m.group(3)
@@ -203,20 +216,23 @@ class LandmarkBridge:
         try:
             clean = text.strip()
             if clean.startswith("- "): clean = clean[2:]
-            match = re.search(r"(\{.*\}|\[.*\])", clean, re.DOTALL)
+            match = self.RESULT_WRAP_PATTERN.search(clean)
             if match: return json.loads(match.group(1))
             return clean
         except: return text
 
     async def _execute_single(self, action_id: str, parameters: Dict) -> str:
         action = self.manager.get_action(action_id)
-        if not action: return f"Error: Tool '{action_id}' not found."
+        if not action:
+            return json.dumps({"status": "error", "message": f"Tool '{action_id}' not found.", "remedy": "Check the manifest for available tool names."})
+        
         lid = action.groups[0] if action.groups else "root"
         landmark_ctx.set(lid)
         try:
             res, _ = await self.manager.call_action(action_id, parameters)
             return json.dumps(res) if isinstance(res, (dict, list)) else str(res)
         except Exception as e: 
+            logger.exception(f"Action execution failed: {e}")
             return json.dumps({"status": "error", "message": str(e), "remedy": "Technical execution error. Verify parameters and tool connectivity."})
 
     def run_stdio(self):

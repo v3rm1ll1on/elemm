@@ -35,11 +35,12 @@ MISSION_STATE = {"quarantined": False, "restarted": False, "secured": False}
 ai = Elemm(
     agent_welcome="Call 'get_landmarks' to begin discovery.",
     agent_instructions=(
-        "PROTOCOL STRATEGY: [GET_MANIFEST -> EXECUTE_SEQUENCE].\n"
-        "1. DISCOVERY: Call 'get_manifest' first to load all landmarks and tool signatures in one turn.\n"
-        "2. PIPING: Use '$N.field' to reference the output of step N within an 'execute_sequence' batch.\n"
-        "3. BATCHING: Maximize 'execute_sequence' to chain as many investigative and remediation steps as possible.\n\n"
-        "Constraint: Use standard JSON tool calls. Do not explain your plan unless requested."
+        "EFFICIENCY PROTOCOL: [LANDMARKS -> INSPECT -> EXECUTE].\n"
+        "1. DISCOVERY: Call 'get_landmarks' first. Identify the relevant landmark for your current step.\n"
+        "2. PRECISION: Call 'inspect_landmark' for only the necessary group to keep context small.\n"
+        "3. PIPING: Use '$N.field' for results in 'execute_sequence'.\n"
+        "4. CHAINING: Group ALL remaining steps into one 'execute_sequence' once you have the signatures.\n\n"
+        "Constraint: Minimize turns. Be surgical."
     ),
     navigation_landmarks=LANDMARKS_CONFIG
 )
@@ -49,24 +50,26 @@ DB = get_shared_database()
 
 # --- API ---
 
-@ai.tool(id="get_active_alerts", groups=["soc"])
 @app.get("/soc/alerts", tags=["soc"], response_model=List[Alert])
+@ai.tool(id="get_active_alerts")
 async def get_soc_alerts():
     """List active security alerts. Identify SEC-9982 to find the source IP."""
     return DB["soc"]
 
-@ai.tool(id="resolve_ip_to_host", groups=["noc"], remedy="Validate IP range (10.0.4.x).")
-@ai.returns({"hostname": "Verified SRV-XXXX host"})
 @app.get("/noc/resolve", tags=["noc"])
+@ai.tool(id="resolve_ip_to_host", remedy="Validate IP range (10.0.4.x).", returns={"hostname": "Verified SRV-XXXX host"})
 async def resolve_ip(ip: str = Query(..., description="Target IP (Format: 10.0.4.X)")):
     """Resolve internal IP to Hostname (Format: 10.0.4.x)."""
     host = DB["noc"].get(ip)
     if not host: raise HTTPException(status_code=422)
     return {"hostname": host}
 
-@ai.tool(id="query_node_logs", groups=["it_ops"], remedy="Logs require a verified SRV-XXXX hostname. Filter with the string 'EXFIL' to find tokens.")
-@ai.returns({"token": "Evidence token RT-XXXX", "user": "Source username"})
 @app.get("/it/logs", tags=["it_ops"], response_model=List[LogEntry])
+@ai.tool(
+    id="query_node_logs",
+    remedy="Logs require a verified SRV-XXXX hostname. Filter with the string 'EXFIL' to find tokens.", 
+    returns={"token": "Evidence token RT-XXXX", "user": "Source username"}
+)
 async def it_logs(
     hostname: str = Query(..., description="Server Hostname (SRV-XXXX)"), 
     q: Optional[str] = Query(None, description="Search term (e.g. 'EXFIL')")
@@ -79,40 +82,40 @@ async def it_logs(
     if not logs: raise HTTPException(status_code=422)
     return logs
 
-@ai.tool(id="link_token_to_account", groups=["banking"], remedy="Token RT-XXXX required.")
-@ai.returns({"account_id": "Financial ACC-XXXX ID"})
 @app.get("/banking/link", tags=["banking"])
+@ai.tool(id="link_token_to_account", remedy="Token RT-XXXX required.", returns={"account_id": "Financial ACC-XXXX ID"})
 async def bank_link(token: str = Query(..., description="Routing Token (RT-XXXX)")):
     """Map RT-XXXX tokens to financial account IDs."""
     acc = DB["banking"].get(token)
     if not acc: raise HTTPException(status_code=422)
     return {"account_id": acc}
 
-@ai.tool(id="audit_account_owner", groups=["finance"], remedy="Account IDs (ACC-XXXX) must be retrieved from the BANKING landmark using an evidence token (RT-XXXX).")
-@ai.returns({"employee_id": "Corporate EMP-XXXX ID"})
 @app.get("/finance/audit", tags=["finance"])
+@ai.tool(
+    id="audit_account_owner", 
+    remedy="Account IDs (ACC-XXXX) must be retrieved from the BANKING landmark using an evidence token (RT-XXXX).",
+    returns={"employee_id": "Corporate EMP-XXXX ID"}
+)
 async def fin_audit(account_id: str = Query(..., description="Account Identifier (ACC-XXXX)")) -> Dict[str, str]:
     """Identify employee ID linked to ACC-XXXX account."""
     emp = DB["finance"].get(account_id)
     if not emp: raise HTTPException(status_code=422)
     return {"employee_id": emp}
 
-@ai.tool(id="resolve_principal", groups=["hr"])
-@ai.returns({"username": "Final CORP-XX principal"})
 @app.get("/hr/principal", tags=["hr"])
+@ai.tool(id="resolve_principal", returns={"username": "Final CORP-XX principal"})
 async def hr_resolve(employee_id: str = Query(..., description="Employee ID (EMP-XXXX)")):
     """Map EMP-XXXX to corporate principal (username)."""
     user = DB["hr"].get(employee_id)
     if not user: raise HTTPException(status_code=422)
     return {"username": user}
 
+@app.post("/ops/quarantine", tags=["remediation"])
 @ai.action(
     id="quarantine_principal", 
-    groups=["remediation"],
     instructions="Lockdown principal. Requires resolved Username (CORP-XX) and the Evidence Token (RT-XXXX) from the logs.",
     remedy="Ensure 'username' is the CORP-XX ID and 'token' is the RT-XXXX evidence token from the IT logs. They must match the audit trail."
 )
-@app.post("/ops/quarantine", tags=["remediation"])
 async def quarantine(
     username: str = Body(..., embed=True, description="Corporate Username (NOT EMP-ID!)"), 
     token: str = Body(..., embed=True, description="Evidence Token (RT-XXXX)")
@@ -126,27 +129,26 @@ async def quarantine(
     MISSION_STATE["quarantined"] = True
     return {"status": "SUCCESS"}
 
-@ai.action(id="restart_node", groups=["remediation"], instructions="Reboot node. Requires verified hostname (SRV-XXXX).")
 @app.post("/ops/restart", tags=["remediation"])
+@ai.action(id="restart_node", instructions="Reboot node. Requires verified hostname (SRV-XXXX).")
 async def restart(hostname: str = Body(..., embed=True, description="Node ID (SRV-XXXX)")) -> Dict[str, str]:
     """Reboot SRV-XXXX node."""
     if hostname != "SRV-FORENSIC-142": raise HTTPException(status_code=422)
     MISSION_STATE["restarted"] = True
     return {"status": "SUCCESS"}
 
-@ai.action(id="secure_escrow", groups=["remediation"])
 @app.post("/ops/secure", tags=["remediation"])
+@ai.action(id="secure_escrow")
 async def secure():
     """Lock down risk capital in forensic escrow."""
     MISSION_STATE["secured"] = True
     return {"status": "SUCCESS"}
 
+@app.post("/ops/report", tags=["remediation"])
 @ai.action(
     id="submit_gauntlet_report", 
-    groups=["remediation"],
     remedy="MISSION INCOMPLETE. Ensure quarantine, restart, and secure are SUCCESS."
 )
-@app.post("/ops/report", tags=["remediation"])
 async def report(incident_id: str = Body(...), summary: str = Body(...)):
     """Submit final audit report. Requires SUCCESS on all previous steps."""
     if not all(MISSION_STATE.values()): 

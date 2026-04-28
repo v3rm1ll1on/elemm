@@ -36,7 +36,7 @@ def run_cmd(cmd: List[str]) -> str:
 
 # --- LANDMARK: CPU & HARDWARE ---
 
-@manager.tool(id="get_cpu_usage", groups=["cpu_info"])
+@manager.tool(groups=["cpu_info"])
 def get_cpu_usage():
     """Returns load averages and core count."""
     try:
@@ -46,13 +46,13 @@ def get_cpu_usage():
     except Exception as e:
         return {"error": str(e)}
 
-@manager.tool(id="get_cpu_details", groups=["cpu_info"])
+@manager.tool(groups=["cpu_info"])
 def get_cpu_details():
     """Returns detailed CPU architecture info using lscpu."""
     out = run_cmd(["lscpu"])
     return {line.split(":")[0].strip(): line.split(":")[1].strip() for line in out.splitlines() if ":" in line}
 
-@manager.tool(id="get_cpu_temp", groups=["cpu_info"])
+@manager.tool(groups=["cpu_info"])
 def get_cpu_temp():
     """Reads thermal sensors from /sys/class/thermal."""
     temps = {}
@@ -72,7 +72,7 @@ def get_cpu_temp():
 
 # --- LANDMARK: MEMORY ---
 
-@manager.tool(id="get_mem_info", groups=["memory"])
+@manager.tool(groups=["memory"])
 def get_mem_info():
     """Returns RAM stats in MB parsed from /proc/meminfo."""
     meminfo = {}
@@ -92,7 +92,7 @@ def get_mem_info():
 
 # --- LANDMARK: STORAGE ---
 
-@manager.tool(id="get_disk_usage", groups=["storage"])
+@manager.tool(groups=["storage"])
 def get_disk_usage(path: str = "/"):
     """Check disk usage for a specific path."""
     try:
@@ -107,29 +107,29 @@ def get_disk_usage(path: str = "/"):
     except Exception as e:
         raise ActionError(f"Path '{path}' invalid or inaccessible.", remedy="Provide a valid absolute path.")
 
-@manager.tool(id="list_block_devices", groups=["storage"])
+@manager.tool(groups=["storage"])
 def list_block_devices():
     """Lists block devices using lsblk."""
     return {"devices": run_cmd(["lsblk", "-o", "NAME,SIZE,TYPE,MOUNTPOINT"]).splitlines()}
 
-@manager.tool(id="get_mounts", groups=["storage"])
+@manager.tool(groups=["storage"])
 def get_mounts():
     """Returns currently mounted filesystems."""
     return {"mounts": run_cmd(["mount"]).splitlines()}
 
 # --- LANDMARK: NETWORK ---
 
-@manager.tool(id="get_ip_addr", groups=["network"])
+@manager.tool(groups=["network"])
 def get_ips():
     """Returns local network interfaces and IP addresses."""
     return {"interfaces": run_cmd(["ip", "-o", "addr"]).splitlines()}
 
-@manager.tool(id="get_ss_stats", groups=["network"])
+@manager.tool(groups=["network"])
 def get_ss():
     """Returns active listening ports (TCP/UDP)."""
     return {"listening": run_cmd(["ss", "-tunlp"]).splitlines()}
 
-@manager.tool(id="ping_host", groups=["network"])
+@manager.tool(groups=["network"])
 def ping_host(host: str, count: int = 2):
     """Pings a remote host to verify connectivity."""
     if not re.match(r"^[a-zA-Z0-9.-]+$", host):
@@ -138,12 +138,12 @@ def ping_host(host: str, count: int = 2):
 
 # --- LANDMARK: PROCESSES ---
 
-@manager.tool(id="list_procs", groups=["processes"])
+@manager.tool(groups=["processes"])
 def list_procs():
     """Returns top processes by CPU usage."""
     return {"top_processes": run_cmd(["ps", "-eo", "pid,ppid,cmd,%cpu,%mem", "--sort=-%cpu"]).splitlines()[:15]}
 
-@manager.tool(id="get_kernel_info", groups=["processes"])
+@manager.tool(groups=["processes"])
 def get_kernel_info():
     """Returns kernel release and version info."""
     return {
@@ -152,20 +152,18 @@ def get_kernel_info():
         "node": platform.node()
     }
 
-@manager.tool(id="get_uptime", groups=["processes"])
+@manager.tool(groups=["processes"])
 def get_uptime():
     """Returns system uptime."""
     return {"uptime": run_cmd(["uptime"]).strip()}
 
 # --- LANDMARK CONFIGURATION ---
-
-manager.navigation_landmarks = [
-    {"id": "cpu_info", "notes": "Monitor CPU architecture, load and temperature."},
-    {"id": "memory", "notes": "Track RAM and virtual memory usage."},
-    {"id": "storage", "notes": "Manage disks, partitions and mount points."},
-    {"id": "network", "notes": "Inspect interfaces and active network connections."},
-    {"id": "processes", "notes": "Monitor running processes and system state."}
-]
+# Optional: Explicitly define landmark purposes to help the AI navigate more efficiently.
+# If omitted, Elemm will auto-generate navigation tools from your action groups.
+# manager.navigation_landmarks = [
+#     {"id": "cpu_info", "notes": "Monitor CPU architecture, load and temperature."},
+#     ...
+# ]
 
 if __name__ == "__main__":
     from elemm.mcp.bridge import LandmarkBridge
