@@ -10,6 +10,8 @@
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
+DEFAULT_PROTOCOL_INSTRUCTIONS = "ELEMM: [MNFST -> NAV -> EXEC]. Use 'execute_sequence' for BATCHING (multiple tools in one turn) and PIPING (chain results via N.field or N[index].field)."
+#
 # You should have received a copy of the GNU General Public License
 # along with Elemm.  If not, see <https://www.gnu.org/licenses/>.
 

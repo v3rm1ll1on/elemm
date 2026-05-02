@@ -7,19 +7,26 @@ class ManifestGenerator:
         self.manager = manager
 
     def generate_summary(self) -> str:
-        """Returns a high-level summary of all landmarks."""
-        lines = ["# ELEMM REGISTRY: Landmarks Summary", ""]
-        lines.append("### AGENT DIRECTIVE")
-        lines.append("1. DISCOVER: Call 'inspect_landmark(id)' to see tools for a namespace.")
-        lines.append("2. EXECUTE: Call 'execute_sequence' for multi-step tasks.\n")
-        lines.append("## Available Landmarks")
+        """Returns a System Map: Landmarks + their Tool IDs."""
+        lines = ["# ELEMM SYSTEM DIRECTORY", ""]
+        lines.append("### USAGE")
+        lines.append("- **BROWSE**: Use `get_landmarks` to find the right area.")
+        lines.append("- **FOCUS**: Use `inspect_landmark(id)` to load full signatures for an area.")
+        lines.append("- **EXECUTE**: Use `execute_sequence` for multi-step tasks.\n")
+        lines.append("## Landmarks & Tool Index")
         
         landmarks = self.manager.landmarks
         for l in landmarks:
             is_dict = isinstance(l, dict)
-            l_id = l.get("id") if is_dict else getattr(l, "id", "unknown")
-            l_desc = (l.get("notes") or l.get("description", "")) if is_dict else (getattr(l, "notes", "") or getattr(l, "description", ""))
-            lines.append(f"- **{l_id}**: {l_desc}")
+            lid = l.get("id") if is_dict else getattr(l, "id", "unknown")
+            desc = (l.get("notes") or l.get("description", "")) if is_dict else (getattr(l, "notes", "") or getattr(l, "description", ""))
+            
+            # Find tool IDs for this landmark
+            t_ids = [a.id for a in self.manager.actions if lid in getattr(a, "groups", [])]
+            t_str = f"Tools: [{', '.join(t_ids)}]" if t_ids else "No tools."
+            
+            lines.append(f"- **{lid}**: {desc}")
+            lines.append(f"  {t_str}")
             
         return "\n".join(lines)
 
@@ -40,7 +47,17 @@ class ManifestGenerator:
         ids = [landmark_ids] if isinstance(landmark_ids, str) else landmark_ids
         landmarks = self.manager.landmarks
         
-        final_sections = []
+        final_sections = [
+            "# ELEMM MISSION PROTOCOL & FULL MANIFEST",
+            "",
+            "### STRATEGY: ONE-SHOT RESOLUTION",
+            "1. **COLLECT**: Use 'get_manifest' to load all technical signatures.",
+            "2. **MAP**: Identify the resolution path based on landmark notes below.",
+            "3. **EXECUTE**: Use 'execute_sequence' with piping ($alias.field) for 100% success.",
+            "4. **FALLBACK**: If sequence piping fails repeatedly, abandon the sequence and use 'call_action' sequentially.",
+            "NOTE: Hallucinating IDs is strictly prohibited. Resolve all values first.",
+            ""
+        ]
         
         for lid in ids:
             target_id = str(lid).strip().lower()
@@ -55,35 +72,45 @@ class ManifestGenerator:
                 final_sections.append(f"### Landmark '{lid}' NOT FOUND")
                 continue
 
-            lines = [f"## LANDMARK: {lid}", ""]
+            lines = [f"## LANDMARK: {lid.upper()}", ""]
             l_desc = (landmark.get("notes") or landmark.get("description", "")) if isinstance(landmark, dict) else (getattr(landmark, "notes", "") or getattr(landmark, "description", ""))
             if l_desc: lines.append(f"> {l_desc}\n")
 
             actions = [a for a in self.manager.actions if lid in getattr(a, "groups", [])]
             if not actions:
-                lines.append("- No tools available.")
+                lines.append("- No tools.")
             else:
+                lines.append("⚠️ CRITICAL: The items below are ACTION IDs, NOT direct MCP tools! You MUST pass them to 'call_action' or 'execute_sequence'!\n")
                 for a in actions:
-                    # Robust Param Extraction
                     p_list = []
-                    params = getattr(a, "parameters", []) or []
-                    for p in params:
-                        p_name = getattr(p, "name", "param")
-                        p_required = getattr(p, "required", True)
-                        p_list.append(f"{p_name}{'' if p_required else '?'}")
                     
-                    p_str = ", ".join(p_list)
-                    type_tag = "[W]" if any(w in a.id.lower() for w in ["set", "update", "delete", "post", "quarantine", "restart", "secure", "submit"]) else "[R]"
+                    # Merge parameters and payload, deduplicating by name
+                    seen_params = {}
+                    all_params = (getattr(a, "parameters", []) or [])
+                    if getattr(a, "payload", None):
+                        all_params += a.payload
+                        
+                    for p in all_params:
+                        if p.name not in seen_params or getattr(p, 'required', False):
+                            seen_params[p.name] = p
+                            
+                    for p in seen_params.values():
+                        req_str = "(REQUIRED)" if p.required else "(optional)"
+                        p_list.append(f"'{p.name}': {p.type} {req_str}")
                     
-                    # Extract Response Fields for Piping
-                    r_display = self._get_fields_display(getattr(a, "response_schema", {}))
-                    r_str = f" -> {r_display}" if r_display else ""
+                    p_str = "{" + ", ".join(p_list) + "}"
                     
-                    lines.append(f"- {type_tag} **{a.id}**({p_str}){r_str}")
-                    if a.description:
-                        # Clean up redundant prefixing if description was enriched
-                        clean_desc = a.description.replace("\n\n", " ").replace("\n", " ")
-                        lines.append(f"  * {clean_desc}")
+                    # Extract Response Fields
+                    r_display = ""
+                    schema = getattr(a, "response_schema", {})
+                    if schema:
+                        if schema.get("type") == "object":
+                            r_display = " -> Returns: {" + ", ".join(schema.get("properties", {}).keys()) + "}"
+                        elif schema.get("type") == "array":
+                            r_display = " -> Returns: List[...]"
+
+                    clean_desc = (a.description or "").split("\n")[0][:80]
+                    lines.append(f"- Action ID: `{a.id}`\n  Parameters: {p_str}{r_display}\n  Description: {clean_desc}\n")
             
             final_sections.append("\n".join(lines))
             

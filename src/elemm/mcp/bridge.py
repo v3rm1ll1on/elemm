@@ -13,8 +13,8 @@ logger = logging.getLogger("elemm-bridge")
 class LandmarkBridge:
     """Elemm Protocol v1.0 Gateway: Discovery, Inspection, and Execution."""
     
-    # Pre-compiled regex for result piping: $alias[index].field or $alias.field or $0.field
-    PIPE_PATTERN = re.compile(r"\$(?:result\[)?([a-zA-Z0-9_-]+)\]?(?:\[(\d+)\])?\.([a-zA-Z0-9_-]+)")
+    # Pre-compiled regex for result piping: alias[index].field or alias.field
+    PIPE_PATTERN = re.compile(r"\$?([a-zA-Z0-9_-]+)(?:\[(\d+)\])?\.([a-zA-Z0-9_-]+)")
     RESULT_WRAP_PATTERN = re.compile(r"(\{.*\}|\[.*\])", re.DOTALL)
 
     def __init__(self, manager: Optional[Any] = None, base_url: str = "http://localhost:8001", server_name: str = "elemm-bridge"):
@@ -32,27 +32,17 @@ class LandmarkBridge:
         async def handle_list_tools() -> List[types.Tool]:
             return [
                 types.Tool(
-                    name="get_landmarks",
-                    description="Get the map of namespaces (landmarks) and their objectives.",
-                    inputSchema={"type": "object", "properties": {}}
-                ),
-                types.Tool(
                     name="get_manifest",
-                    description="Get the FULL manifest with ALL tool signatures across ALL landmarks in one call.",
+                    description="PRIMARY: Download the full technical registry. Must be your FIRST call.",
                     inputSchema={"type": "object", "properties": {}}
-                ),
-                types.Tool(
-                    name="inspect_landmark",
-                    description="Get detailed tool signatures for a specific landmark.",
-                    inputSchema={
-                        "type": "object", 
-                        "properties": {"landmark_id": {"type": "string"}},
-                        "required": ["landmark_id"]
-                    }
                 ),
                 types.Tool(
                     name="execute_sequence",
-                    description="Execute a chain of tools. Use $alias.field or $0.field to pipe results.",
+                    description=(
+                        "STRATEGIC EXECUTION: Chain all mission steps (Forensics -> Mitigation -> Report) in ONE turn.\n"
+                        "MANDATORY: Use 'alias.field' for result piping. This is the fastest and preferred way to complete the mission.\n"
+                        "CRITICAL: Do NOT include 'get_manifest' or 'get_landmarks' inside a sequence. They are MCP tools, not mission actions."
+                    ),
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -61,9 +51,9 @@ class LandmarkBridge:
                                 "items": {
                                     "type": "object",
                                     "properties": {
-                                        "action": {"type": "string", "description": "The ID of the tool to execute."},
-                                        "alias": {"type": "string", "description": "Optional name for result piping (e.g. 'logs')."},
-                                        "parameters": {"type": "object", "description": "Arguments for the tool."}
+                                        "action": {"type": "string", "description": "Tool ID."},
+                                        "alias": {"type": "string", "description": "Piping alias."},
+                                        "parameters": {"type": "object", "description": "Args."}
                                     },
                                     "required": ["action"]
                                 }
@@ -71,27 +61,65 @@ class LandmarkBridge:
                         },
                         "required": ["actions"]
                     }
+                ),
+                types.Tool(
+                    name="call_action",
+                    description="FALLBACK: Use this to execute exactly ONE tool at a time if you cannot format 'execute_sequence' correctly.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string", "description": "Tool ID."},
+                            "parameters": {"type": "object", "description": "Arguments."}
+                        },
+                        "required": ["action"]
+                    }
+                ),
+                types.Tool(
+                    name="get_landmarks",
+                    description="OPTIONAL: Summary overview.",
+                    inputSchema={"type": "object", "properties": {}}
                 )
             ]
 
         @self.server.call_tool()
+        @self.server.call_tool()
         async def handle_call_tool(name: str, arguments: dict) -> List[types.TextContent]:
             try:
-                name = name.split(":")[-1].split(".")[-1].strip()
-                
+                # ONLY allow bridge tools. Reject everything else to force sequence discipline.
+                allowed = ["get_landmarks", "get_manifest", "inspect_landmark", "execute_sequence", "call_action"]
+                if name not in allowed:
+                    import json
+                    try:
+                        args_str = json.dumps(arguments or {})
+                    except:
+                        args_str = "{}"
+                        
+                    example = f'{{"action": "{name}", "parameters": {args_str}}}'
+                    
+                    return [types.TextContent(
+                        type="text", 
+                        text=f"[ACTION REQUIRED] Your tool call FAILED! Direct call to '{name}' is prohibited. "
+                             f"You MUST use 'execute_sequence' for plans or 'call_action' for single steps.\n\n"
+                             f"[EXAMPLE FIX]: To execute this, use 'call_action' with these parameters:\n{example}"
+                    )]
+
                 if name == "get_landmarks":
-                    return [types.TextContent(type="text", text=self.manifest.generate_summary())]
+                    warning = "\n\n[WARNING]: This is only a high-level summary! It does NOT contain the required parameter schemas! You MUST call 'get_manifest' to see the exact parameters required for these tools!"
+                    return [types.TextContent(type="text", text=self.manifest.generate_summary() + warning)]
                 if name == "get_manifest":
                     return [types.TextContent(type="text", text=self.manifest.generate_full())]
                 if name == "inspect_landmark":
                     lid = arguments.get("landmark_id") or arguments.get("landmark_ids")
                     return [types.TextContent(type="text", text=self.manifest.generate_landmark_detail(lid))]
+                if name == "call_action":
+                    res_text = await self._execute_single(arguments["action"], arguments.get("parameters", {}))
+                    formatted = self._format_result(arguments["action"], res_text)
+                    return [types.TextContent(type="text", text=formatted)]
                 if name == "execute_sequence":
                     actions = arguments.get("actions", [])
                     return await self._handle_execute_sequence(actions)
-                
-                res_text = await self._execute_single(name, arguments)
-                return [types.TextContent(type="text", text=res_text)]
+
+                return [types.TextContent(type="text", text="Unknown bridge tool.")]
             except Exception as e:
                 logger.exception(f"Tool execution failed: {e}")
                 error_msg = f"Critical Error: {str(e)}"
@@ -142,14 +170,34 @@ class LandmarkBridge:
             
             local_results[str(i)] = res_obj
             if alias: local_results[alias] = res_obj
-            self.history.append(res_obj)
+            formatted_res = self._format_result(aid, res_text)
             
+            # Outcome handling
             if isinstance(res_obj, dict) and res_obj.get("status") == "error":
                 failed_steps.add(str(i))
                 if alias: failed_steps.add(alias)
-            
-            formatted_res = self._format_result(aid, res_text)
-            results.append(f"Step {i}{' (' + alias + ')' if alias else ''} ({aid}): {formatted_res}")
+                formatted_res = self._format_result(aid, res_text)
+                missing_info = ""
+                if "details" in res_obj:
+                    details = res_obj["details"]
+                    if isinstance(details, list):
+                        missing_fields = [d["loc"][-1] for d in details if d.get("type") == "missing"]
+                        if missing_fields:
+                            missing_info = f" - MISSING FIELDS: {missing_fields}"
+                
+                results.append(f"Step {i} ({aid}): {formatted_res}{missing_info}")
+                results.append(f"\nCRITICAL: Sequence aborted at Step {i}. Use 'call_action' to manually execute the remaining steps.")
+                break
+            else:
+                # SELECTIVE COMPRESSION:
+                # If it's just a status message, simplify it.
+                # If it has real data (more than just 'status'), keep it for the model's context.
+                is_boilerplate = isinstance(res_obj, dict) and len(res_obj) == 1 and res_obj.get("status") == "SUCCESS"
+                
+                if is_boilerplate and i < len(actions) - 1:
+                    results.append(f"Step {i} ({aid}): SUCCESS.")
+                else:
+                    results.append(f"Step {i}{' (' + alias + ')' if alias else ''} ({aid}): {res_text}")
             
         return [types.TextContent(type="text", text="\n\n".join(results))]
 
@@ -180,7 +228,22 @@ class LandmarkBridge:
             for m in matches:
                 full_match, step_key, index_str, field_name = m.group(0), m.group(1), m.group(2), m.group(3)
                 if step_key not in local_results:
-                    return params, f"PIPE_ERROR: Step or Alias '{step_key}' not found."
+                    # If it looks like a pipe but the alias doesn't exist, it might just be a regular string.
+                    # We only throw a pipe error if they explicitly used a $ prefix to indicate intent.
+                    if full_match.startswith("$"):
+                        return params, f"PIPE_ERROR: Step or Alias '{step_key}' not found. (Hint: If piping fails, fall back to 'call_action')."
+                    continue
+                
+                # SAFEGUARDS FOR IMPLICIT PIPES (No '$' prefix)
+                if not full_match.startswith("$"):
+                    # 1. Prevent IP addresses or Decimals (e.g., '10.0') from matching Step Index '10'
+                    if step_key.isdigit():
+                        continue
+                    # 2. Prevent accidental replacements in natural text (e.g., "I like node.js")
+                    # We only auto-pipe if the parameter is EXACTLY 'alias.field'
+                    if params.strip() != full_match:
+                        continue
+
                 data = local_results[step_key]
                 if isinstance(data, list):
                     if not data: return params, f"PIPE_ERROR: Step '{step_key}' returned empty list."
@@ -189,11 +252,16 @@ class LandmarkBridge:
                     data = data[idx]
                 elif index_str is not None:
                     return params, f"PIPE_ERROR: Index [{index_str}] used on non-list at '{step_key}'."
+                
                 if not isinstance(data, dict) or field_name not in data:
                     avail = ", ".join(data.keys()) if isinstance(data, dict) else "none"
                     return params, f"PIPE_ERROR: Field '{field_name}' not found in '{step_key}'. Available: {avail}"
+                
                 val = data[field_name]
-                if params == full_match: return val, None
+                if params == full_match or params == f"${{{full_match}}}": return val, None
+                
+                # Replace both the raw match and the bash-style ${match}
+                new_val = new_val.replace(f"${{{full_match.lstrip('$')}}}", str(val))
                 new_val = new_val.replace(full_match, str(val))
             return new_val, None
         if isinstance(params, dict):
@@ -224,16 +292,83 @@ class LandmarkBridge:
     async def _execute_single(self, action_id: str, parameters: Dict) -> str:
         action = self.manager.get_action(action_id)
         if not action:
-            return json.dumps({"status": "error", "message": f"Tool '{action_id}' not found.", "remedy": "Check the manifest for available tool names."})
+            if action_id in ["get_manifest", "get_landmarks"]:
+                msg = (f"CRITICAL ERROR: '{action_id}' is an MCP Tool, NOT an Action ID! "
+                       f"You CANNOT run it inside 'execute_sequence' or 'call_action'. "
+                       f"You must invoke '{action_id}' DIRECTLY as a top-level tool call to read the documentation!")
+                return json.dumps({"status": "error", "message": msg})
+                
+            valid_tools = [a.id for a in self.manager.actions]
+            msg = f"Tool '{action_id}' DOES NOT EXIST. Stop guessing! Valid tools are: {', '.join(valid_tools)}."
+            return json.dumps({"status": "error", "message": msg})
         
         lid = action.groups[0] if action.groups else "root"
         landmark_ctx.set(lid)
         try:
-            res, _ = await self.manager.call_action(action_id, parameters)
+            res, status_code = await self.manager.call_action(action_id, parameters)
+            
+            # Clean Error Handling for Agent Recovery
+            if status_code >= 400 or (isinstance(res, dict) and res.get("status") == "error"):
+                error_msg = ""
+                is_validation_error = False
+                
+                # Special 422 (Validation) Error Handling
+                if status_code == 422 and isinstance(res, dict):
+                    detail = res.get("detail") or res.get("details")
+                    if detail:
+                        if isinstance(detail, list):
+                            missing = [e.get("loc", ["?"])[-1] for e in detail if e.get("type") == "missing"]
+                            if missing:
+                                error_msg = f"Missing required parameters: {', '.join(missing)}."
+                                is_validation_error = True
+                        else:
+                            error_msg = str(detail)
+                
+                if not error_msg:
+                    if isinstance(res, dict):
+                        error_msg = res.get("error") or res.get("detail") or res.get("message") or "Validation Failed"
+                    else:
+                        error_msg = str(res)
+                        
+                # Strip ugly HTTP Exception strings
+                error_msg = str(error_msg).replace("422: Unprocessable Entity", "Validation Error")
+                
+                if isinstance(res, dict) and "noise_warning" in res:
+                    error_msg += f" {res['noise_warning']}"
+                    is_validation_error = True
+                
+                # Always append the remedy if it exists AND it's not just a syntax typo
+                if not is_validation_error:
+                    remedy = (res.get("remedy") if isinstance(res, dict) else None) or action.remedy
+                    if remedy:
+                        error_msg = f"{error_msg}. REMEDY: {remedy}"
+                else:
+                    error_msg += " DO NOT GIVE UP. You made a syntax typo in the parameter names."
+                    # Deduplicate parameters by name since Body params might appear in both
+                    seen_params = {}
+                    
+                    all_params = (getattr(action, "parameters", []) or [])
+                    if isinstance(getattr(action, "payload", None), list):
+                        all_params += action.payload
+                        
+                    for p in all_params:
+                        # Keep the parameter if we haven't seen it, OR if the new one is explicitly marked required
+                        if p.name not in seen_params or getattr(p, 'required', False):
+                            seen_params[p.name] = p
+                            
+                    unique_params = list(seen_params.values())
+                            
+                    if unique_params:
+                        schema_hint = " {" + ", ".join(f"'{p.name}': '{p.type}'" for p in unique_params if getattr(p, 'required', True)) + "}"
+                        error_msg += f" The required parameters for this tool are: {schema_hint}."
+                    error_msg += " Please CALL THE TOOL AGAIN using the exact parameter names from the manifest!"
+                    
+                return json.dumps({"status": "error", "message": error_msg})
+
             return json.dumps(res) if isinstance(res, (dict, list)) else str(res)
         except Exception as e: 
             logger.exception(f"Action execution failed: {e}")
-            return json.dumps({"status": "error", "message": str(e), "remedy": "Technical execution error. Verify parameters and tool connectivity."})
+            return json.dumps({"status": "error", "message": f"Error: {str(e)}"})
 
     def run_stdio(self):
         """Runs the MCP server over STDIO."""

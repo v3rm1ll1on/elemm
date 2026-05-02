@@ -20,28 +20,19 @@ class LogEntry(BaseModel):
     token: Optional[str] = None
 
 LANDMARKS_CONFIG = [
-    {"id": "soc", "notes": "Security Operation Center: Analyze alerts and identify security incidents."},
-    {"id": "noc", "notes": "Network Operations Center: IP-to-Host resolution for VPC internal ranges."},
-    {"id": "it_ops", "notes": "IT Operations: Access node logs (SRV-XXXX) for session discovery."},
-    {"id": "banking", "notes": "Banking Gateway: Resolve transaction tokens to Account IDs."},
-    {"id": "finance", "notes": "Finance Hub: Link financial accounts to employee identifiers."},
-    {"id": "hr", "notes": "Human Resources: Map employee IDs to corporate principals (usernames)."},
-    {"id": "remediation", "notes": "Security Remediation: Execute lockdown and recovery protocols."}
+    {"id": "noc", "notes": "IP-to-Host: Resolve internal IPs (10.0.x.x) to Hostnames (SRV-XXXX)."},
+    {"id": "it_ops", "notes": "Log Forensics: Search logs by Hostname (SRV-XXXX). Returns Evidence Tokens (RT-XXXX) and Usernames (CORP-XX)."},
+    {"id": "banking", "notes": "Finance Bridge: Map Evidence Tokens (RT-XXXX) to Financial Accounts (ACC-XXXX)."},
+    {"id": "finance", "notes": "Account Audit: Link Account IDs (ACC-XXXX) to Employee Identifiers (EMP-XXXX)."},
+    {"id": "hr", "notes": "Principal Resolution: Map Employee IDs (EMP-XXXX) to Corporate Usernames (CORP-XX)."},
+    {"id": "remediation", "notes": "Action Center: Submit reports (SEC-XXXX), Restart nodes (SRV-XXXX), and Quarantine users (CORP-XX + RT-XXXX)."}
 ]
 
 app = FastAPI(title="Solaris Enterprise Hub - PRO-GRADE v7.6")
 MISSION_STATE = {"quarantined": False, "restarted": False, "secured": False}
 
 ai = Elemm(
-    agent_welcome="Call 'get_landmarks' to begin discovery.",
-    agent_instructions=(
-        "EFFICIENCY PROTOCOL: [LANDMARKS -> INSPECT -> EXECUTE].\n"
-        "1. DISCOVERY: Call 'get_landmarks' first. Identify the relevant landmark for your current step.\n"
-        "2. PRECISION: Call 'inspect_landmark' for only the necessary group to keep context small.\n"
-        "3. PIPING: Use '$N.field' for results in 'execute_sequence'.\n"
-        "4. CHAINING: Group ALL remaining steps into one 'execute_sequence' once you have the signatures.\n\n"
-        "Constraint: Minimize turns. Be surgical."
-    ),
+    agent_welcome="PROTOCOL: [1. get_manifest] -> [2. execute_sequence]. DO NOT BROWSE. Download full registry once, then execute all steps in one Turn.",
     navigation_landmarks=LANDMARKS_CONFIG
 )
 
@@ -53,7 +44,7 @@ DB = get_shared_database()
 @app.get("/soc/alerts", tags=["soc"], response_model=List[Alert])
 @ai.tool(id="get_active_alerts")
 async def get_soc_alerts():
-    """List active security alerts. Identify SEC-9982 to find the source IP."""
+    """List all active security alerts."""
     return DB["soc"]
 
 @app.get("/noc/resolve", tags=["noc"])

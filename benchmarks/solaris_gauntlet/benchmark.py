@@ -9,7 +9,7 @@ from mcp.client.stdio import stdio_client
 from metrics_collector import BenchmarkMetrics
 
 OLLAMA_URL = "http://192.168.178.76:11434/api/chat"
-MODEL = "gemma4:e4b"
+MODEL = "gemma4:e2b"
 
 async def clear_vram(quiet=False):
     if not quiet:
@@ -66,19 +66,11 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                         "4. COMPLIANCE: Adhere strictly to provided technical schemas. Do not attempt to use unresolved IDs for state-changing operations."
                     )
                 else:
-                    # In ELEMM mode, we provide the full tool manifest (Standard Protocol Handshake).
-                    full_manifest = await session.call_tool("get_manifest", {})
+                    # In ELEMM mode, we trust the Tool Descriptions and the Protocol Handshake.
                     system_prompt = (
                         f"{shared_persona}\n\n"
-                        "### STRATEGY: ONE-SHOT EXECUTION\n"
-                        "1. Use 'execute_sequence' to chain ALL necessary steps in a single turn.\n"
-                        "2. ALIASING: Give every step a unique 'alias' (e.g. 'logs', 'owner') and pipe results via '$alias.field'.\n"
-                        "3. SMART PIPING: If a step returns a list, '$alias.field' automatically picks the first item.\n\n"
-                        "### TOOL MANIFEST (PRE-LOADED)\n"
-                        "The tool manifest is already provided below. DO NOT call 'get_manifest' again. "
-                        "Construct your sequence immediately using these definitions:\n\n"
-                        f"{full_manifest.content[0].text}\n\n"
-                        "EXECUTE NOW."
+                        "Use the available tools to investigate and resolve the incident. "
+                        "Follow the protocol hints provided in the tool descriptions."
                     )
                 
                 messages.append({"role": "system", "content": system_prompt})

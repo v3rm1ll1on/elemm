@@ -73,6 +73,7 @@ class BaseAIProtocolManager:
 
     def get_action(self, action_id: str) -> Optional[AIAction]:
         """Returns a registered action by its ID."""
+        if not action_id: return None
         return next((a for a in self.actions if a.id == action_id), None)
 
     def landmark(self, id: str, type: str, instructions: Optional[str] = None, description: Optional[str] = None, **kwargs):
@@ -204,6 +205,18 @@ class BaseAIProtocolManager:
         enriched_description = base_desc
         if instructions and instructions not in enriched_description:
             enriched_description = f"{instructions}\n{enriched_description}"
+            
+        # Add Piping Metadata to description for Zero-Prompt logic
+        if response_schema:
+            props = []
+            if response_schema.get("type") == "object":
+                props = list(response_schema.get("properties", {}).keys())
+            elif response_schema.get("type") == "array" and "items" in response_schema:
+                props = list(response_schema.get("items", {}).get("properties", {}).keys())
+            
+            if props:
+                enriched_description += f"\n\nPIPING: Returns {', '.join(props)}. Use '$alias.field' in sequences."
+
         if remedy:
             enriched_description += f"\n\nIMPORTANT: {remedy}"
             
