@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import httpx
 import statistics
+from typing import Any
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from metrics_collector import BenchmarkMetrics
@@ -21,6 +22,11 @@ async def clear_vram(quiet=False):
             await asyncio.sleep(3) # Give it time to settle
         except:
             pass
+
+def estimate_tokens(obj: Any) -> int:
+    """Rough heuristic for token count (characters / 4)."""
+    import json
+    return len(json.dumps(obj)) // 4
 
 async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quiet=False, num_ctx=32768):
     #await clear_vram(quiet=quiet)
@@ -91,7 +97,10 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                         } for t in tools_res.tools
                     ]
                     
-                    log(f"\n[Step {metrics.steps + 1}] Context: {current_ctx} | Tools: {len(ollama_tools)}")
+                    # Calculate FULL context size (Messages + Tools)
+                    context_size = estimate_tokens(messages) + estimate_tokens(ollama_tools)
+                    
+                    log(f"\n[Step {metrics.steps + 1}] Context: {current_ctx} | Tools: {len(ollama_tools)} | Ctx Size: ~{context_size}")
                     
                     async with httpx.AsyncClient() as client:
                         resp = await client.post(OLLAMA_URL, json={
@@ -112,7 +121,8 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                         metrics.add_step(
                             tokens_in=data.get("prompt_eval_count", 0),
                             tokens_out=data.get("eval_count", 0),
-                            latency_ms=data.get("total_duration", 0) / 1_000_000
+                            latency_ms=data.get("total_duration", 0) / 1_000_000,
+                            context_size=context_size
                         )
                         
                         msg = data["message"]
@@ -206,7 +216,8 @@ async def main():
     # FINAL AGGREGATED REPORT
     if args.iterations > 1:
         success_count = sum(1 for r in all_runs if r.success)
-        total_tokens = [r.tokens_in + r.tokens_out for r in all_runs]
+        total_eval_tokens = [r.tokens_in + r.tokens_out for r in all_runs]
+        total_cost_tokens = [r.cumulative_cost_tokens + r.tokens_out for r in all_runs]
         total_steps = [r.steps for r in all_runs]
         total_durations = [r.end_time - r.start_time for r in all_runs]
         
@@ -215,9 +226,10 @@ async def main():
         print("="*80)
         print(f"Success Rate      | {success_count}/{args.iterations} ({success_count/args.iterations*100:.1f}%)")
         print(f"Avg Steps         | {statistics.mean(total_steps):.2f}")
-        print(f"Avg Tokens/Run    | {statistics.mean(total_tokens):,.0f}")
+        print(f"Avg Eval Tokens   | {statistics.mean(total_eval_tokens):,.0f} (Compute)")
+        print(f"Avg Cost Tokens   | {statistics.mean(total_cost_tokens):,.0f} (Full Context)")
         print(f"Avg Duration/Run  | {statistics.mean(total_durations):.2f}s")
-        print(f"Token Efficiency  | {statistics.mean(total_tokens)/statistics.mean(total_steps):,.0f} tokens/step (Avg)")
+        print(f"Cost Efficiency   | {statistics.mean(total_cost_tokens)/statistics.mean(total_steps):,.0f} tokens/step")
         print("="*80)
     elif args.quiet:
         # If single run but quiet, still show the final report
