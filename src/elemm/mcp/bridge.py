@@ -24,6 +24,8 @@ class LandmarkBridge:
         self.server = Server(server_name)
         self.manifest = ManifestGenerator(manager)
         self.history = [] # Global result history for piping
+        self.session_state = {} # Global key-value store for cross-turn piping
+        self.manifest_loaded = False # Safety lock to prevent blind execution
         
         self._setup_server()
 
@@ -40,8 +42,8 @@ class LandmarkBridge:
                     name="execute_sequence",
                     description=(
                         "STRATEGIC EXECUTION: Chain all mission steps (Forensics -> Mitigation -> Report) in ONE turn.\n"
-                        "MANDATORY: Use 'alias.field' for result piping. This is the fastest and preferred way to complete the mission.\n"
-                        "CRITICAL: Do NOT include 'get_manifest' or 'get_landmarks' inside a sequence. They are MCP tools, not mission actions."
+                        "MANDATORY: Use 'alias' to save results to Global Memory, and '$alias.field' to pipe them into future steps/actions.\n"
+                        "CRITICAL: Do NOT include 'call_action', 'get_manifest' or 'get_landmarks' inside a sequence. They are MCP tools, not mission actions."
                     ),
                     inputSchema={
                         "type": "object",
@@ -64,11 +66,12 @@ class LandmarkBridge:
                 ),
                 types.Tool(
                     name="call_action",
-                    description="FALLBACK: Use this to execute exactly ONE tool at a time if you cannot format 'execute_sequence' correctly.",
+                    description="FALLBACK: Execute ONE tool. Use 'alias' to save the result to Global Memory, which you can pipe in future steps using '$alias.field'!",
                     inputSchema={
                         "type": "object",
                         "properties": {
                             "action": {"type": "string", "description": "Tool ID."},
+                            "alias": {"type": "string", "description": "Optional name to save result in global memory."},
                             "parameters": {"type": "object", "description": "Arguments."}
                         },
                         "required": ["action"]
@@ -82,9 +85,21 @@ class LandmarkBridge:
             ]
 
         @self.server.call_tool()
-        @self.server.call_tool()
         async def handle_call_tool(name: str, arguments: dict) -> List[types.TextContent]:
             try:
+                # 1. Update manifest status
+                if name in ["get_manifest", "get_landmarks"]:
+                    self.manifest_loaded = True
+
+                # 2. Safety Lock: Prevent blind execution
+                if name in ["call_action", "execute_sequence"] and not self.manifest_loaded:
+                    return [types.TextContent(
+                        type="text", 
+                        text="[CRITICAL ERROR]: You are attempting to execute actions BEFORE reading the system manifest. "
+                             "You are flying blind! You MUST call 'get_manifest' first to load the technical signatures "
+                             "and parameter schemas. Do not guess!"
+                    )]
+
                 # ONLY allow bridge tools. Reject everything else to force sequence discipline.
                 allowed = ["get_landmarks", "get_manifest", "inspect_landmark", "execute_sequence", "call_action"]
                 if name not in allowed:
@@ -93,7 +108,7 @@ class LandmarkBridge:
                         args_str = json.dumps(arguments or {})
                     except:
                         args_str = "{}"
-                        
+                    
                     example = f'{{"action": "{name}", "parameters": {args_str}}}'
                     
                     return [types.TextContent(
@@ -112,8 +127,21 @@ class LandmarkBridge:
                     lid = arguments.get("landmark_id") or arguments.get("landmark_ids")
                     return [types.TextContent(type="text", text=self.manifest.generate_landmark_detail(lid))]
                 if name == "call_action":
-                    res_text = await self._execute_single(arguments["action"], arguments.get("parameters", {}))
-                    formatted = self._format_result(arguments["action"], res_text)
+                    aid = arguments.get("action", "")
+                    params = arguments.get("parameters", {})
+                    alias = arguments.get("alias")
+                    
+                    resolved_params, pipe_error = self._resolve_params(params, {})
+                    if pipe_error:
+                        return [types.TextContent(type="text", text=f"FAILED. {pipe_error}")]
+                        
+                    res_text = await self._execute_single(aid, resolved_params)
+                    res_obj = self._parse_result(res_text)
+                    
+                    if alias:
+                        self.session_state[alias] = res_obj
+                        
+                    formatted = self._format_result(aid, res_text)
                     return [types.TextContent(type="text", text=formatted)]
                 if name == "execute_sequence":
                     actions = arguments.get("actions", [])
@@ -127,7 +155,18 @@ class LandmarkBridge:
                     error_msg += ". Ensure you are using the correct tool name from the manifest."
                 return [types.TextContent(type="text", text=error_msg)]
 
-    async def _handle_execute_sequence(self, actions: List[Dict]) -> List[types.TextContent]:
+    async def _handle_execute_sequence(self, actions: Any) -> List[types.TextContent]:
+        # Robustness: Auto-repair stringified JSON arrays
+        if isinstance(actions, str):
+            try:
+                import json
+                actions = json.loads(actions)
+            except:
+                pass
+        
+        if not isinstance(actions, list):
+            return [types.TextContent(type="text", text=f"Input validation error: '{actions}' is not of type 'array'.")]
+
         results = []
         local_results = {} # Maps index (str) OR alias to result
         failed_steps = set()
@@ -138,6 +177,7 @@ class LandmarkBridge:
             alias = act.get("alias")
             
             aid = raw_aid.strip()
+            
             # Strip server prefixes like 'elemm-gateway-list_offices' -> 'list_offices'
             if "-" in aid:
                 for prefix in ["elemm-gateway", "gateway", "elemm"]:
@@ -227,11 +267,17 @@ class LandmarkBridge:
             new_val = params
             for m in matches:
                 full_match, step_key, index_str, field_name = m.group(0), m.group(1), m.group(2), m.group(3)
-                if step_key not in local_results:
+                
+                # Check local context first, then global session state
+                if step_key in local_results:
+                    data = local_results[step_key]
+                elif step_key in self.session_state:
+                    data = self.session_state[step_key]
+                else:
                     # If it looks like a pipe but the alias doesn't exist, it might just be a regular string.
                     # We only throw a pipe error if they explicitly used a $ prefix to indicate intent.
                     if full_match.startswith("$"):
-                        return params, f"PIPE_ERROR: Step or Alias '{step_key}' not found. (Hint: If piping fails, fall back to 'call_action')."
+                        return params, f"PIPE_ERROR: Step or Alias '{step_key}' not found in local or global context. (Hint: Check alias names)."
                     continue
                 
                 # SAFEGUARDS FOR IMPLICIT PIPES (No '$' prefix)
@@ -244,7 +290,7 @@ class LandmarkBridge:
                     if params.strip() != full_match:
                         continue
 
-                data = local_results[step_key]
+                        continue
                 if isinstance(data, list):
                     if not data: return params, f"PIPE_ERROR: Step '{step_key}' returned empty list."
                     idx = int(index_str) if index_str is not None else 0
