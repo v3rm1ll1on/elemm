@@ -10,7 +10,7 @@ from mcp.client.stdio import stdio_client
 from metrics_collector import BenchmarkMetrics
 
 OLLAMA_URL = "http://192.168.178.76:11434/api/chat"
-MODEL = "gemma4:e2b"
+MODEL = "gemma4:e4b"
 
 async def clear_vram(quiet=False):
     if not quiet:

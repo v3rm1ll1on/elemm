@@ -96,27 +96,34 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
     def _setup_well_known(self, router_or_app: Union[APIRouter, FastAPI]):
         @router_or_app.post("/.well-known/elemm/execute", include_in_schema=False)
         async def execute_protocol_action(
-            request: Request,
-            action_id: str = Body(..., embed=True),
-            parameters: Dict[str, Any] = Body(default={}, embed=True),
-            x_elemm_internal_key: Optional[str] = Header(None, alias="X-Elemm-Internal-Key")
+            req: Dict = Body(...)
         ):
             try:
-                auth_headers = {k: v for k, v in request.headers.items() if k.lower() in ["authorization", "x-api-key", "api-key", "token", "cookie"]}
-                current_sessions = session_headers.get().copy()
-                current_sessions["elemm-internal"] = auth_headers
-                token = session_headers.set(current_sessions)
+                # 1. Handle Sequences
+                if "actions" in req:
+                    from ...mcp.processor import SequenceProcessor
+                    from ...mcp.manifest import ManifestGenerator
+                    processor = SequenceProcessor(self, ManifestGenerator(self), {}, self.PIPE_PATTERN, self.RESULT_WRAP_PATTERN)
+                    return await processor.handle_execute_sequence(req["actions"])
+
+                # 2. Handle Single Actions
+                action_id = req.get("action_id")
+                parameters = req.get("parameters", {})
                 
-                try:
-                    result, status_code = await self.call_action(action_id, parameters)
-                    if status_code >= 400 and isinstance(result, dict):
-                        result["status"] = "error"
-                        action = next((a for a in self.actions if a.id == action_id), None)
-                        if action and getattr(action, "remedy", None):
-                            result["remedy"] = action.remedy
-                    return JSONResponse(status_code=status_code, content=result)
-                finally:
-                    session_headers.reset(token)
+                if not action_id:
+                    return JSONResponse(status_code=400, content={"error": "Missing action_id or actions"})
+
+                # Manual Session/Auth Handling (from Request headers if needed)
+                # For simplicity in this block, we use call_action directly
+                result, status_code = await self.call_action(action_id, parameters)
+                
+                if status_code >= 400 and isinstance(result, dict):
+                    result["status"] = "error"
+                    action = self.get_action(action_id)
+                    if action and getattr(action, "remedy", None):
+                        result["remedy"] = action.remedy
+                        
+                return JSONResponse(status_code=status_code, content=result)
             except Exception as e:
                 logger.error(f"Protocol Execution Error: {e}")
                 return JSONResponse(status_code=400, content={"error": str(e), "hint": "Use 'get_manifest' to verify tools."})
@@ -142,6 +149,13 @@ class FastAPIProtocolManager(BaseAIProtocolManager):
             except Exception as e:
                 logger.error(f"Failed to generate manifest: {e}")
                 return Response(content=f"Error: {str(e)}", status_code=500)
+
+        @router_or_app.get("/.well-known/elemm-inspect.md", include_in_schema=False)
+        async def get_md_inspect(
+            landmark_id: Optional[Union[str, List[str]]] = Query(None)
+        ):
+            # Alias for manifest detail view
+            return await get_md_manifest(landmark_id=landmark_id, technical=False)
 
     def bind_to_app(self, app: "FastAPI"):
         """Scans all routes in the FastAPI app and registers those marked with @landmark."""

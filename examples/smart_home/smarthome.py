@@ -10,20 +10,16 @@ app = FastAPI(title="SmartHome AI Control", version="1.0.0")
 # --- elemm configuration ---
 ai = Elemm(
     agent_instructions=(
-        "PROTOCOL STRATEGY: [ONE-SHOT MANDATE].\n"
-        "1. ASSUME: If a room is mentioned (e.g. 'living room'), ASSUME room_id='living-room' immediately.\n"
-        "2. ONE-TURN: Call [find_device -> control_device] in your VERY FIRST turn after get_manifest.\n"
-        "3. NO VERIFICATION: Do NOT call 'list_rooms' or 'list_devices' first. Discovery-only turns are forbidden."
+        "PROTOCOL: [1. get_manifest] -> [2. execute_sequence].\n"
+        "1. DISCOVERY: Call 'get_manifest' to see the house layout. Essential landmarks are discovery, smart_control, and analytics.\n"
+        "2. PIPELINE: Use '$alias.field' for device_ids. Data persists even if a sequence is partially successful.\n"
+        "3. SPEED: Combine [find_device -> control_device] in ONE turn."
     ),
-    protocol_instructions=(
-        "INTEGRITY MANDATE: Control tools (control_device) have a HARD DEPENDENCY on discovery tools (find_device).\n"
-        "You MUST provide a data-pipeline in 'execute_sequence'.\n"
-        "EXAMPLE: find_device(alias='h') -> control_device(device_id='$h.id')."
-    ),
+    protocol_instructions="MANDATORY: Control tools (control_device) have a HARD DEPENDENCY on discovery tools. Use piping.",
     navigation_landmarks=[
-        {"id": "discovery", "notes": "House layout and device registry. Use this for room-based discovery."},
-        {"id": "smart_control", "notes": "Direct control. Requires valid device_id."},
-        {"id": "analytics", "notes": "Energy consumption metrics."}
+        {"id": "discovery", "notes": "House layout and device registry. Find device_ids here."},
+        {"id": "smart_control", "notes": "Direct control (On/Off, Temp). Requires device_id."},
+        {"id": "analytics", "notes": "Energy consumption and efficiency metrics."}
     ]
 )
 
@@ -187,5 +183,11 @@ def energy_summary():
 ai.bind_to_app(app)
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8002)
+    import sys
+    if "--stdio" in sys.argv or "--mcp" in sys.argv:
+        # Runs as a native MCP server
+        ai.run_mcp_stdio("examples.smart_home.smarthome:app", port=8002)
+    else:
+        import uvicorn
+        print("Starting SmartHome AI Control on http://localhost:8002")
+        uvicorn.run(app, host="0.0.0.0", port=8002)

@@ -17,18 +17,16 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 ai = Elemm(
     agent_welcome="Welcome to UrbanCoWorking. How may I assist with your workspace today?",
     agent_instructions=(
-        "PROTOCOL STRATEGY: [GET_MANIFEST -> EXECUTE_SEQUENCE].\n"
-        "1. DISCOVERY: Call 'get_manifest' first to see all landmarks and tools.\n"
-        "2. PIPING: Use '$alias.field' or '$N.field' to pass room_id from search to booking.\n"
-        "3. BATCHING: Always combine search and booking in one 'execute_sequence' call if the user provides enough info.\n"
-        "Constraint: Be professional, efficient, and minimize turns."
+        "PROTOCOL: [1. get_manifest] -> [2. execute_sequence].\n"
+        "1. DISCOVERY: Call 'get_manifest' first. It is 'Smart' and shows essential landmarks (locations, bookings) in full detail.\n"
+        "2. PIPING: Use '$alias.field' to pass room_id from search to booking. Data is persistent across turns.\n"
+        "3. BATCHING: Combine search and booking in one Turn via 'execute_sequence'.\n"
+        "Constraint: Be professional and minimize turns."
     ),
-    protocol_instructions="""MANDATORY: Use 'execute_sequence' for ALL combined tasks (e.g. search + book). 
-    SINGLE STEPS ARE INEFFICIENT and must be avoided. 
-    Use piping ($offices[0].id) to automate the workflow in one turn.""",
+    protocol_instructions="MANDATORY: Use 'execute_sequence' for combined tasks. Aliases are global and persistent.",
     navigation_landmarks=[
-        {"id": "locations", "notes": "Start here to see available cities."},
-        {"id": "bookings", "notes": "Manage existing reservations and cancellations."}
+        {"id": "locations", "notes": "Browse available cities and office rooms."},
+        {"id": "bookings", "notes": "Manage existing reservations (List, Book, Cancel)."}
     ],
     debug=True
 )
@@ -153,5 +151,11 @@ app.include_router(ai.get_router())
 ai.bind_to_app(app)
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8003)
+    import sys
+    if "--stdio" in sys.argv or "--mcp" in sys.argv:
+        # Runs as a native MCP server
+        ai.run_mcp_stdio("examples.office_management.office_manager:app", port=8003)
+    else:
+        import uvicorn
+        print("Starting UrbanCoWorking API on http://localhost:8003")
+        uvicorn.run(app, host="0.0.0.0", port=8003)

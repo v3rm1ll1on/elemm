@@ -70,17 +70,17 @@ class ElemmGateway(LandmarkBridge):
             ),
             types.Tool(
                 name="get_landmarks",
-                description="Get the map of namespaces (landmarks) from the remote site.",
+                description="High-level discovery. Shows namespaces and available categories (landmarks) on the remote site. Use this to understand the system structure.",
                 inputSchema={"type": "object", "properties": {}}
             ),
             types.Tool(
                 name="get_manifest",
-                description="Get the FULL manifest from the remote site.",
+                description="CRITICAL: CALL THIS FIRST. Get the system instructions, protocol rules, and the complete command topology from the remote site.",
                 inputSchema={"type": "object", "properties": {}}
             ),
             types.Tool(
                 name="inspect_landmark",
-                description="Get details for one or more landmarks on the remote site.",
+                description="Detailed technical discovery. Get tool signatures and schemas for one or more specific landmarks.",
                 inputSchema={
                     "type": "object", 
                     "properties": {
@@ -98,11 +98,11 @@ class ElemmGateway(LandmarkBridge):
             types.Tool(
                 name="execute_sequence",
                 description=(
-                    "Execute a chain of tools in one turn. Use for multi-step tasks (Search -> Action).\n"
-                    "PIPING: Use $alias.field or $index.field (e.g., $offices[0].id).\n"
+                    "NATIVE PIPELINE: Execute a high-performance chain of tools in one turn. MANDATORY for multi-step tasks.\n"
+                    "PIPING: Use $alias.field (e.g., $res[0].id) to pass data between steps.\n"
                     "EXAMPLE: {actions: [\n"
-                    "  {action: 'search_tool', alias: 'res', parameters: {q: 'query'}},\n"
-                    "  {action: 'action_tool', parameters: {id: '$res[0].id'}}\n"
+                    "  {action: 'get_data', alias: 'res', parameters: {id: '123'}},\n"
+                    "  {action: 'update_item', parameters: {id: '$res.id'}}\n"
                     "]}"
                 ),
                 inputSchema={
@@ -123,6 +123,18 @@ class ElemmGateway(LandmarkBridge):
                     },
                     "required": ["actions"]
                 }
+            ),
+            types.Tool(
+                name="call_action",
+                description="Execute a single action. NOTE: Use execute_sequence instead for batch operations.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "action": {"type": "string", "description": "The Action ID to execute."},
+                        "parameters": {"type": "object", "description": "Parameters for the action."}
+                    },
+                    "required": ["action"]
+                }
             )
         ]
 
@@ -130,6 +142,13 @@ class ElemmGateway(LandmarkBridge):
 
     async def _handle_call_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
         """Dispatches calls to 'connect' or core tools."""
+        # 0. Safety Lock
+        if not getattr(self, "manifest_loaded", False) and name not in ["connect_to_site", "get_manifest", "get_landmarks"]:
+             return [types.TextContent(type="text", text=f"CRITICAL PROTOCOL VIOLATION: You are operating blindly. You MUST call 'get_manifest' first to initialize the site-specific command registry before calling '{name}'.")]
+
+        if name in ["get_manifest", "get_landmarks"]:
+            self.manifest_loaded = True
+
         # Robustly strip any server-side prefixes (e.g. 'elemm-gateway-list_offices' -> 'list_offices')
         tool_id = name
         if "-" in tool_id:
@@ -153,6 +172,11 @@ class ElemmGateway(LandmarkBridge):
             actions = arguments.get("actions", [])
             return await self._handle_execute_sequence(actions)
 
+        if tool_id == "call_action":
+            aid = arguments.get("action", "")
+            params = arguments.get("parameters", {})
+            return self._format_result(aid, await self._execute_single(aid, params))
+
         # 2. Protocol Discovery Tools (Proxied)
         if tool_id in ["get_manifest", "get_landmarks", "inspect_landmark"]:
             if not self.active_site_url:
@@ -163,34 +187,76 @@ class ElemmGateway(LandmarkBridge):
         if not self.active_site_url:
             return [types.TextContent(type="text", text=f"Error: Tool '{tool_id}' requires an active connection. Call 'connect_to_site' first.")]
 
+        # Validate against discovered tools to prevent hallucinations
+        site_data = self.connected_sites.get(self.active_site_url, {})
+        discovered_tools = site_data.get("tools", [])
+        valid_ids = [t.get("name") for t in discovered_tools]
+        
+        if tool_id not in valid_ids:
+            msg = f"Error: Tool '{tool_id}' is unknown at '{self.active_site_url}'. Call 'get_manifest' to see the registry of {len(valid_ids)} available tools."
+            return [types.TextContent(type="text", text=msg)]
+
         res_text = await self._execute_single(tool_id, arguments)
-        return [types.TextContent(type="text", text=res_text)]
+        return self._format_result(tool_id, res_text)
+
+    def _format_result(self, tool_id: str, res_text: Any) -> List[types.TextContent]:
+        """Unwraps and formats results from remote sites."""
+        # Ensure we are working with a string for JSON parsing
+        text_val = res_text if isinstance(res_text, str) else json.dumps(res_text)
+        
+        try:
+            res_json = json.loads(text_val)
+            # 1. Handle MCP-like list of content
+            if isinstance(res_json, list) and len(res_json) > 0 and isinstance(res_json[0], dict) and "type" in res_json[0]:
+                return [types.TextContent(**c) for c in res_json]
+            
+            # 2. Handle structured data (dict/list)
+            if isinstance(res_json, (dict, list)):
+                return [types.TextContent(type="text", text=json.dumps(res_json, indent=2))]
+        except:
+            pass
+
+        # 3. Fallback to plain text with efficiency nag
+        warning = "\n\n(HINT: Use 'execute_sequence' for better performance and token efficiency!)"
+        return [types.TextContent(type="text", text=str(text_val) + warning)]
 
     async def _handle_execute_sequence(self, actions: List[Dict]) -> List[types.TextContent]:
         """Override to handle 'connect_to_site' inside a sequence."""
         logger.info(f"Gateway: Executing sequence with {len(actions)} actions.")
         if not actions: return []
         
-        # Check if first action is connect_to_site (handle prefixes)
+        # 1. Extract first action info
         first_action = actions[0]
         aid = first_action.get("action", "").lower()
+
+        # 2. Handle connect_to_site if it's the first action
         if "connect_to_site" in aid:
             url = first_action.get("parameters", {}).get("url", "")
             conn_res = await self._connect(url)
-            # If connection failed, return the error immediately
-            if "successfully" not in conn_res[0].text:
+            if not self.active_site_url:
                 return conn_res
             
-            # Remove connect action and continue with the rest
+            # If there are no more actions, return the connection success
             remaining_actions = actions[1:]
             if not remaining_actions:
                 return conn_res
             
-            results = [f"Step 0 (connect): {conn_res[0].text}"]
-            sequence_results = await super()._handle_execute_sequence(remaining_actions)
-            results.append(sequence_results[0].text)
-            return [types.TextContent(type="text", text="\n\n".join(results))]
-            
+            # If there are more actions, execute the rest as a sequence on the remote site
+            actions = remaining_actions
+
+        # 2. Proxy the sequence to the active site
+        if self.active_site_url:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                try:
+                    resp = await client.post(
+                        f"{self.active_site_url}/.well-known/elemm/execute",
+                        json={"actions": actions}
+                    )
+                    return self._format_result("sequence", resp.text)
+                except Exception as e:
+                    return [types.TextContent(type="text", text=f"Gateway Error (Proxy Sequence): {str(e)}")]
+
+        # 3. Fallback to local (only if not connected to a remote site)
         return await super()._handle_execute_sequence(actions)
 
     async def _proxy_core_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
@@ -234,7 +300,7 @@ class ElemmGateway(LandmarkBridge):
                     self.session_headers.setdefault(host_key, {})["Authorization"] = f"Bearer {res_data['access_token']}"
                     logger.info(f"Gateway: Captured token for {host_key}")
 
-                return self._format_result(tool_name, json.dumps(res_data))
+                return json.dumps(res_data)
         except Exception as e:
             return f"Gateway Connection Error: {str(e)}"
 
@@ -255,7 +321,7 @@ class ElemmGateway(LandmarkBridge):
                 default_directive = (
                     "STRATEGY: Use 'execute_sequence' for ALL multi-step tasks.\n"
                     "PIPING: Use '$alias.field' to pass data between steps.\n"
-                    "EFFICIENCY: Do NOT perform one tool call at a time. Batch search and action together."
+                    "EFFICIENCY: Do NOT perform one tool call at a time. Batch related actions together."
                 )
                 directive = match.group(1).strip() if match else default_directive
 

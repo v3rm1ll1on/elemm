@@ -18,12 +18,13 @@ class LandmarkBridge:
     PIPE_PATTERN = re.compile(r"\$?([a-zA-Z0-9_-]+)(?:\[(\d+)\])?\.([a-zA-Z0-9_-]+)")
     RESULT_WRAP_PATTERN = re.compile(r"(\{.*\}|\[.*\])", re.DOTALL)
 
-    def __init__(self, manager: Optional[Any] = None, base_url: str = "http://localhost:8001", server_name: str = "elemm-bridge"):
+    def __init__(self, manager: Optional[Any] = None, base_url: str = "http://localhost:8001", server_name: str = "elemm-bridge", noise_keys: Optional[List[str]] = None):
         self.manager = manager
         self.base_url = base_url
         self.server_name = server_name
         self.server = Server(server_name)
-        self.manifest = ManifestGenerator(manager)
+        self.noise_keys = noise_keys or []
+        self.manifest = ManifestGenerator(manager, noise_keys=self.noise_keys)
         self.history = [] # Global result history for piping
         self.session_state = {} # Global key-value store for cross-turn piping
         self.manifest_loaded = False # Safety lock to prevent blind execution
@@ -34,7 +35,8 @@ class LandmarkBridge:
             manifest=self.manifest,
             session_state=self.session_state,
             pipe_pattern=self.PIPE_PATTERN,
-            wrap_pattern=self.RESULT_WRAP_PATTERN
+            wrap_pattern=self.RESULT_WRAP_PATTERN,
+            noise_keys=self.noise_keys
         )
         
         self._setup_server()
@@ -45,15 +47,15 @@ class LandmarkBridge:
             return [
                 types.Tool(
                     name="get_manifest",
-                    description="PRIMARY: Download the full technical registry. Must be your FIRST call.",
+                    description="CRITICAL: CALL THIS FIRST. Get the system instructions, protocol rules, and the complete command topology.",
                     inputSchema={"type": "object", "properties": {}}
                 ),
                 types.Tool(
                     name="execute_sequence",
                     description=(
-                        "STRATEGIC EXECUTION: Chain all mission steps (Forensics -> Mitigation -> Report) in ONE turn.\n"
-                        "MANDATORY: Use 'alias' to save results to Global Memory, and '$alias.field' to pipe them into future steps/actions.\n"
-                        "CRITICAL: Do NOT include 'call_action', 'get_manifest' or 'get_landmarks' inside a sequence. They are MCP tools, not mission actions."
+                        "NATIVE PIPELINE: Execute a high-performance chain of tools in one turn. MANDATORY for multi-step tasks.\n"
+                        "PIPING: Use $alias.field (e.g., $res[0].id) to pass data between steps.\n"
+                        "Do NOT include MCP tools (get_manifest, etc.) inside a sequence."
                     ),
                     inputSchema={
                         "type": "object",
@@ -63,9 +65,9 @@ class LandmarkBridge:
                                 "items": {
                                     "type": "object",
                                     "properties": {
-                                        "action": {"type": "string", "description": "Tool ID."},
-                                        "alias": {"type": "string", "description": "Piping alias."},
-                                        "parameters": {"type": "object", "description": "Args."}
+                                        "action": {"type": "string", "description": "Tool ID from manifest."},
+                                        "alias": {"type": "string", "description": "Optional piping alias."},
+                                        "parameters": {"type": "object", "description": "Arguments."}
                                     },
                                     "required": ["action"]
                                 }
@@ -76,12 +78,12 @@ class LandmarkBridge:
                 ),
                 types.Tool(
                     name="call_action",
-                    description="FALLBACK: Execute ONE tool. Use 'alias' to save the result to Global Memory, which you can pipe in future steps using '$alias.field'!",
+                    description="Execute a single action. NOTE: Use execute_sequence instead for batch operations.",
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "action": {"type": "string", "description": "Tool ID."},
-                            "alias": {"type": "string", "description": "Optional name to save result in global memory."},
+                            "action": {"type": "string", "description": "Action ID."},
+                            "alias": {"type": "string", "description": "Optional piping alias."},
                             "parameters": {"type": "object", "description": "Arguments."}
                         },
                         "required": ["action"]
@@ -89,7 +91,7 @@ class LandmarkBridge:
                 ),
                 types.Tool(
                     name="inspect_landmark",
-                    description="DETAIL: Inspect one or more landmarks for technical details.",
+                    description="Detailed technical discovery. Get tool signatures and schemas for specific landmarks.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -100,7 +102,7 @@ class LandmarkBridge:
                 ),
                 types.Tool(
                     name="get_landmarks",
-                    description="OPTIONAL: Summary overview.",
+                    description="High-level discovery. Shows namespaces and available categories (landmarks) on this site.",
                     inputSchema={"type": "object", "properties": {}}
                 )
             ]
@@ -125,9 +127,7 @@ class LandmarkBridge:
                 if name in ["call_action", "execute_sequence"] and not self.manifest_loaded:
                     return [types.TextContent(
                         type="text", 
-                        text="[CRITICAL ERROR]: You are attempting to execute actions BEFORE reading the system manifest. "
-                             "You are flying blind! You MUST call 'get_manifest' first to load the technical signatures "
-                             "and parameter schemas. Do not guess!"
+                        text=f"CRITICAL PROTOCOL VIOLATION: You are operating blindly. You MUST call 'get_manifest' first to initialize the site-specific command registry and understand the rules before calling '{name}'."
                     )]
 
                 # 3. Handle prohibited direct calls
@@ -138,9 +138,8 @@ class LandmarkBridge:
                     
                     return [types.TextContent(
                         type="text", 
-                        text=f"[ACTION REQUIRED] Your tool call FAILED! Direct call to '{name}' is prohibited. "
-                             f"You MUST use 'execute_sequence' for plans or 'call_action' for single steps.\n\n"
-                             f"[EXAMPLE FIX]: To execute this, use 'call_action' with these parameters:\n{example}"
+                        text=f"Direct call to '{name}' prohibited. Use 'execute_sequence' or 'call_action'.\n"
+                             f"Example: call_action(action='{name}', parameters={args_str})"
                     )]
 
                 # 4. Dispatch to handler
@@ -154,7 +153,7 @@ class LandmarkBridge:
                 return [types.TextContent(type="text", text=error_msg)]
 
     async def _tool_get_landmarks(self, arguments: dict) -> List[types.TextContent]:
-        warning = "\n\n[WARNING]: This is only a high-level summary! It does NOT contain the required parameter schemas! You MUST call 'get_manifest' to see the exact parameters required for these tools!"
+        warning = "\n\nNOTE: This is a summary. Call 'get_manifest' for parameter schemas."
         return [types.TextContent(type="text", text=self.manifest.generate_summary() + warning)]
 
     async def _tool_get_manifest(self, arguments: dict) -> List[types.TextContent]:

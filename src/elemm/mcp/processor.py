@@ -9,12 +9,13 @@ logger = logging.getLogger("elemm-processor")
 class SequenceProcessor:
     """Handles the heavy lifting of sequence execution, parameter resolution, and result formatting."""
     
-    def __init__(self, manager, manifest, session_state, pipe_pattern, wrap_pattern):
+    def __init__(self, manager, manifest, session_state, pipe_pattern, wrap_pattern, noise_keys: Optional[List[str]] = None):
         self.manager = manager
         self.manifest = manifest
         self.session_state = session_state
         self.PIPE_PATTERN = pipe_pattern
         self.RESULT_WRAP_PATTERN = wrap_pattern
+        self.noise_keys = [k.lower() for k in (noise_keys or [])]
 
     async def handle_execute_sequence(self, actions: Any) -> List[types.TextContent]:
         # Robustness: Auto-repair stringified JSON arrays
@@ -69,7 +70,9 @@ class SequenceProcessor:
                 res_obj = self._parse_result(res_text)
             
             local_results[str(i)] = res_obj
-            if alias: local_results[alias] = res_obj
+            if alias: 
+                local_results[alias] = res_obj
+                self.session_state[alias] = res_obj # PERSISTENCE: Save for next turns
             
             # Outcome handling
             if isinstance(res_obj, dict) and res_obj.get("status") == "error":
@@ -82,18 +85,21 @@ class SequenceProcessor:
                     if isinstance(details, list):
                         missing_fields = [d["loc"][-1] for d in details if d.get("type") == "missing"]
                         if missing_fields:
-                            missing_info = f" - MISSING FIELDS: {missing_fields}"
+                            missing_info = f" - MISSING: {missing_fields}"
                 
                 results.append(f"Step {i} ({aid}): {formatted_res}{missing_info}")
-                results.append(f"\nCRITICAL: Sequence aborted at Step {i}. Use 'call_action' to manually execute the remaining steps.")
+                results.append(f"\nCRITICAL: Sequence aborted at Step {i}. Aliases saved. Continue from here.")
                 break
             else:
-                # SELECTIVE COMPRESSION
-                is_boilerplate = isinstance(res_obj, dict) and len(res_obj) == 1 and res_obj.get("status") == "SUCCESS"
-                if is_boilerplate and i < len(actions) - 1:
-                    results.append(f"Step {i} ({aid}): SUCCESS.")
-                else:
-                    results.append(f"Step {i}{' (' + alias + ')' if alias else ''} ({aid}): {res_text}")
+                # [FIX]: Ensure data is visible to the agent even with aliases
+                # Prune only if results are excessively large (> 1000 chars)
+                max_display = 1000
+                res_display = str(res_text)
+                if len(res_display) > max_display:
+                    res_display = res_display[:max_display] + "... (truncated for brevity)"
+                
+                alias_tag = f" [Stored in ${alias}]" if alias else ""
+                results.append(f"Step {i} ({aid}): {res_display}{alias_tag}")
             
         return [types.TextContent(type="text", text="\n\n".join(results))]
 
@@ -112,8 +118,12 @@ class SequenceProcessor:
                 if data.get("status") == "error":
                     msg = data.get("remedy") or data.get("message") or "Unknown error"
                     return f"FAILED. {msg}"
-                if len(data) == 1 and "status" in data: return str(data["status"])
-                return json.dumps(data)
+                
+                # Filter technical noise from results
+                filtered_data = {k: v for k, v in data.items() if k.lower() not in self.noise_keys}
+                
+                if len(filtered_data) == 1 and "status" in filtered_data: return str(filtered_data["status"])
+                return json.dumps(filtered_data)
             return raw_text
         except: return raw_text
 
@@ -142,12 +152,15 @@ class SequenceProcessor:
                     idx = int(index_str) if index_str is not None else 0
                     if idx >= len(data): return params, f"PIPE_ERROR: Index [{idx}] out of bounds for '{step_key}'."
                     data = data[idx]
+                    list_hint = f" (Note: {step_key} is a list, used index {idx})"
                 elif index_str is not None:
                     return params, f"PIPE_ERROR: Index [{index_str}] used on non-list at '{step_key}'."
+                else:
+                    list_hint = ""
                 
                 if not isinstance(data, dict) or field_name not in data:
                     avail = ", ".join(data.keys()) if isinstance(data, dict) else "none"
-                    return params, f"PIPE_ERROR: Field '{field_name}' not found in '{step_key}'. Available: {avail}"
+                    return params, f"PIPE_ERROR: Field '{field_name}' not found in '{step_key}'. Available: {avail}{list_hint}"
                 
                 val = data[field_name]
                 if params == full_match or params == f"${{{full_match}}}": return val, None
@@ -190,7 +203,7 @@ class SequenceProcessor:
                 return json.dumps({"status": "error", "message": msg})
                 
             valid_tools = [a.id for a in self.manager.actions]
-            msg = f"Tool '{action_id}' DOES NOT EXIST. Stop guessing! Valid tools are: {', '.join(valid_tools)}."
+            msg = f"Tool '{action_id}' not found. Valid: {', '.join(valid_tools)}."
             return json.dumps({"status": "error", "message": msg})
         
         lid = action.groups[0] if action.groups else "root"
@@ -230,7 +243,7 @@ class SequenceProcessor:
                     if remedy:
                         error_msg = f"{error_msg}. REMEDY: {remedy}"
                 else:
-                    error_msg += " DO NOT GIVE UP. You made a syntax typo in the parameter names."
+                    error_msg += " Check parameter names."
                     seen_params = {}
                     all_params = (getattr(action, "parameters", []) or [])
                     if isinstance(getattr(action, "payload", None), list):
@@ -241,8 +254,7 @@ class SequenceProcessor:
                     unique_params = list(seen_params.values())
                     if unique_params:
                         schema_hint = " {" + ", ".join(f"'{p.name}': '{p.type}'" for p in unique_params if getattr(p, 'required', True)) + "}"
-                        error_msg += f" The required parameters for this tool are: {schema_hint}."
-                    error_msg += " Please CALL THE TOOL AGAIN using the exact parameter names from the manifest!"
+                        error_msg += f" Required: {schema_hint}."
                     
                 return json.dumps({"status": "error", "message": error_msg})
 

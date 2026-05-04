@@ -3,16 +3,16 @@ import json
 import re
 
 class ManifestGenerator:
-    def __init__(self, manager):
+    def __init__(self, manager, noise_keys: Optional[List[str]] = None):
         self.manager = manager
+        self.noise_keys = [k.lower() for k in (noise_keys or [])]
 
     def generate_summary(self) -> str:
         """Returns a System Map: Landmarks + their Tool IDs."""
         lines = ["# ELEMM SYSTEM DIRECTORY", ""]
-        lines.append("### USAGE")
-        lines.append("- **BROWSE**: Use `get_landmarks` to find the right area.")
-        lines.append("- **FOCUS**: Use `inspect_landmark(id)` to load full signatures for an area.")
-        lines.append("- **EXECUTE**: Use `execute_sequence` for multi-step tasks.\n")
+        lines.append("- **BROWSE**: `get_landmarks` for areas.")
+        lines.append("- **FOCUS**: `inspect_landmark(id)` for signatures.")
+        lines.append("- **EXECUTE**: `execute_sequence` for tasks.\n")
         lines.append("## Landmarks & Tool Index")
         
         landmarks = self.manager.landmarks
@@ -31,33 +31,55 @@ class ManifestGenerator:
         return "\n".join(lines)
 
     def generate_full(self) -> str:
-        """Returns the COMPLETE manifest: all landmarks with all tool signatures."""
-        all_ids = []
-        for l in self.manager.landmarks:
-            is_dict = isinstance(l, dict)
-            l_id = l.get("id") if is_dict else getattr(l, "id", "unknown")
-            all_ids.append(l_id)
+        """Returns a SMART manifest: full details for essential landmarks, summaries for others."""
+        landmarks = self.manager.landmarks
+        official_ids = {str(l.get("id") if isinstance(l, dict) else getattr(l, "id", "")).strip().lower() for l in self.manager.navigation_landmarks}
         
-        return self.generate_landmark_detail(all_ids)
+        header = (
+            "# ELEMM MANIFEST\n"
+            "### STRATEGY: ONE-SHOT\n"
+            "1. **COLLECT**: `get_manifest` for signatures.\n"
+            "2. **MAP**: Identify path from landmark notes.\n"
+            "3. **EXECUTE**: `execute_sequence` with piping. IMPORTANT: Use `$alias.field` (not just `$alias`).\n"
+            "NOTE: No hallucinated IDs. Resolve values first.\n"
+        )
+        sections = [header]
+        
+        # 1. Essential Landmarks (Full Details)
+        essential_ids = [str(l.get("id") if isinstance(l, dict) else getattr(l, "id", "")) for l in landmarks if str(l.get("id") if isinstance(l, dict) else getattr(l, "id", "")).lower() in official_ids]
+        if essential_ids:
+            sections.append(self.generate_landmark_detail(essential_ids, include_header=False))
+            
+        # 2. Secondary/Noise Landmarks (Summary Only)
+        other_landmarks = [l for l in landmarks if str(l.get("id") if isinstance(l, dict) else getattr(l, "id", "")).lower() not in official_ids]
+        if other_landmarks:
+            sections.append("\n## ADDITIONAL LANDMARKS (Discovery Required)")
+            sections.append("> Use `inspect_landmark(id)` to load parameter schemas for these areas.\n")
+            for l in other_landmarks:
+                lid = l.get("id") if isinstance(l, dict) else getattr(l, "id", "unknown")
+                t_ids = [a.id for a in self.manager.actions if lid in getattr(a, "groups", [])]
+                sections.append(f"- **{lid}**: {len(t_ids)} tools available.")
+                
+        return "\n".join(sections)
 
-    def generate_landmark_detail(self, landmark_ids: Union[str, List[str]]) -> str:
+    def generate_landmark_detail(self, landmark_ids: Union[str, List[str]], include_header: bool = True) -> str:
         """Returns detailed tool signatures for one or more landmarks."""
         if not landmark_ids: return "Error: No landmark_ids provided."
         
         ids = [landmark_ids] if isinstance(landmark_ids, str) else landmark_ids
         landmarks = self.manager.landmarks
         
-        final_sections = [
-            "# ELEMM MISSION PROTOCOL & FULL MANIFEST",
-            "",
-            "### STRATEGY: ONE-SHOT RESOLUTION",
-            "1. **COLLECT**: Use 'get_manifest' to load all technical signatures.",
-            "2. **MAP**: Identify the resolution path based on landmark notes below.",
-            "3. **EXECUTE**: Use 'execute_sequence' with piping ($alias.field) for 100% success.",
-            "4. **FALLBACK**: If sequence piping fails repeatedly, abandon the sequence and use 'call_action' sequentially.",
-            "NOTE: Hallucinating IDs is strictly prohibited. Resolve all values first.",
-            ""
-        ]
+        final_sections = []
+        if include_header:
+            header = (
+                "# ELEMM MANIFEST\n"
+                "### STRATEGY: ONE-SHOT\n"
+                "1. **COLLECT**: `get_manifest` for signatures.\n"
+                "2. **MAP**: Identify path from landmark notes.\n"
+                "3. **EXECUTE**: `execute_sequence` with piping. IMPORTANT: Use `$alias.field` (not just `$alias`).\n"
+                "NOTE: No hallucinated IDs. Resolve values first.\n"
+            )
+            final_sections.append(header)
         
         for lid in ids:
             target_id = str(lid).strip().lower()
@@ -78,25 +100,31 @@ class ManifestGenerator:
 
             actions = [a for a in self.manager.actions if lid in getattr(a, "groups", [])]
             if not actions:
-                lines.append("- No tools.")
+                lines.append("- No tools available for this landmark.")
             else:
-                lines.append("⚠️ CRITICAL: The items below are ACTION IDs, NOT direct MCP tools! You MUST pass them to 'call_action' or 'execute_sequence'!\n")
+                lines.append("### ⚠️ MANDATORY EXECUTION PROTOCOL\n"
+                             "**DIRECT MCP CALLS ARE IMPOSSIBLE.** The tools listed below are NOT direct MCP functions.\n"
+                             "- To run ONE tool: Use `call_action(action='ID', parameters={...})`.\n"
+                             "- To run MANY tools: Use `execute_sequence` (High Performance).\n"
+                             "Failure to use these will result in 'Tool Not Found' errors!\n")
                 for a in actions:
                     p_list = []
                     
-                    # Merge parameters and payload, deduplicating by name
                     seen_params = {}
                     all_params = (getattr(a, "parameters", []) or [])
                     if getattr(a, "payload", None):
                         all_params += a.payload
                         
                     for p in all_params:
+                        if p.name.lower() in self.noise_keys: continue
                         if p.name not in seen_params or getattr(p, 'required', False):
                             seen_params[p.name] = p
                             
+                    type_map = {"string": "str", "integer": "int", "boolean": "bool", "number": "num", "object": "obj", "array": "list"}
                     for p in seen_params.values():
-                        req_str = "(REQUIRED)" if p.required else "(optional)"
-                        p_list.append(f"'{p.name}': {p.type} {req_str}")
+                        req = "*" if p.required else ""
+                        p_type = type_map.get(p.type, p.type)
+                        p_list.append(f"{p.name}:{p_type}{req}")
                     
                     p_str = "{" + ", ".join(p_list) + "}"
                     
@@ -105,85 +133,65 @@ class ManifestGenerator:
                     schema = getattr(a, "response_schema", {})
                     if schema:
                         if schema.get("type") == "object":
-                            r_display = " -> Returns: {" + ", ".join(schema.get("properties", {}).keys()) + "}"
+                            props = list(schema.get("properties", {}).keys())
+                            # Filter noise from response schema display
+                            props = [p for p in props if p.lower() not in self.noise_keys]
+                            if len(props) > 12:
+                                props = props[:12] + ["..."]
+                            r_display = " -> Returns: {" + ", ".join(props) + "}"
                         elif schema.get("type") == "array":
-                            r_display = " -> Returns: List[...]"
-
-                    clean_desc = (a.description or "").split("\n")[0][:80]
-                    lines.append(f"- Action ID: `{a.id}`\n  Parameters: {p_str}{r_display}\n  Description: {clean_desc}\n")
+                            r_display = " -> Returns: list"
+                    
+                    desc_text = (a.description or "").split("\n")[0].strip()
+                    # Skip description if it's just a repeat of the ID (case-insensitive)
+                    id_words = a.id.replace("_", " ").lower()
+                    is_redundant = desc_text.lower().startswith(id_words) or len(desc_text) < 5
+                    clean_desc = f"\n  Description: {desc_text[:80]}" if not is_redundant else ""
+                    
+                    lines.append(f"- Action ID: `{a.id}`\n  Parameters: {p_str}{r_display}{clean_desc}\n")
             
             final_sections.append("\n".join(lines))
             
         return "\n\n---\n\n".join(final_sections)
 
     def generate_technical_block(self, landmark_ids: Optional[Union[str, List[str]]] = None) -> str:
-        """Returns the technical json-elemm block for tool mirroring."""
+        """Returns a technical JSON block for remote discovery (Gateway-compatible)."""
+        ids = [landmark_ids] if isinstance(landmark_ids, str) else (landmark_ids or [])
         actions = self.manager.actions
-        if landmark_ids:
-            ids = [landmark_ids] if isinstance(landmark_ids, str) else landmark_ids
+        
+        if ids:
             actions = [a for a in actions if any(lid in getattr(a, "groups", []) for lid in ids)]
-        else:
-            # Default to 'root' (global) tools only to avoid manifest bloat
-            actions = [a for a in actions if not getattr(a, "groups", [])]
-        mcp_tools = []
+        
+        technical_tools = []
         for a in actions:
-            # Flatten parameters and payload into a single MCP inputSchema
-            properties = {}
-            required = []
+            # Aggregate parameters and payload
+            all_params = (getattr(a, "parameters", []) or [])
+            if getattr(a, "payload", None):
+                all_params += a.payload
             
-            all_params = (getattr(a, "parameters", []) or []) + (getattr(a, "payload", []) or [])
-            if isinstance(getattr(a, "payload", None), dict):
-                # Handle dict payload (already a schema)
-                properties.update(a.payload)
-            else:
-                for p in all_params:
-                    p_name = getattr(p, "name", "param")
-                    properties[p_name] = {
-                        "type": getattr(p, "type", "string"),
-                        "description": getattr(p, "description", "")
-                    }
-                    if getattr(p, "required", True):
-                        required.append(p_name)
+            # Use noise filter
+            props = {}
+            required = []
+            for p in all_params:
+                if p.name.lower() in self.noise_keys: continue
+                props[p.name] = {
+                    "type": p.type or "string",
+                    "description": (p.description or "").split("\n")[0][:100]
+                }
+                if getattr(p, "required", False):
+                    required.append(p.name)
 
-            mcp_tools.append({
+            technical_tools.append({
                 "name": a.id,
-                "description": a.description or f"Execute {a.id}",
+                "description": (a.description or "").split("\n")[0][:200],
                 "inputSchema": {
                     "type": "object",
-                    "properties": properties,
+                    "properties": props,
                     "required": required
                 }
             })
-            
-        return f"\n\n---\n### Technical Discovery\n```json-elemm\n{json.dumps(mcp_tools, indent=2)}\n```"
+        
+        return f"\n\n---\n### Technical Discovery\n```json-elemm\n{json.dumps(technical_tools, indent=2)}\n```"
 
     def _get_fields_display(self, schema: Dict[str, Any]) -> str:
-        """Returns a string representation of the schema fields with compact descriptions."""
-        if not schema or not isinstance(schema, dict):
-            return ""
-            
-        s_type = schema.get("type")
-        
-        # 1. Array handling
-        if s_type == "array" or "items" in schema:
-            inner = self._get_fields_display(schema.get("items", {}))
-            return f"[{inner}]" if inner else "[]"
-            
-        # 2. Object handling
-        props = schema.get("properties", {})
-        if not props:
-            if "properties" not in schema and s_type == "object":
-                return "{...}"
-            return ""
-            
-        field_strs = []
-        for k, v in props.items():
-            desc = v.get("description")
-            # Compact description: only take first 20 chars and remove 'The ', 'A ' etc.
-            if desc:
-                clean_desc = re.sub(r"^(the|a|an)\s+", "", str(desc), flags=re.IGNORECASE)
-                field_strs.append(f"{k}: {clean_desc[:25]}")
-            else:
-                field_strs.append(k)
-            
-        return f"{{{', '.join(field_strs)}}}"
+        return "" # Deprecated

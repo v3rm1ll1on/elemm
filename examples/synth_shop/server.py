@@ -30,19 +30,16 @@ app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
 ai = Elemm(
     agent_welcome="SYSTEM ONLINE: Welcome to the Neon Synth & Cyberware Grid. Keep your credentials close and your chrome shiny.",
     agent_instructions=(
-        "PROTOCOL STRATEGY: [GET_MANIFEST -> EXECUTE_SEQUENCE].\n"
-        "1. DISCOVERY: Call 'get_manifest' first to map the grid and tool signatures.\n"
-        "2. PIPING: Use '$alias.field' to pass tokens (access_token) or product_ids between steps.\n"
-        "3. BATCHING: Combine Login, Search, and Cart actions in one 'execute_sequence' for maximum efficiency.\n"
-        "Constraint: Proactive, gritty Tech-Salesman. NO ROLEPLAY."
+        "PROTOCOL: [1. get_manifest] -> [2. execute_sequence].\n"
+        "1. DISCOVERY: Call 'get_manifest' first. It shows essential landmarks (catalog, cart, account) in full detail.\n"
+        "2. PIPING: Use '$alias.field' for access_token and product_ids. Aliases are persistent across turns.\n"
+        "3. EFFICIENCY: Combine Login, Search, and Cart actions in one sequence Turn."
     ),
-    protocol_instructions="""MANDATORY: Use 'execute_sequence' for ALL multi-step tasks. 
-    SINGLE STEPS ARE INEFFICIENT and must be avoided. 
-    Example: Step 0 'auth' (login) -> Step 1 search -> Step 2 'cart' (add).""",
+    protocol_instructions="MANDATORY: Use 'execute_sequence' for multi-step flows. Direct calls are prohibited.",
     navigation_landmarks=[
         {"id": "catalog", "notes": "Browse the latest hardware and neural upgrades."},
-        {"id": "cart", "notes": "Manage items and proceed to checkout."},
-        {"id": "account", "notes": "Check status and access tokens."}
+        {"id": "cart", "notes": "Manage items and proceed to checkout. Requires Login."},
+        {"id": "account", "notes": "Handle Authentication and Profile status."}
     ]
 )
 
@@ -277,9 +274,11 @@ ai.bind_to_app(app)
 
 if __name__ == "__main__":
     import sys
-    if "--stdio" in sys.argv:
-        ai.run_mcp_stdio("server:app", port=8004)
+    if "--stdio" in sys.argv or "--mcp" in sys.argv:
+        # Runs as a native MCP server
+        ai.run_mcp_stdio("examples.synth_shop.server:app", port=8004)
     else:
         import uvicorn
+        print("Starting Synth-Genesis API on http://localhost:8004")
         uvicorn.run(app, host="0.0.0.0", port=8004)
 

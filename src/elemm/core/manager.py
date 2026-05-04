@@ -17,6 +17,7 @@ from typing import List, Dict, Any, Optional, Callable
 from .models import AIAction, AIProtocolManifest
 from .exceptions import LandmarkRegistrationError, ManifestGenerationError, LandmarkNotFoundError, ActionError
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,10 @@ class BaseAIProtocolManager:
         self.actions: List[AIAction] = []
         self._registered_ids = set()
         self.openapi_url: Optional[str] = None
+        
+        # Pre-compiled regex for result piping: $alias[index].field or $alias.field
+        self.PIPE_PATTERN = re.compile(r"\$?([a-zA-Z0-9_-]+)(?:\[(\d+)\])?\.([a-zA-Z0-9_-]+)")
+        self.RESULT_WRAP_PATTERN = re.compile(r"(\{.*\}|\[.*\])", re.DOTALL)
         self.internal_access_key = internal_access_key
         self.hybrid_threshold = hybrid_threshold
         self.navigation_landmarks = navigation_landmarks or []
@@ -48,7 +53,7 @@ class BaseAIProtocolManager:
         Direct execution of a registered Python function.
         Returns (result, status_code) to remain compatible with MCP bridge expectations.
         """
-        action = next((a for a in self.actions if a.id == action_id), None)
+        action = self.get_action(action_id)
         if not action:
             raise ValueError(f"Action {action_id} not found.")
             
@@ -72,9 +77,28 @@ class BaseAIProtocolManager:
             return {"error": str(e), "status": "error"}, 500
 
     def get_action(self, action_id: str) -> Optional[AIAction]:
-        """Returns a registered action by its ID."""
+        """Returns a registered action by its ID, supporting 'namespace:id' format."""
         if not action_id: return None
-        return next((a for a in self.actions if a.id == action_id), None)
+        
+        # 1. Exact match first
+        action = next((a for a in self.actions if a.id == action_id), None)
+        if action: return action
+
+        # 2. Namespace awareness (e.g. "noc:resolve_ip_to_host")
+        if ":" in action_id:
+            parts = action_id.split(":")
+            prefix, actual_id = parts[0], parts[-1]
+            
+            # Try to find action with matching ID that belongs to the prefix-group
+            for a in self.actions:
+                if a.id == actual_id:
+                    if not prefix or prefix in getattr(a, "groups", []):
+                        return a
+            
+            # Final fallback: just match the ID part
+            return next((a for a in self.actions if a.id == actual_id), None)
+            
+        return None
 
     def landmark(self, id: str, type: str, instructions: Optional[str] = None, description: Optional[str] = None, **kwargs):
         """
