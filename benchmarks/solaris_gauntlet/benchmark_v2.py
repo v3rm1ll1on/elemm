@@ -56,7 +56,7 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                 # v1 Genius: System Persona and Mode-Specific Instructions
                 shared_persona = (
                     "You are the Solaris Forensic Auditor. Your style is purely technical, silent, and decisive. "
-                    "DO NOT EXPLAIN. DO NOT PLAN. Output ONLY valid tool calls to resolve the incident. Results are the only metric of success."
+                    "DO NOT EXPLAIN. Output ONLY valid tool calls to resolve the incident. Results are the only metric of success."
                 )
 
                 if is_classic:
@@ -85,7 +85,8 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                 ]
                 
                 for i in range(1, 31):
-                    ctx_size = estimate_tokens(messages)
+                    # Calculate FULL context size (Messages + Tools)
+                    ctx_size = estimate_tokens(messages) + estimate_tokens(tools)
                     log("\n" + "="*80)
                     log(f" STEP {i} | Model: {MODEL} | Ctx: ~{ctx_size}")
                     log("="*80)
@@ -172,13 +173,19 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
     metrics.finish(success=False, summary="Max steps reached or agent stopped.")
     return metrics
 
+def parse_ctx(val: str) -> int:
+    if val.lower().endswith('k'):
+        return int(val[:-1]) * 1024
+    return int(val)
+
 async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["classic", "elemm"], default="elemm")
     parser.add_argument("-n", type=int, default=1)
+    parser.add_argument("--ctx", type=parse_ctx, default=32768, help="Context window size (e.g. 4k, 32k, 128k)")
     args = parser.parse_args()
     
-    script = "api_classic.py" if args.mode == "classic" else "api_elemm_v2.py"
+    script = "mcp_classic.py" if args.mode == "classic" else "api_elemm_v2.py"
     prompt = (
         "Your mission is to resolve the active security breach in the Solaris Enterprise Hub.\n"
         "Initial Intelligence: Incident ID SEC-9982 has been flagged. The activity is originating from IP 10.0.4.142.\n\n"
@@ -191,7 +198,7 @@ async def main():
     
     results = []
     for i in range(args.n):
-        m = await run_agent(prompt, script, args.mode == "classic")
+        m = await run_agent(prompt, script, args.mode == "classic", num_ctx=args.ctx)
         results.append(m)
         
     # Print Final Summary
