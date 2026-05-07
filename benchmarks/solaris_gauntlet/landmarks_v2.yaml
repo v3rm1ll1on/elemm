@@ -1,90 +1,96 @@
 version: "2.0"
+
 landmarks:
-  # --- NAMESPACES (Landmarks in v1) ---
   noc:
     type: "navigation"
-    description: "IP-to-Host: Resolve internal IPs (10.0.x.x) to Hostnames (SRV-XXXX)."
+    description: "Network Operations: Resolve IPs to Hostnames."
   it_ops:
     type: "navigation"
-    description: "Log Forensics: Search logs by Hostname (SRV-XXXX). Returns Evidence Tokens (RT-XXXX) and Usernames (CORP-XX)."
+    description: "IT Operations: Search system and application logs."
   banking:
     type: "navigation"
-    description: "Finance Bridge: Map Evidence Tokens (RT-XXXX) to Financial Accounts (ACC-XXXX)."
+    description: "Banking: Map transaction tokens to financial accounts."
   finance:
     type: "navigation"
-    description: "Account Audit: Link Account IDs (ACC-XXXX) to Employee Identifiers (EMP-XXXX)."
+    description: "Finance: Audit account ownership and employee links."
   hr:
     type: "navigation"
-    description: "Principal Resolution: Map Employee IDs (EMP-XXXX) to Corporate Usernames (CORP-XX)."
+    description: "Human Resources: Resolve employee IDs to corporate identities."
   remediation:
     type: "navigation"
-    description: "Action Center: Submit reports (SEC-XXXX), Restart nodes (SRV-XXXX), and Quarantine users (CORP-XX + RT-XXXX)."
-  soc:
-    type: "navigation"
-    description: "Security Operations Center."
+    description: "Remediation: Administrative actions and reporting."
 
-  # --- TOOLS (Referenced by Namespaces via Prefix) ---
-  "soc:get_active_alerts":
-    type: "tool"
-    description: "List all active security alerts."
-    
   "noc:resolve_ip_to_host":
     type: "tool"
-    description: "Resolve internal IP to Hostname (Format: 10.0.4.x)."
-    remedy: "Validate IP range (10.0.4.x)."
+    description: "Resolve internal IP to hostname."
+    remedy: "Verify the target IP format (e.g. 10.0.4.x)."
+    returns: "{ hostname: string }"
     parameters:
-      - name: "ip"
-        type: "string"
-        description: "Target IP (10.0.4.X)"
+      - {name: "ip", type: "string", description: "Target IP address", required: true}
 
   "it_ops:query_node_logs":
     type: "tool"
-    description: "Retrieve logs for a node. Use the value 'EXFIL' for parameter q to find tokens."
-    remedy: "Logs require a verified SRV-XXXX hostname. Filter with the string 'EXFIL' to find tokens."
+    description: "Retrieve logs for a specific node."
+    remedy: "Verify your search filter (e.g. 'EXFIL') and ensure the hostname matches the one resolved via NOC."
+    returns: "{ ts: string, action: string, evidence_token: string, username: string }[]"
     parameters:
-      - name: "hostname"
-        type: "string"
-        description: "Server Hostname (SRV-XXXX)"
-      - name: "q"
-        type: "string"
-        description: "Search term (e.g. 'EXFIL')"
+      - {name: "hostname", type: "string", description: "Node identifier", required: true}
+      - {name: "q", type: "string", description: "Search query or filter", required: false}
 
   "banking:link_token_to_account":
     type: "tool"
-    description: "Map RT-XXXX tokens to financial account IDs."
-    remedy: "Evidence tokens (RT-XXXX) must be retrieved from IT logs. Use them here to find the linked account (ACC-XXXX)."
+    description: "Map evidence tokens to financial accounts."
+    remedy: "Use a valid Routing Token (RT-XXXX) found in the IT logs."
+    returns: "{ account_id: string, token: string }"
+    parameters:
+      - {name: "token", type: "string", description: "Evidence or transaction token", required: true}
 
   "finance:audit_account_owner":
     type: "tool"
-    description: "Identify employee ID linked to ACC-XXXX account."
-    remedy: "Account IDs (ACC-XXXX) must be retrieved from the BANKING landmark using an evidence token (RT-XXXX)."
+    description: "Identify employee ID linked to a financial account."
+    remedy: "Use an Account ID (ACC-XXXX) previously resolved via the banking landmark."
+    returns: "{ employee_id: string, account_id: string }"
+    parameters:
+      - {name: "account_id", type: "string", description: "Financial account ID", required: true}
 
   "hr:resolve_principal":
     type: "tool"
-    description: "Map EMP-XXXX to corporate principal (username)."
-    remedy: "Employee IDs (EMP-XXXX) must be used. Resolve them via the FINANCE landmark using an account ID (ACC-XXXX) first."
-
-  "soc:get_active_alerts":
-    type: "tool"
-    description: "List active security alerts."
-    remedy: "Check for high-severity alerts to find target IPs."
+    description: "Map employee ID to corporate username."
+    remedy: "Use an Employee ID (EMP-XXXX) resolved via the finance audit tool."
+    returns: "{ username: string, employee_id: string }"
+    parameters:
+      - {name: "employee_id", type: "string", description: "Internal employee ID", required: true}
 
   "remediation:quarantine_principal":
     type: "action"
-    description: "Internal technical quarantine handler."
-    instructions: "Lockdown principal. Requires resolved Username (CORP-XX) and the Evidence Token (RT-XXXX) from the logs."
-    remedy: "Ensure 'username' is the CORP-XX ID and 'token' is the RT-XXXX evidence token from the IT logs."
+    description: "Place a corporate user under technical quarantine."
+    remedy: "Ensure you have the Corporate Username (CORP-XX) and the corresponding RT-token."
+    returns: "{ status: string }"
+    parameters:
+      - {name: "username", type: "string", description: "Corporate username", required: true}
+      - {name: "token", type: "string", description: "Associated evidence token", required: true}
 
   "remediation:restart_node":
     type: "action"
-    description: "Reboot SRV-XXXX node."
-    instructions: "Reboot node. Requires verified hostname (SRV-XXXX)."
+    description: "Trigger remote reboot of a node."
+    remedy: "Verify the SRV-XXXX hostname."
+    returns: "{ status: string }"
+    parameters:
+      - {name: "hostname", type: "string", description: "Node hostname", required: true}
 
   "remediation:secure_escrow":
     type: "action"
-    description: "Lock down risk capital in forensic escrow."
+    description: "Secure risk capital in forensic escrow."
+    remedy: "Requires a valid account reference."
+    returns: "{ status: string }"
+    parameters:
+      - {name: "account_ref", type: "string", description: "Account or asset reference", required: true}
 
   "remediation:submit_gauntlet_report":
     type: "action"
-    description: "Submit final audit report. Requires SUCCESS on all previous steps."
-    remedy: "MISSION INCOMPLETE. Ensure quarantine, restart, and secure are SUCCESS."
+    description: "Submit final forensic audit report."
+    remedy: "You must complete all remediation steps (Quarantine, Restart, Secure) before reporting."
+    returns: "{ status: string }"
+    parameters:
+      - {name: "incident_id", type: "string", description: "Incident tracking ID", required: true}
+      - {name: "summary", type: "string", description: "Detailed remediation summary", required: true}

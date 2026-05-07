@@ -34,9 +34,21 @@ LANDMARKS_CONFIG = [
 
 # --- MANAGER SETUP ---
 manager = AIProtocolManager(
-    instructions="PROTOCOL: [1. get_manifest] -> [2. execute_sequence]. DO NOT BROWSE.",
+    instructions = """
+You are an Autonomous Forensic Agent. 
+MISSION: Resolve Incident SEC-9982 (Target IP: 10.0.4.142).
+FORENSIC CHAIN:
+1. noc:resolve_ip_to_host(ip='10.0.4.142') -> $host
+2. it_ops:query_node_logs(hostname=$host.hostname, q='EXFIL') -> $logs
+3. banking:link_token_to_account(token=$logs.evidence_token) -> $acc
+4. finance:audit_account_owner(account_id=$acc.account_id) -> $emp
+5. hr:resolve_principal(employee_id=$emp.employee_id) -> $user
+6. remediation: quarantine, restart, escrow, and report.
+    """.strip()
+,
     version="2.0",
-    navigation_landmarks=LANDMARKS_CONFIG
+    navigation_landmarks=LANDMARKS_CONFIG,
+    ctx_threshold=8192
 )
 manager.welcome_message = "WELCOME TO SOLARIS ENTERPRISE HUB (SECURED BY ELEMM v2)"
 import os
@@ -78,7 +90,11 @@ async def it_logs(
     if search_term: 
         logs = [l for l in logs if search_term in str(l).lower()]
     
-    if not logs: raise HTTPException(status_code=422)
+    if not logs: 
+        raise HTTPException(
+            status_code=422, 
+            detail=f"Datenabfrage erfolglos. Keine Logs für Host '{hostname}' mit Filter '{q}' gefunden."
+        )
     
     # Map 'token' to 'evidence_token' if necessary
     results = []
@@ -95,22 +111,34 @@ async def it_logs(
 @manager.bind("banking:link_token_to_account")
 async def bank_link(token: str = Query(..., description="Routing Token (RT-XXXX)")):
     acc = DB["banking"].get(token)
-    if not acc: raise HTTPException(status_code=422)
-    return {"account_id": acc}
+    if not acc: 
+        raise HTTPException(
+            status_code=422, 
+            detail=f"Token '{token}' konnte in der Banking-Datenbank nicht gefunden werden."
+        )
+    return {"account_id": acc, "token": token}
 
 @app.get("/finance/audit", tags=["finance"])
 @manager.bind("finance:audit_account_owner")
 async def fin_audit(account_id: str = Query(..., description="Account Identifier (ACC-XXXX)")) -> Dict[str, str]:
     emp = DB["finance"].get(account_id)
-    if not emp: raise HTTPException(status_code=422)
-    return {"employee_id": emp}
+    if not emp: 
+        raise HTTPException(
+            status_code=422, 
+            detail=f"Konto-ID '{account_id}' existiert nicht in den Finanzunterlagen."
+        )
+    return {"employee_id": emp, "account_id": account_id}
 
 @app.get("/hr/principal", tags=["hr"])
 @manager.bind("hr:resolve_principal")
 async def hr_resolve(employee_id: str = Query(..., description="Employee ID (EMP-XXXX)")):
     user = DB["hr"].get(employee_id)
-    if not user: raise HTTPException(status_code=422)
-    return {"username": user}
+    if not user: 
+        raise HTTPException(
+            status_code=422, 
+            detail=f"Mitarbeiter-ID '{employee_id}' ist im HR-System unbekannt."
+        )
+    return {"username": user, "employee_id": employee_id}
 
 @app.post("/ops/quarantine", tags=["remediation"])
 @manager.bind("remediation:quarantine_principal")
@@ -132,13 +160,13 @@ async def restart(hostname: str) -> Dict[str, str]:
 
 @app.post("/ops/secure", tags=["remediation"])
 @manager.bind("remediation:secure_escrow")
-async def secure():
+async def secure() -> Dict[str, str]:
     MISSION_STATE["secured"] = True
     return {"status": "SUCCESS"}
 
 @app.post("/ops/report", tags=["remediation"])
 @manager.bind("remediation:submit_gauntlet_report")
-async def report(incident_id: str = Body(...), summary: str = Body(...)):
+async def report(incident_id: str = Body(...), summary: str = Body(...)) -> Dict[str, str]:
     if not all(MISSION_STATE.values()): 
         raise HTTPException(status_code=422, detail="MISSION INCOMPLETE.")
     if incident_id != "SEC-9982":
@@ -161,22 +189,27 @@ for nl in ["legal", "marketing", "logistics", "facilities", "rnd", "procurement"
 manager.navigation_landmarks = [
     {"id": "noc"}, {"id": "it_ops"}, {"id": "hr"}, {"id": "banking"}, {"id": "finance"}, {"id": "remediation"}
 ]
-manager.instructions = (
-    "MANDATORY EXECUTION PROTOCOL:\n"
-    "1. Use 'get_manifest' to discover tool signatures.\n"
-    "2. Use 'execute_sequence' for multi-step tasks with piping ($alias.field).\n"
-    "3. Direct calls to landmarks (e.g. 'noc') are prohibited.\n\n"
-    "EXAMPLES:\n"
-    "- call_action(action='noc:resolve_ip_to_host', parameters={'ip': '10.0.4.x'})\n"
-    "- execute_sequence(actions=[{'action': 'noc:resolve_ip_to_host', 'alias': 'node', ...}, ...])"
-)
-
+manager.instructions = """
+    MANDATORY FORENSIC ALGORITHM (SEC-9982):
+    1. NOC: Resolve IP (10.0.4.142) -> Hostname (SRV-XXXX)
+    2. IT_OPS: Search Hostname + Filter 'EXFIL' -> Evidence Token (RT-XXXX)
+    3. BANKING: Link Token (RT-XXXX) -> Account ID (ACC-XXXX)
+    4. FINANCE: Audit Account (ACC-XXXX) -> Employee ID (EMP-XXXX)
+    5. HR: Resolve Employee (EMP-XXXX) -> Username (CORP-XX)
+    6. REMEDIATION: Quarantine(Username), Restart(Hostname), Secure(Account)
+    7. REPORT: Final Submission.
+    
+    WARNING:
+    1. Do NOT guess Tool IDs or schema. You MUST call 'inspect_landmarks' FIRST to discover the exact tool signatures (e.g. 'noc:resolve_ip_to_host').
+    2. Do NOT execute namespaces (like 'noc') directly.
+    3. Use 'execute_sequence' to link steps! Smart Piping will automatically extract matching fields.
+    """
 gateway.bind_to_app(app)
 
 if __name__ == "__main__":
     import sys
     if "--mcp" in sys.argv or "--stdio" in sys.argv:
-        from elemm_v2.gateways.mcp import MCPGateway
+        from elemm_v2.gateways.mcp_server import MCPGateway
         mcp_gateway = MCPGateway(manager)
         mcp_gateway.run_stdio()
     else:

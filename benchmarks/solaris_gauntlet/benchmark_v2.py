@@ -84,7 +84,7 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                     {"role": "user", "content": task_prompt}
                 ]
                 
-                for i in range(1, 16):
+                for i in range(1, 31):
                     ctx_size = estimate_tokens(messages)
                     log("\n" + "="*80)
                     log(f" STEP {i} | Model: {MODEL} | Ctx: ~{ctx_size}")
@@ -120,7 +120,7 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                         log(f"🤖 AGENT: {content}")
 
                     if not tool_calls:
-                        if i < 15:
+                        if i < 30:
                             log("⚠️ No tool calls. Nudging agent to retry...")
                             messages.append({
                                 "role": "user", 

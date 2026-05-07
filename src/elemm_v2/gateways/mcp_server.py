@@ -34,20 +34,20 @@ class MCPGateway:
                         }
                     }
                 ),
+
                 types.Tool(
-                    name="get_landmarks",
-                    description="High-level discovery. Shows namespaces and available categories (landmarks).",
-                    inputSchema={"type": "object", "properties": {}}
-                ),
-                types.Tool(
-                    name="inspect_landmark",
-                    description="Detailed technical discovery. Get tool signatures and schemas for a specific landmark.",
+                    name="inspect_landmarks",
+                    description="Detailed technical discovery. Get tool signatures and schemas for one or more specific landmarks.",
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "landmark_id": {"type": "string", "description": "The ID of the landmark to inspect."}
+                            "landmark_ids": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "The IDs of the landmarks to inspect."
+                            }
                         },
-                        "required": ["landmark_id"]
+                        "required": ["landmark_ids"]
                     }
                 ),
                 types.Tool(
@@ -89,6 +89,11 @@ class MCPGateway:
                         },
                         "required": ["actions"]
                     }
+                ),
+                types.Tool(
+                    name="list_aliases",
+                    description="Memory Bank: Show all currently active aliases and their stored values.",
+                    inputSchema={"type": "object", "properties": {}}
                 )
             ]
 
@@ -97,13 +102,13 @@ class MCPGateway:
             arguments = arguments or {}
             
             # 1. Safety Lock & Manifest Loading
-            if name in ["get_manifest", "get_landmarks"]:
+            if name == "get_manifest":
                 self.manifest_loaded = True
             
-            if name in ["call_action", "execute_sequence"] and not self.manifest_loaded:
+            if name in ["call_action", "execute_sequence", "list_aliases"] and not self.manifest_loaded:
                 return [types.TextContent(
                     type="text", 
-                    text="CRITICAL PROTOCOL VIOLATION: You are operating blindly. You MUST call 'get_manifest' first to initialize the site-specific command registry and understand the rules before calling execution tools."
+                    text="CRITICAL PROTOCOL VIOLATION: You are operating blindly. You MUST call 'get_manifest' first."
                 )]
 
             if name == "get_manifest":
@@ -111,92 +116,82 @@ class MCPGateway:
                 manifest_md = self.manager.get_manifest_md(full=is_full)
                 return [types.TextContent(type="text", text=manifest_md)]
             
-            if name == "get_landmarks":
-                landmarks = self.manager.get_landmarks()
-                res = "## Available Landmarks\n"
-                for lm in landmarks:
-                    res += f"- {lm.id}: {lm.description}\n"
+            if name == "list_aliases":
+                aliases = self.manager.list_aliases()
+                res = "### GLOBAL ALIAS STORE (Memory Bank)\n"
+                if not aliases:
+                    res += "- No active aliases."
+                else:
+                    for a, v in aliases.items():
+                        res += f"- **${a}**: {v}\n"
                 return [types.TextContent(type="text", text=res)]
+            
 
-            if name == "inspect_landmark":
-                lm_id = arguments.get("landmark_id")
-                landmark = self.manager.landmarks.get(lm_id)
-                if not landmark:
-                    return [types.TextContent(type="text", text=f"Error: Landmark '{lm_id}' not found.")]
+
+            if name == "inspect_landmarks":
+                lm_ids = arguments.get("landmark_ids", [])
                 
-                # v2 Enhanced: Nutze den Presenter für konsistente MD-Doku
-                res = self.manager.presenter._render_landmark(landmark)
+                results = []
+                for lm_id in lm_ids:
+                    landmark = self.manager.landmarks.get(lm_id)
+                    if not landmark:
+                        results.append(f"Error: Landmark '{lm_id}' not found.")
+                        continue
+                    
+                    res = self.manager.presenter._render_landmark(landmark, global_context=self.manager.global_context)
+                    if landmark.tools:
+                        res += "\n## Contained Tools:\n"
+                        for t in landmark.tools:
+                            res += f"- {t.id}: {t.description}\n"
+                    results.append(res)
                 
-                # Falls es ein Namespace ist, zeige auch die Kinder
-                if landmark.tools:
-                    res += "\n## Contained Tools:\n"
-                    for t in landmark.tools:
-                        res += f"- {t.id}: {t.description}\n"
-                
+                return [types.TextContent(type="text", text="\n\n---\n\n".join(results))]
+
+            if name == "list_aliases":
+                aliases = self.manager.list_aliases()
+                res = "### 🧠 MEMORY BANK (Current Aliases)\n"
+                if not aliases:
+                    res += "- No findings stored yet."
+                else:
+                    for a, v in sorted(aliases.items()):
+                        res += f"- **${a}**: {v}\n"
                 return [types.TextContent(type="text", text=res)]
 
             if name == "call_action":
                 action_id = arguments.get("action")
                 params = arguments.get("parameters", {})
-                
-                # Piping-Resolution für Einzelaufrufe
-                from ..core.sequencer import PipeResolver
-                resolved_params, err = PipeResolver.resolve(params, self.session_state)
-                if err: return [types.TextContent(type="text", text=f"Error: {err}")]
-
-                res_content = await self._execute_action(action_id, resolved_params)
-                
-                # Alias speichern für nächsten Turn (Cross-Turn Persistence)
                 alias = arguments.get("alias")
-                if alias:
-                    try:
-                        # Wir versuchen JSON zu parsen, um strukturierte Daten zu speichern
-                        data = json.loads(res_content[0].text)
-                        self.session_state[alias] = data
-                    except:
-                        self.session_state[alias] = res_content[0].text
                 
-                return res_content
+                res = await self.manager.call_action(action_id, params)
+                
+                if alias:
+                    if alias.startswith("$"):
+                        alias = alias[1:]
+                    self.manager.global_context[alias] = res
+                    
+                return [types.TextContent(type="text", text=json.dumps(res, indent=2))]
 
-            # 3. Execute Sequence
             if name == "execute_sequence":
                 actions = arguments.get("actions", [])
-                results = await self.sequencer.run(actions, self.session_state)
-                
-                # Letzten Context in Session State mergen
-                for res in results:
-                    if "alias" in res:
-                        self.session_state[res["alias"]] = res["result"]
-                
+                # Pass global context for persistence
+                results = await self.sequencer.run(actions, self.manager.global_context)
                 return [types.TextContent(type="text", text=json.dumps(results, indent=2))]
 
-            # 4. Fallback: Catch-all for prohibited direct calls or unknown tools
+            # 4. Smart Prohibited Call Handler
             landmark = self.manager.landmarks.get(name)
-            is_landmark = landmark is not None
+            if landmark:
+                if not landmark.handler and landmark.tools:
+                    repair = self.manager.repair.handle_namespace_execution_attempt(name)
+                else:
+                    repair = self.manager.repair.handle_prohibited_direct_call(name, arguments)
+                return [types.TextContent(type="text", text=json.dumps(repair.dict(), indent=2))]
             
-            target_action = name
-            if is_landmark and landmark.tools:
-                # Suggest the first tool in the landmark area
-                target_action = landmark.tools[0].id
-            
-            msg = f"Direct call to '{name}' prohibited." if is_landmark else f"Action/Tool '{name}' not found."
-            
-            # Dynamic Copy+Paste Instruction
-            remedy = (
-                f"You MUST use 'call_action' or 'execute_sequence'.\n"
-                f"COPY+PASTE FIX: call_action(action='{target_action}', parameters={json.dumps(arguments)})"
-            )
-            
-            return [types.TextContent(
-                type="text", 
-                text=f"{msg}\nREMEDY: {remedy}"
-            )]
+            return [types.TextContent(type="text", text=f"Tool '{name}' not found.")]
 
     async def _tool_get_manifest(self, arguments: dict) -> list[types.TextContent]:
-        from ..core.presenter import ManifestPresenter
-        presenter = ManifestPresenter()
-        md_text = presenter.present_manifest(self.manager.get_landmarks())
-        return [types.TextContent(type="text", text=md_text)]
+        is_full = arguments.get("full", False)
+        manifest_md = self.manager.get_manifest_md(full=is_full)
+        return [types.TextContent(type="text", text=manifest_md)]
 
     async def _execute_action(self, action_id: str, params: dict) -> list[types.TextContent]:
         try:

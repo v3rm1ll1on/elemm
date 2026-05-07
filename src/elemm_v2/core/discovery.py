@@ -39,6 +39,10 @@ class TypeMapper:
 
         raw_type = str(getattr(annotation, "__name__", annotation)).lower()
         
+        # Handle typing.Dict, typing.List, etc.
+        if "dict" in str(annotation).lower(): raw_type = "object"
+        if "list" in str(annotation).lower(): raw_type = "array"
+
         mapping = {
             "str": "string", "string": "string",
             "int": "integer", "integer": "integer",

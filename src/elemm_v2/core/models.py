@@ -9,6 +9,7 @@ class Parameter(BaseModel):
     required: bool = True
     default: Optional[Any] = None
     options: Optional[List[Any]] = None
+    aliases: List[str] = Field(default_factory=list)
 
 class LandmarkMetadata(BaseModel):
     """Die rein deklarativen Metadaten aus der YAML."""
@@ -17,6 +18,7 @@ class LandmarkMetadata(BaseModel):
     instructions: Optional[str] = None
     remedy: Optional[str] = None
     parameters: Optional[List[Parameter]] = None
+    returns: Optional[str] = None
     response_schema: Optional[Dict[str, Any]] = None
     tags: List[str] = Field(default_factory=list)
     groups: List[str] = Field(default_factory=list)
@@ -28,6 +30,11 @@ class Landmark(LandmarkMetadata):
     id: str
     handler: Optional[Callable] = None
     tools: List["Landmark"] = Field(default_factory=list)
+
+class LandmarkRegistry:
+    """Interface für das Laden von Landmark-Metadaten."""
+    def get(self, landmark_id: str) -> Optional[LandmarkMetadata]:
+        raise NotImplementedError()
 
 class Manifest(BaseModel):
     """Das generierte Protokoll-Manifest."""
