@@ -158,11 +158,8 @@ class ElemmGateway(LandmarkBridge):
                     tool_id = tool_id[len(prefix)+1:]
                     break
         
-        # Also handle colon/dot notation from some clients
-        tool_id = tool_id.split(":")[-1].split(".")[-1].strip()
-
-        # Also handle colon/dot notation from some clients
-        tool_id = tool_id.split(":")[-1].split(".")[-1].strip().lower()
+        # Preserve namespaces for v2!
+        tool_id = tool_id.strip()
 
         # 1. Gateway-Level Tools (Always handled locally)
         if tool_id == "connect_to_site":

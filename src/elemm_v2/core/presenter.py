@@ -28,7 +28,8 @@ class ManifestPresenter:
             lines.append("")
 
         lines.append("### 🧠 MEMORY BANK (Live Memory)")
-        lines.append("- Use 'list_aliases' to see stored findings ($step_0, $last_result, etc.)")
+        lines.append("- Use 'list_aliases' to see stored findings ($step0, $step1, etc.)")
+        lines.append("- PIPING: Use '$alias.field' (e.g. '$step0.hostname') to access results directly.")
         lines.append("")
 
         if hide_json:
@@ -59,6 +60,15 @@ class ManifestPresenter:
                 lines.append(self._get_ts_sig(tool))
                 
         lines.append("```")
+        
+        # 3. Technical JSON Block (Discovery)
+        if kwargs.get("technical", False):
+            lines.append("\n---")
+            lines.append("### Technical Discovery")
+            lines.append("```json-elemm")
+            lines.append(json.dumps(self._get_mcp_tools(landmarks), indent=2))
+            lines.append("```")
+            
         return "\n".join(lines)
 
     def _get_ts_sig(self, tool: Landmark) -> str:
@@ -99,6 +109,39 @@ class ManifestPresenter:
         lines.append(f"function call_action(action: \"{tool.id}\", parameters: {params_str}): {returns_str};\n")
         
         return "\n".join(lines)
+
+    def _get_mcp_tools(self, landmarks: List[Landmark]) -> List[Dict[str, Any]]:
+        """Generiert technische MCP-Tool-Definitionen für Discovery-Zwecke."""
+        mcp_tools = []
+        for lm in landmarks:
+            # Wenn es eine Area ist, nimm die Tools darunter
+            targets = [lm]
+            if not lm.handler and lm.tools:
+                targets = lm.tools
+            
+            for t in targets:
+                if not t.handler: continue
+                
+                properties = {}
+                required = []
+                for p in (t.parameters or []):
+                    properties[p.name] = {
+                        "type": p.type,
+                        "description": p.description
+                    }
+                    if p.required:
+                        required.append(p.name)
+                
+                mcp_tools.append({
+                    "name": t.id,
+                    "description": t.description,
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": properties,
+                        "required": required
+                    }
+                })
+        return mcp_tools
 
     def _render_landmark(self, landmark: Landmark, global_context: Optional[Dict[str, Any]] = None) -> str:
         """Alias für Kompatibilität mit mcp_server.py"""

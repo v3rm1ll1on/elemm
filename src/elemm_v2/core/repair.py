@@ -72,7 +72,7 @@ class SmartRepairEngine:
     def handle_placeholder_detected(param_name: str, value: Any) -> RepairResult:
         if isinstance(value, str) and value.startswith("$"):
             msg = f"Parameter '{param_name}' contains an unresolved variable: '{value}'."
-            remedy = f"The engine could not find a match for '{value}'. Ensure the alias exists or use explicit dot-notation (e.g. $alias.field)."
+            remedy = f"The engine could not find a match for '{value}'. Ensure the alias exists or use explicit dot-notation (e.g. $step0.id)."
         else:
             msg = f"Parameter '{param_name}' contains a placeholder value: '{value}'."
             remedy = f"Do not use placeholders like 'UNKNOWN'. You must retrieve the actual value from a previous tool's output first."

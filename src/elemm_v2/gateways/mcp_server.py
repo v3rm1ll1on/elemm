@@ -16,8 +16,8 @@ class MCPGateway:
         self.server = Server(server_name)
         self.session_state = {} # Speicher für Cross-Turn Piping
         self.manifest_loaded = False # Safety Lock
-        from ..core.sequencer import SequenceEngine
-        self.sequencer = SequenceEngine(manager)
+        # We use the sequencer already attached to the manager
+        self.sequencer = manager.sequencer
         self._setup_server()
 
     def _setup_server(self):
@@ -159,8 +159,16 @@ class MCPGateway:
 
             if name == "call_action":
                 action_id = arguments.get("action")
-                params = arguments.get("parameters", {})
+                raw_params = arguments.get("parameters", {})
                 alias = arguments.get("alias")
+                
+                # Resolve piping
+                params, err = self.sequencer.resolve_all(raw_params, self.manager.global_context)
+                if err:
+                    return [types.TextContent(
+                        type="text", 
+                        text=json.dumps({"status": "error", "message": f"Piping failed: {err}"}, indent=2)
+                    )]
                 
                 res = await self.manager.call_action(action_id, params)
                 
@@ -184,7 +192,7 @@ class MCPGateway:
                     repair = self.manager.repair.handle_namespace_execution_attempt(name)
                 else:
                     repair = self.manager.repair.handle_prohibited_direct_call(name, arguments)
-                return [types.TextContent(type="text", text=json.dumps(repair.dict(), indent=2))]
+                return [types.TextContent(type="text", text=json.dumps(repair.dict(exclude_none=True), indent=2))]
             
             return [types.TextContent(type="text", text=f"Tool '{name}' not found.")]
 

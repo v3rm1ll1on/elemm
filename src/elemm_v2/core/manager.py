@@ -32,13 +32,16 @@ class AIProtocolManager:
         
         # Handle kwargs from benchmark
         self.instructions: str = kwargs.get("instructions", self.DEFAULT_INSTRUCTIONS)
-        self.welcome_message: str = kwargs.get("welcome_message", "SOLARIS ENTERPRISE HUB (SECURED BY ELEMM v2)")
+        self.welcome_message: str = kwargs.get("welcome_message", "ELEMM v2 SECURE INTERFACE")
         self.version = kwargs.get("version", "2.2.0")
         self.ctx_threshold = kwargs.get("ctx_threshold", 2000)
         self.manifest_max_ctx = self.ctx_threshold
         
         from .repair import SmartRepairEngine
         self.repair = SmartRepairEngine()
+        
+        from .sequencer import SequenceEngine
+        self.sequencer = SequenceEngine(self)
 
     def landmark(self, landmark_id: str, **landmark_data):
         """Dekorator für Landmark-Tools."""
@@ -47,9 +50,13 @@ class AIProtocolManager:
             
             # Fetch Metadata from Registry if available
             tool_meta = self.registry.get(landmark_id)
+            
             desc = landmark_data.pop("description", None) or (tool_meta.description if tool_meta else None) or func.__doc__ or f"Tool: {landmark_id}"
             params = landmark_data.pop("parameters", None) or (tool_meta.parameters if tool_meta else [])
-            
+            returns = landmark_data.pop("returns", None) or (tool_meta.returns if tool_meta else None)
+            remedy = landmark_data.pop("remedy", None) or (tool_meta.remedy if tool_meta else None)
+            instructions = landmark_data.pop("instructions", None) or (tool_meta.instructions if tool_meta else None)
+
             if len(parts) > 1:
                 root_id = parts[0]
                 if root_id not in self.landmarks:
@@ -59,11 +66,29 @@ class AIProtocolManager:
                         description=root_meta.description if root_meta else f"Area: {root_id}"
                     )
                 
-                tool = Landmark(id=landmark_id, handler=func, description=desc, parameters=params, **landmark_data)
+                tool = Landmark(
+                    id=landmark_id, 
+                    handler=func, 
+                    description=desc, 
+                    parameters=params, 
+                    returns=returns,
+                    remedy=remedy,
+                    instructions=instructions,
+                    **landmark_data
+                )
                 self.landmarks[root_id].tools.append(tool)
                 self.landmarks[landmark_id] = tool
             else:
-                self.landmarks[landmark_id] = Landmark(id=landmark_id, handler=func, description=desc, parameters=params, **landmark_data)
+                self.landmarks[landmark_id] = Landmark(
+                    id=landmark_id, 
+                    handler=func, 
+                    description=desc, 
+                    parameters=params, 
+                    returns=returns,
+                    remedy=remedy,
+                    instructions=instructions,
+                    **landmark_data
+                )
             
             return func
         return decorator
@@ -74,7 +99,7 @@ class AIProtocolManager:
         
         # 1. Check Existence
         if not landmark:
-            return self.repair.handle_missing_action(action_id, list(self.landmarks.keys())).dict()
+            return self.repair.handle_missing_action(action_id, list(self.landmarks.keys())).dict(exclude_none=True)
 
         # 2. Check Callability (Area vs Tool)
         if not landmark.handler:
@@ -90,7 +115,7 @@ class AIProtocolManager:
 
         # Pre-execution placeholder check
         for k, v in arguments.items():
-            if isinstance(v, str) and (v.upper() in ["UNKNOWN", "PLACEHOLDER"] or v.startswith("$")):
+            if isinstance(v, str) and (v.upper() in ["UNKNOWN", "PLACEHOLDER", "UNKNOWN_TOKEN"] or v.startswith("$")):
                 from .repair import SmartRepairEngine
                 return SmartRepairEngine.handle_placeholder_detected(k, v).dict(exclude_none=True)
 
@@ -117,11 +142,9 @@ class AIProtocolManager:
                     result.pop("technical_details", None)
                     result.pop("remedy", None) # It's now the main message
                 
-            # Auto-Aliasing
-            self.global_context["last_result"] = result
-            if isinstance(result, dict):
-                self.global_context.update(result)
-            
+            # Auto-Aliasing: In v2 we only pipe via explicit aliases ($step0 etc.)
+            # or the global_context which is managed by the sequencer/broker.
+            # We no longer flatten results into the global namespace to avoid collisions.
             return result
         except Exception as e:
             # Extract clean error message
@@ -162,7 +185,8 @@ class AIProtocolManager:
             all_landmarks, 
             instructions=self.instructions,
             welcome_message=self.welcome_message,
-            hide_json=hide_signatures
+            hide_json=hide_signatures,
+            technical=kwargs.get("technical", False)
         )
 
     def inspect_landmark(self, landmark_id: str) -> str:

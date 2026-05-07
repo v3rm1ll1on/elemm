@@ -79,8 +79,12 @@ class FastAPIGateway:
             
             # Wenn landmark_id übergeben wird, zeigen wir Details (FOCUS)
             if landmark_id:
-                # Wir konvertieren zu Liste falls nötig
-                ids = [landmark_id] if isinstance(landmark_id, str) else landmark_id
+                # Wir konvertieren zu Liste und splitten Kommas (für Clients wie AnythingLLM)
+                if isinstance(landmark_id, str):
+                    ids = [id.strip() for id in landmark_id.split(",")]
+                else:
+                    ids = landmark_id
+                
                 lms = [self.manager.landmarks[lid] for lid in ids if lid in self.manager.landmarks]
                 manifest_md = self.manager.presenter.present_manifest(lms, full=True, skip_header=False, technical=technical)
             else:
@@ -98,6 +102,39 @@ class FastAPIGateway:
         async def well_known_legacy(response: Response):
             """Legacy redirect/alias for v2 discovery."""
             return await well_known_manifest(response)
+
+        @self.app.post("/.well-known/elemm/execute", tags=["execution"], include_in_schema=False)
+        async def well_known_execute(
+            request: Request,
+            body: Dict[str, Any] = Body(...)
+        ):
+            """
+            Zentraler Execution-Endpoint für Elemm-Clients (Broker, AnythingLLM, etc.).
+            Unterstützt Einzel-Calls und Sequenzen.
+            """
+            # 1. Check for Sequence
+            if "actions" in body:
+                actions = body["actions"]
+                results = await self.manager.sequencer.run(actions, self.manager.global_context)
+                return results
+            
+            # 2. Check for Single Action
+            action_id = body.get("action_id") or body.get("action")
+            parameters = body.get("parameters", {})
+            
+            if not action_id:
+                return JSONResponse(
+                    status_code=400, 
+                    content={"status": "error", "message": "Missing 'action_id' or 'actions' in request body."}
+                )
+
+            # Resolve piping if any (global context)
+            resolved_params, err = self.manager.sequencer.resolve_all(parameters, self.manager.global_context)
+            if err:
+                return JSONResponse(status_code=400, content={"status": "error", "message": f"Piping failed: {err}"})
+
+            result = await self.manager.call_action(action_id, resolved_params)
+            return result
 
         # Technisches Interface via Router
         router = self.get_router()
