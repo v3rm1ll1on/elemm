@@ -79,14 +79,20 @@ class AIProtocolManager:
         # 2. Check Callability (Area vs Tool)
         if not landmark.handler:
             if landmark.tools:
-                return self.repair.handle_namespace_execution_attempt(action_id).dict()
+                return self.repair.handle_namespace_execution_attempt(action_id).dict(exclude_none=True)
             return {"status": "error", "message": f"Tool {action_id} has no implementation."}
 
         # 3. Validate Parameters
         missing = [p.name for p in (landmark.parameters or []) if p.required and p.name not in arguments]
         if missing:
             schema = {p.name: p.type for p in (landmark.parameters or [])}
-            return self.repair.handle_invalid_params(action_id, missing, schema).dict()
+            return self.repair.handle_invalid_params(action_id, missing, schema).dict(exclude_none=True)
+
+        # Pre-execution placeholder check
+        for k, v in arguments.items():
+            if isinstance(v, str) and (v.upper() in ["UNKNOWN", "PLACEHOLDER", "UNKNOWN_TOKEN"] or v.startswith("$")):
+                from .repair import SmartRepairEngine
+                return SmartRepairEngine.handle_placeholder_detected(k, v).dict(exclude_none=True)
 
         # 4. Execute
         try:
@@ -101,12 +107,16 @@ class AIProtocolManager:
             else:
                 result = landmark.handler(**filtered_args)
             
-            # Smart Remedy Injection: If the tool returns an error, enrich it with metadata remedies
+            # Smart Remedy Shadowing: Keep AI context clean
             if isinstance(result, dict) and result.get("status") == "error":
                 meta = self.registry.get(action_id)
-                if meta and meta.remedy and "remedy" not in result:
-                    result["remedy"] = meta.remedy
-            
+                if meta and meta.remedy:
+                    logger.warning(f"Tool Error shadowed by Remedy: {result.get('message')}")
+                    result["message"] = meta.remedy
+                    # Remove raw error fields to prevent AI confusion
+                    result.pop("technical_details", None)
+                    result.pop("remedy", None) # It's now the main message
+                
             # Auto-Aliasing
             self.global_context["last_result"] = result
             if isinstance(result, dict):
@@ -114,20 +124,23 @@ class AIProtocolManager:
             
             return result
         except Exception as e:
-            # Nur Warnung loggen statt vollem Traceback (vermeidet Konsolen-Spam bei validen Agenten-Fehlern)
-            logger.warning(f"Execution failed for {action_id}: {e} | Args: {filtered_args}")
-            
-            # Versuche, saubere Fehlermeldungen aus FastAPI oder ElemmError zu extrahieren
+            # Extract clean error message
             error_detail = getattr(e, "detail", str(e))
+            logger.warning(f"Execution failed for {action_id}: {error_detail} | Args: {filtered_args}")
             
             response = {
                 "status": "error", 
                 "message": f"Execution failed: {error_detail}"
             }
             
-            # Wenn die Landmark ein Remedy definiert hat, leiten wir den Agenten an!
-            if landmark.remedy:
-                response["remedy"] = landmark.remedy
+            # Apply Remedy Shadowing if available
+            meta = self.registry.get(action_id)
+            if meta and meta.remedy:
+                logger.info(f"Shadowing exception for {action_id} with YAML remedy.")
+                response["message"] = meta.remedy
+                # Keep the technical info hidden from the primary message
+                # but we could put it in a separate field if we really wanted to.
+                # Per previous decision: We hide it from the AI.
                 
             return response
 

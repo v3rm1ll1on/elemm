@@ -53,8 +53,14 @@ class SequenceEngine:
     def _resolve_piping(self, data: Any, context: Dict[str, Any], action_id: Optional[str] = None) -> Tuple[Any, Optional[str]]:
         """Resolves piped variables like $alias or $alias.field.path"""
         if isinstance(data, str) and data.startswith("$"):
-            # Deep path resolution (e.g. $node_info.result.hostname)
-            parts = data[1:].split(".")
+            var_name = data[1:]
+            
+            # 1. Exact match (handles aliases with dots like 'step0.hostname')
+            if var_name in context:
+                return context[var_name], None
+            
+            # 2. Deep path resolution (e.g. $node_info.result.hostname)
+            parts = var_name.split(".")
             alias = parts[0]
             
             if alias not in context:
@@ -71,9 +77,12 @@ class SequenceEngine:
                     if idx < len(source): source = source[idx]
                     else: return None, f"Index {idx} out of range for '{alias}'"
                 else:
-                    # Semantic Fallback: Maybe the user missed a level (e.g. .result)
-                    # We continue but the unboxing later might fix it
-                    break
+                    # Semantic Fallback: Try matching 'part' inside 'source' (even if list/dict)
+                    match = self._find_semantic_match(source, part)
+                    if match is not None:
+                        source = match
+                    else:
+                        break # Path broken
             
             return source, None
 
@@ -125,9 +134,18 @@ class SequenceEngine:
                 
         elif isinstance(obj, list):
             # Search inside list elements
+            candidates = []
             for item in obj:
                 match = self._find_semantic_match(item, target_key)
                 if match is not None:
-                    return match
+                    candidates.append(match)
+            
+            # Ambiguity Handling: If we find multiple candidates, don't guess!
+            if len(candidates) > 1:
+                logger.warning(f"Ambiguity detected for '{target_key}': {candidates}")
+                return None
+                
+            if len(candidates) == 1:
+                return candidates[0]
         
         return None

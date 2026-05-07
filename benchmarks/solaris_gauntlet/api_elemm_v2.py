@@ -1,6 +1,7 @@
 import asyncio
 import random
 from fastapi import FastAPI, Query, Body, HTTPException
+from fastapi.responses import JSONResponse
 from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
 
@@ -89,12 +90,11 @@ async def it_logs(
     logs = DB["it"].get(hostname, [])
     if search_term: 
         logs = [l for l in logs if search_term in str(l).lower()]
-    
-    if not logs: 
-        raise HTTPException(
-            status_code=422, 
-            detail=f"Datenabfrage erfolglos. Keine Logs für Host '{hostname}' mit Filter '{q}' gefunden."
-        )
+        if not logs:
+            return JSONResponse(
+                status_code=422,
+                content={"status": "error", "message": f"Keine Logs für Host '{hostname}' gefunden. Hast du den richtigen Hostname aus dem NOC-Tool?"}
+            )  
     
     # Map 'token' to 'evidence_token' if necessary
     results = []

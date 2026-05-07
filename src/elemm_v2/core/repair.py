@@ -67,3 +67,17 @@ class SmartRepairEngine:
             message=f"Cannot execute '{namespace_id}' because it is a namespace/group, not a specific tool.",
             remedy=f"Call 'inspect_landmarks' with landmark_ids=[\"{namespace_id}\"] to see the available executable tools inside this namespace."
         )
+
+    @staticmethod
+    def handle_placeholder_detected(param_name: str, value: Any) -> RepairResult:
+        if isinstance(value, str) and value.startswith("$"):
+            msg = f"Parameter '{param_name}' contains an unresolved variable: '{value}'."
+            remedy = f"The engine could not find a match for '{value}'. Ensure the alias exists or use explicit dot-notation (e.g. $step0.hostname)."
+        else:
+            msg = f"Parameter '{param_name}' contains a placeholder value: '{value}'."
+            remedy = f"Do not use placeholders like 'UNKNOWN'. You must retrieve the actual value from a previous tool's output first."
+            
+        return RepairResult(
+            message=msg,
+            remedy=remedy
+        )
