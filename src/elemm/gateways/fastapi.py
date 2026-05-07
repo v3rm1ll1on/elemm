@@ -70,7 +70,7 @@ class FastAPIGateway:
         @self.app.get("/.well-known/elemm-manifest.md", tags=["discovery"], include_in_schema=False)
         async def well_known_manifest(
             response: Response, 
-            landmark_id: Optional[Union[str, List[str]]] = Query(None),
+            landmark_id: Optional[str] = Query(None),
             technical: bool = Query(False),
             full: bool = Query(False)
         ):
@@ -92,16 +92,6 @@ class FastAPIGateway:
                 manifest_md = self.manager.get_manifest_md(technical=technical)
             
             return Response(content=manifest_md, media_type="text/markdown")
-
-        @self.app.get("/.well-known/elemm-inspect.md", tags=["discovery"], include_in_schema=False)
-        async def well_known_inspect(response: Response, landmark_id: Optional[Union[str, List[str]]] = Query(None)):
-            """Alias für manifest detail view."""
-            return await well_known_manifest(response, landmark_id=landmark_id)
-
-        @self.app.get("/.well-known/elemm", tags=["discovery"], include_in_schema=False)
-        async def well_known_legacy(response: Response):
-            """Legacy redirect/alias for v2 discovery."""
-            return await well_known_manifest(response)
 
         @self.app.post("/.well-known/elemm/execute", tags=["execution"], include_in_schema=False)
         async def well_known_execute(

@@ -1,8 +1,8 @@
 import pytest
 from fastapi import FastAPI, Query
 from fastapi.testclient import TestClient
-from elemm_v2.core.manager import AIProtocolManager
-from elemm_v2.gateways.fastapi import FastAPIGateway
+from elemm.core.manager import AIProtocolManager
+from elemm.gateways.fastapi import FastAPIGateway
 
 def test_fastapi_repair_handler():
     app = FastAPI()
@@ -33,7 +33,7 @@ def test_fastapi_well_known():
     gateway.bind_to_app(app)
     
     client = TestClient(app)
-    resp = client.get("/.well-known/elemm")
+    resp = client.get("/.well-known/elemm-manifest.md")
     assert resp.status_code == 200
-    assert "ELEMM SYSTEM DIRECTORY" in resp.text
-    assert "Global Instructions" not in resp.text # Weil manifest nur Index zeigt
+    assert "ELEMM v2 SECURE INTERFACE" in resp.text
+    assert "Global Instructions" in resp.text # Manifest shows instructions in v2

@@ -5,8 +5,8 @@ from fastapi.responses import JSONResponse
 from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
 
-from elemm_v2 import AIProtocolManager
-from elemm_v2.gateways.fastapi import FastAPIGateway
+from elemm import AIProtocolManager
+from elemm.gateways.fastapi import FastAPIGateway
 from shared_db import get_shared_database
 
 # --- SCHEMAS ---
@@ -209,7 +209,7 @@ gateway.bind_to_app(app)
 if __name__ == "__main__":
     import sys
     if "--mcp" in sys.argv or "--stdio" in sys.argv:
-        from elemm_v2.gateways.mcp_server import MCPGateway
+        from elemm.gateways.mcp_server import MCPGateway
         mcp_gateway = MCPGateway(manager)
         mcp_gateway.run_stdio()
     else:

@@ -6,3 +6,8 @@
     - Update `Presenter` to include these hints in a hidden block when `?technical=true` is requested.
     - Modify `ElemmGateway` (Broker) to parse and then strip these hints before presenting the manifest to the Agent.
     - Support mapping custom keys (e.g., `token`, `session_id`) to the `Authorization` header automatically.
+
+## 🛡️ Protocol Hardening
+- [ ] **Presenter:** Implement Redundancy Filter for descriptions (Token saving).
+- [ ] **Manager:** Support dynamic Remedies directly on Landmark objects in call_action.
+- [ ] **Manager:** Pass Landmark remedies to SmartRepairEngine for validation errors.

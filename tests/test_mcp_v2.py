@@ -1,7 +1,7 @@
 import pytest
 import json
-from elemm_v2.core.manager import AIProtocolManager
-from elemm_v2.gateways.mcp import MCPGateway
+from elemm.core.manager import AIProtocolManager
+from elemm.gateways.mcp_server import MCPGateway
 
 class MockText:
     def __init__(self, text):

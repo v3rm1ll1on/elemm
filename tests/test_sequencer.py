@@ -1,32 +1,33 @@
 import pytest
-from elemm_v2.core.sequencer import PipeResolver, SequenceEngine
-from elemm_v2.core.manager import AIProtocolManager
+from elemm.core.sequencer import SequenceEngine
+from elemm.core.manager import AIProtocolManager
 
 def test_pipe_resolver_full_match():
+    manager = AIProtocolManager()
+    engine = SequenceEngine(manager)
     context = {"res1": {"id": 123, "data": {"key": "val"}}, "list": [{"name": "item0"}, {"name": "item1"}]}
     
     # Simple field
-    val, err = PipeResolver.resolve("$res1.id", context)
+    val, err = engine.resolve_all("$res1.id", context)
     assert val == 123
     assert err is None
     
-    # Nested field (if it was implemented, but current pattern is shallow)
-    # Actually, current pattern is alias.field. 
-    # For nested we'd need more logic. Let's stay with shallow for now.
-    
     # List access
-    val, err = PipeResolver.resolve("$list[1].name", context)
+    val, err = engine.resolve_all("$list[1].name", context)
     assert val == "item1"
     
-    # List default (index 0)
-    val, err = PipeResolver.resolve("$list.name", context)
+    # List access - explicit index required if multiple items
+    val, err = engine.resolve_all("$list[0].name", context)
     assert val == "item0"
-
-def test_pipe_resolver_substring():
-    context = {"user": {"name": "Siddy"}}
-    val, err = PipeResolver.resolve("Hello $user.name!", context)
-    assert val == "Hello Siddy!"
     assert err is None
+
+def test_pipe_resolver_no_substring_support():
+    manager = AIProtocolManager()
+    engine = SequenceEngine(manager)
+    context = {"user": {"name": "Siddy"}}
+    # Substring resolution is deprecated in favor of strict parameter piping
+    val, err = engine.resolve_all("Hello $user.name!", context)
+    assert val == "Hello $user.name!"
 
 @pytest.mark.asyncio
 async def test_sequence_engine():
@@ -44,7 +45,7 @@ async def test_sequence_engine():
         {"action": "step2", "parameters": {"user_id": "$s1.uid"}}
     ]
     
-    results = await engine.run(actions)
+    results = await engine.run(actions, {})
     assert len(results) == 2
     assert results[0]["result"]["uid"] == "user-1"
     assert results[1]["result"]["msg"] == "Welcome user-1"
