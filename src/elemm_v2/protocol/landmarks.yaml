@@ -1,0 +1,18 @@
+version: "2.0"
+landmarks:
+  sys:status:
+    type: "action"
+    description: "Abfrage des aktuellen Systemstatus."
+    instructions: "Gibt Auskunft über CPU, RAM und Disk-Usage."
+    remedy: "Bei Timeout: Dienst neu starten."
+    tags: ["monitoring", "core"]
+    
+  sys:reboot:
+    type: "action"
+    description: "Startet das System neu."
+    parameters:
+      - name: "reason"
+        type: "string"
+        description: "Grund für den Neustart."
+        required: false
+    remedy: "Sicherstellen, dass alle User benachrichtigt wurden."
