@@ -77,12 +77,14 @@ class SequenceEngine:
                     if idx < len(source): source = source[idx]
                     else: return None, f"Index {idx} out of range for '{alias}'"
                 else:
-                    # Semantic Fallback: Try matching 'part' inside 'source' (even if list/dict)
+                    # Semantic Fallback: Try matching 'part' inside 'source'
                     match = self._find_semantic_match(source, part)
                     if match is not None:
                         source = match
                     else:
-                        break # Path broken
+                        # CRITICAL: If a path was requested but not found, 
+                        # we must NOT return the intermediate container.
+                        return None, f"Field '{part}' not found in path"
             
             return source, None
 
@@ -118,17 +120,7 @@ class SequenceEngine:
             if target_key in obj:
                 return obj[target_key]
             
-            # 2. Common technical synonyms (Heuristic)
-            synonyms = {
-                "hostname": ["node_id", "srv_name", "host", "node"],
-                "token": ["evidence_token", "rt_token", "id"],
-                "account_id": ["account_ref", "acc_no", "account"],
-                "username": ["principal", "user", "uid"]
-            }
-            for syn in synonyms.get(target_key, []):
-                if syn in obj: return obj[syn]
-            
-            # 3. Single-field Unwrap
+            # 2. Single-field Unwrap (Generic Fallback)
             if len(obj) == 1:
                 return list(obj.values())[0]
                 

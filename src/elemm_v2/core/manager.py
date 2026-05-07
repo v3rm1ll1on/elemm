@@ -90,7 +90,7 @@ class AIProtocolManager:
 
         # Pre-execution placeholder check
         for k, v in arguments.items():
-            if isinstance(v, str) and (v.upper() in ["UNKNOWN", "PLACEHOLDER", "UNKNOWN_TOKEN"] or v.startswith("$")):
+            if isinstance(v, str) and (v.upper() in ["UNKNOWN", "PLACEHOLDER"] or v.startswith("$")):
                 from .repair import SmartRepairEngine
                 return SmartRepairEngine.handle_placeholder_detected(k, v).dict(exclude_none=True)
 
