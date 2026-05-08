@@ -12,16 +12,16 @@ The `ElemmGateway` is your primary interface. It allows you to register Python f
 from elemm import ElemmGateway
 from typing import Literal
 
-gateway = ElemmGateway(name="SecurityHub")
+gateway = ElemmGateway(name="CloudGuardian")
 
 @gateway.action(
-    landmark="AccessControl",
-    description="Control the locking mechanism of a specific door.",
-    remedy="If 'Access Denied', verify the door_id via 'AccessControl:get_status'."
+    landmark="Compute",
+    description="Control the power state of a virtual machine.",
+    remedy="If the instance_id is unknown, use 'Compute:list_instances'."
 )
-async def toggle_lock(door_id: str, state: Literal["lock", "unlock"]):
+async def toggle_power(instance_id: str, state: Literal["start", "stop"]):
     # Business logic here
-    return {"status": "success", "door": door_id, "new_state": state}
+    return {"status": "success", "instance": instance_id, "new_state": state}
 ```
 
 ---
@@ -31,20 +31,20 @@ async def toggle_lock(door_id: str, state: Literal["lock", "unlock"]):
 Elemm automatically generates JSON schemas from your Python type hints. This ensures the AI knows exactly what data type to send.
 
 ### Using Pydantic for Complex Objects
-For nested or complex inputs, use Pydantic models:
+For nested or complex inputs, use Pydantic models. Elemm will automatically "unbox" the model into individual tool parameters for the agent.
 
 ```python
 from pydantic import BaseModel
 
-class NetworkConfig(BaseModel):
-    ip: str
-    vlan: int = 10
-    dhcp: bool = True
+class InstanceConfig(BaseModel):
+    image: str = "ubuntu-24.04"
+    cpu_cores: int = 2
+    memory_gb: int = 4
 
-@gateway.action(landmark="Network")
-def apply_config(hostname: str, config: NetworkConfig):
-    # 'config' is automatically validated and instantiated as a Pydantic model
-    return {"host": hostname, "applied": config.model_dump()}
+@gateway.action(landmark="Compute")
+def create_instance(name: str, config: InstanceConfig):
+    # 'config' is automatically instantiated from individual tool arguments
+    return {"name": name, "specs": config.model_dump()}
 ```
 
 ---
@@ -53,8 +53,8 @@ def apply_config(hostname: str, config: NetworkConfig):
 
 The `remedy` parameter in the `@gateway.action` decorator acts as a safety net. If an agent calls a tool incorrectly, Elemm will return the error along with the remedy.
 
-- **Standard Error**: `Invalid ID 'SRV-1'`
-- **Elemm SmartRepair**: `Invalid ID 'SRV-1'. Use 'NOC:list_nodes' to find the correct server ID.`
+- **Standard Error**: `Invalid Instance ID 'VM-99'`
+- **Elemm SmartRepair**: `Invalid Instance ID 'VM-99'. Use 'Compute:list_instances' to find the correct ID.`
 
 This mechanism dramatically reduces "stuck" agents and improves autonomous task completion rates.
 
@@ -64,7 +64,7 @@ This mechanism dramatically reduces "stuck" agents and improves autonomous task 
 
 Unlike standard MCP servers that send all tool definitions at once, Elemm uses a tiered discovery approach:
 
-1.  **Landmarks**: Grouping tools by domain (e.g. `Security`, `HR`, `IT`).
+1.  **Landmarks**: Grouping tools by domain (e.g. `Compute`, `Security`, `Networking`).
 2.  **Manifest**: A compact overview of all namespaces.
 3.  **Landmark Inspection**: On-demand loading of specific tool schemas.
 

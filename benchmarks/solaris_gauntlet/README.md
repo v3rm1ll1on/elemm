@@ -51,7 +51,7 @@ To succeed, the agent must complete a 4-stage forensic chain:
 ## Installation & Setup
 
 1. **Dependencies**: Ensure the `venv` is active and `fastapi`, `uvicorn`, and `mcp` are installed.
-2. **LLM**: By default, the benchmark uses `gemma2:9b` (or your locally configured model) via Ollama on port 11434.
+2. **LLM**: By default, the benchmark uses `gemma4:e2b` (or your locally configured model) via Ollama on port 11434.
 
 ---
 
@@ -61,7 +61,7 @@ To succeed, the agent must complete a 4-stage forensic chain:
 The easiest way to start. No API keys required.
 ```bash
 # Ensure Ollama is running locally
-python3 benchmarks/solaris_gauntlet/benchmark_v2.py --mode compare --model gemma2:9b -n 1
+python3 benchmarks/solaris_gauntlet/benchmark_v2.py --mode compare --model gemma4:e2b -n 1
 ```
 
 #### 2. Using OpenRouter (Claude, GPT-4, etc.)
@@ -92,7 +92,7 @@ python3 benchmarks/solaris_gauntlet/benchmark_v2.py --provider openai --model ge
 | :--- | :--- | :--- |
 | `--mode` | Mode: `elemm`, `classic`, or `compare` | `elemm` |
 | `--provider` | API Provider: `ollama` or `openai` (use `openai` for Google/Claude/OpenRouter) | `ollama` |
-| `--model` | LLM model name (e.g., `llama3`, `gemini-1.5-pro`) | `gemma2:9b` |
+| `--model` | LLM model name (e.g., `llama3`, `gemini-1.5-pro`) | `gemma4:e2b` |
 | `-n` | Number of runs for statistical relevance | `1` |
 | `--ctx` | Context window size (e.g., `32k`, `128k`) | `32k` |
 | `-q`, `--quiet` | Suppresses step-by-step output | `False` |

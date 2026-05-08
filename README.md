@@ -4,9 +4,18 @@
 [![License](https://img.shields.io/pypi/l/elemm.svg)](https://github.com/v3rm1ll1on/elemm/blob/main/LICENSE)
 [![Python versions](https://img.shields.io/pypi/pyversions/elemm.svg)](https://pypi.org/project/elemm/)
 
-**The high-performance communication framework for autonomous LLM agents.**
+**The Infrastructure for the Agentic Web.**
 
-Elemm is the **Landmark Manifest Protocol**, a high-performance communication framework designed to bridge the gap between static tool definitions and autonomous complex reasoning. By utilizing **Semantic Landmarks** and **Manifest-Driven Discovery**, Elemm optimizes token consumption, reduces execution latency, and provides a robust self-healing framework for agentic workflows.
+Elemm is the **Landmark Manifest Protocol**, a next-generation communication framework designed to transform how autonomous LLM agents interact with the digital world. Instead of static tool definitions, Elemm provides a **dynamic, manifest-driven architecture** that enables agents to discover, navigate, and execute complex workflows across distributed APIs with unprecedented efficiency.
+
+---
+
+## The Vision: Agentic Web
+In the Agentic Web, every API is a "Landmark". Agents no longer need massive, hardcoded system prompts to understand a service. They discover capabilities on-the-fly via a standardized manifest, just like a human navigates a website.
+
+- **Unified Discovery**: Every Elemm-compliant server exposes its structure at `/.well-known/elemm-manifest.md`.
+- **Zero System Prompt**: By providing rich semantic landmarks and manifest-driven discovery, you can eliminate thousands of tokens from your system prompts. The protocol *is* the documentation.
+- **One MCP Server, Infinite APIs**: Use a single MCP bridge to connect to dozens of Elemm-powered microservices. Each service manages its own tools, while the bridge provides a unified entry point for the agent.
 
 ---
 
@@ -14,7 +23,7 @@ Elemm is the **Landmark Manifest Protocol**, a high-performance communication fr
 
 Standard protocols like MCP often struggle with large-scale toolsets. Elemm provides a structural solution:
 
-- **Efficient Discovery**: Agents only see a high-level manifest, loading detailed tool schemas only when needed.
+- **Efficient Discovery**: Agents only see a high-level manifest, loading detailed tool schemas only when needed (on-demand inspection).
 - **Atomic Sequencing**: Execute multiple tool calls in a single LLM turn with native variable piping (`$step0.id`).
 - **SmartRepair Engine**: Built-in error handling that provides agents with actionable remedies instead of cryptic stack traces.
 - **Token Economy**: Reduces input tokens by up to 90% in complex forensic and administrative scenarios.
