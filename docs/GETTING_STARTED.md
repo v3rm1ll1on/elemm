@@ -1,4 +1,4 @@
-# 🚀 Getting Started with Elemm v2
+#  Getting Started with Elemm v2
 
 Welcome to Elemm! This guide will help you set up your first autonomous tool environment in minutes.
 

@@ -1,11 +1,11 @@
-# 🛡️ Solaris Gauntlet - The Elemm Protocol Benchmark
+# Solaris Gauntlet - The Elemm Protocol Benchmark
 
 The Solaris Gauntlet is a highly realistic benchmark environment designed to measure the efficiency of the **Elemm Protocol** in direct comparison to **Classic MCP** (standard Model Context Protocol).
 
-## 🎯 Benchmark Objective
+## Benchmark Objective
 The goal is to solve a complex, multi-stage forensic mission in an environment with massive "context noise" (over 100 tools). It measures how efficiently an LLM navigates the API, resolves dependencies, and passes variables between steps.
 
-## ⚙️ How It Works
+## How It Works
 
 ### Elemm Mode (`--mode elemm`)
 Utilizes the native features of the protocol:
@@ -21,26 +21,26 @@ Simulates the standard approach:
 
 ---
 
-## 📊 Benchmark Methodology: Solaris Gauntlet
+## Benchmark Methodology: Solaris Gauntlet
 
 The **Solaris Gauntlet** is a forensic security audit scenario designed to test an agent's ability to navigate complex, multi-domain toolsets under high pressure.
 
-### 🎭 The Scenario
+### The Scenario
 A security breach (Incident SEC-9982) has been detected in the Solaris Enterprise Hub. The agent is cast as a **Forensic Auditor** with the task of resolving the incident.
 
-### 🎯 Objectives
+### Objectives
 To succeed, the agent must complete a 4-stage forensic chain:
 1.  **Infrastructure Discovery**: Resolve the malicious IP (`10.0.4.142`) to a server hostname and audit its logs for evidence.
 2.  **Entity Resolution**: Link log evidence (Evidence Tokens) to a Corporate Username and a Financial Account.
 3.  **Cross-Domain Audit**: Resolve the Corporate Username to a real-world Employee ID via HR and audit recent transactions in Banking/Finance.
 4.  **Remediation**: Execute a multi-step cleanup (Quarantine the account, restart the compromised node, and secure the risk capital).
 
-### ⚙️ Complexity & Noise
+### Complexity & Noise
 - **Tool Volume**: The server provides **111 tools**. Only ~5% are relevant; the rest are "Noise Tools" (e.g., Marketing, Logistics) designed to distract the agent.
 - **Logic Chains**: Tools are dependent on each other. You cannot quarantine an account without a verified `evidence_token`.
 - **Constraint Enforcement**: The Elemm mode enforces protocol adherence (e.g., calling `get_manifest` first).
 
-### 🏆 Expectations & Metrics
+### Expectations & Metrics
 - **Success Rate**: Did the agent reach the `MISSION_SUCCESS` state within 30 steps?
 - **Step Efficiency**: How many turns did the agent need to resolve the logic chain?
 - **Token Economy**: The core metric. How much context (USD cost) was consumed to reach the goal?
@@ -48,16 +48,14 @@ To succeed, the agent must complete a 4-stage forensic chain:
 
 ---
 
-## 🚀 Installation & Setup
+## Installation & Setup
 
 1. **Dependencies**: Ensure the `venv` is active and `fastapi`, `uvicorn`, and `mcp` are installed.
 2. **LLM**: By default, the benchmark uses `gemma2:9b` (or your locally configured model) via Ollama on port 11434.
 
 ---
 
----
-
-### 🚀 Usage Examples
+### Usage Examples
 
 #### 1. Local Testing (Ollama)
 The easiest way to start. No API keys required.
@@ -88,7 +86,7 @@ python3 benchmarks/solaris_gauntlet/benchmark_v2.py --provider openai --model ge
 
 ---
 
-## 🛠️ CLI Parameters
+## CLI Parameters
 
 | Flag | Description | Default |
 | :--- | :--- | :--- |
@@ -102,12 +100,12 @@ python3 benchmarks/solaris_gauntlet/benchmark_v2.py --provider openai --model ge
 
 ---
 
-### 💡 SmartRepair & Protocol Guidance
+### SmartRepair & Protocol Guidance
 This benchmark includes an automated **SmartRepair** system. If a model commits a protocol violation (e.g., trying to call a tool before getting the manifest), the benchmark extracts the `remedy` from the server response and injects it as a clear **Protocol Guidance** message. This helps even smaller models to successfully navigate the autonomous workflow.
 
 ---
 
-## 📊 Example Commands
+## Example Commands
 
 ### 1. The "Smoking Gun" Comparison (Recommended)
 Runs both modes alternately and displays a professional comparison table at the end, including cost savings and token reduction.
@@ -129,7 +127,7 @@ python3 benchmarks/solaris_gauntlet/benchmark_v2.py --mode elemm -n 1
 
 ---
 
-## 📈 Evaluation Metrics
+## Evaluation Metrics
 
 - **Success Rate**: Percentage of successfully completed missions.
 - **Avg Steps**: How many turns does the model need? (Elemm usually takes 2-3, Classic often 7-10).
@@ -138,9 +136,10 @@ python3 benchmarks/solaris_gauntlet/benchmark_v2.py --mode elemm -n 1
 
 ---
 
-## 📁 Benchmark Structure
+## Benchmark Structure
 - `benchmark_v2.py`: The core engine (async, multi-run, reporting).
 - `api_elemm_v2.py`: The Elemm server with landmarks.
 - `mcp_classic.py`: The standard MCP server wrapper.
 - `landmarks_v2.yaml`: The metadata definition for Elemm.
 - `shared_db.py`: Shared in-memory database for fair comparisons.
+`: Shared in-memory database for fair comparisons.

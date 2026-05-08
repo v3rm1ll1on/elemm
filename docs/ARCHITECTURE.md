@@ -1,6 +1,6 @@
-# 🏛️ Elemm v2 Architecture Overview
+# 🏛 Elemm v2 Architecture Overview
 
-## 💡 The Problem: "The Swiss Army Knife Paradox"
+##  The Problem: "The Swiss Army Knife Paradox"
 Standard AI toolsets (like basic MCP) often give an agent 50+ tools at once. 
 **The result:** The agent gets confused (Context Bloating), gets slow, and starts hallucinating. It's like giving someone a 1000-page manual and asking them to find one specific screw.
 
@@ -12,7 +12,7 @@ Standard AI toolsets (like basic MCP) often give an agent 50+ tools at once.
 
 ---
 
-## 🛰️ The Discovery Cycle
+## 🛰 The Discovery Cycle
 The Elemm protocol follows a strict three-stage handshake:
 
 1.  **`get_manifest()`**: The agent requests the system summary. It receives a list of available Landmarks and their high-level purpose, but NO tool signatures yet.
@@ -36,7 +36,7 @@ The core strength of Elemm. It allows chaining multiple actions into a single "T
 
 ---
 
-## 🛡️ SmartRepair & Forensic Auditing
+## 🛡 SmartRepair & Forensic Auditing
 Elemm is designed for **Autonomous Reliability**. If an agent makes a mistake (e.g., calling a tool directly or using wrong parameters), the system doesn't just error out:
 
 - **Remedy Shadowing**: To prevent AI confusion, low-level technical stack traces are "shadowed" by high-level instructions (remedies) defined in the protocol registry. The agent sees a clear path to recovery instead of raw code errors.
@@ -48,7 +48,7 @@ Elemm is designed for **Autonomous Reliability**. If an agent makes a mistake (e
 
 ---
 
-## 🛠️ Component Breakdown
+##  Component Breakdown
 
 | Component | Responsibility |
 | :--- | :--- |

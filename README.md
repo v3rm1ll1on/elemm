@@ -1,4 +1,4 @@
-# 🌌 Elemm (Element Mapping) v2
+# Elemm (Element Mapping) v2
 
 **Autonomous. Efficient. Reliable.**
 
@@ -6,7 +6,7 @@ Elemm is a next-generation protocol for AI agents, designed to bridge the gap be
 
 ---
 
-## 🚀 Key Features
+## Key Features
 - **Semantic Landmarks**: Group tools into logical namespaces for better discovery.
 - **High-Performance Sequencing**: Execute multi-step chains in a single LLM turn.
 - **SmartRepair Engine**: Provide agents with actionable remedies for protocol errors.
@@ -16,16 +16,16 @@ Elemm is a next-generation protocol for AI agents, designed to bridge the gap be
 
 ---
 
-## 📚 Documentation
+## Documentation
 - **[Getting Started](docs/GETTING_STARTED.md)**: Install and run your first landmark.
 - **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Build your own tools with decorators and Pydantic.
 - **[Architecture Overview](docs/ARCHITECTURE.md)**: Deep dive into the Elemm philosophy.
 - **[Protocol Specification](docs/PROTOCOL_SPEC.md)**: Technical details for implementers.
-- **[Benchmarking Results](docs/BENCHMARKING.md)**: See how Elemm crushes standard MCP.
+- **[Benchmarking Results](docs/BENCHMARKING.md)**: Performance analysis vs. standard MCP.
 
 ---
 
-## 🏎️ Quick Start (The Easy Way)
+## Quick Start
 1. **Install**: `pip install elemm`
 2. **Connect**: Add `mcp.py` to your Claude Desktop config:
 ```json
@@ -34,8 +34,8 @@ Elemm is a next-generation protocol for AI agents, designed to bridge the gap be
   "args": ["/path/to/elemm/examples/mcp.py", "http://localhost:8000"]
 }
 ```
-*Note: Make sure your Elemm-powered site is running on port 8000.*
+*Note: Ensure your Elemm-powered site is running on port 8000.*
 
-## ⚖️ License
+## License
 Copyright (C) 2026 Marc Stöcker.
 GPLv3 License. See [LICENSE](LICENSE) for details.

@@ -1,10 +1,10 @@
-# 📊 Elemm Performance Benchmarking
+#  Elemm Performance Benchmarking
 
 Elemm is built for efficiency. We use the **Solaris Gauntlet**—a complex multi-step forensic audit task—to measure how well our protocol performs compared to standard "flat" MCP implementations.
 
 ---
 
-## 🏎️ Running the Benchmarks
+##  Running the Benchmarks
 The benchmark suite is located in `benchmarks/solaris_gauntlet/`.
 
 ### Standard Run (Elemm v2)
@@ -19,7 +19,7 @@ python3 benchmarks/solaris_gauntlet/benchmark_v2.py --mode classic -n 10
 
 ---
 
-## 📈 Real-World Results (Gemma 2b)
+##  Real-World Results (Gemma 2b)
 In our tests with the Gemma 2b model, Elemm v2 outperformed the classic approach in every metric:
 
 | Metric | Classic MCP | Elemm v2 | Improvement |

@@ -1,4 +1,4 @@
-# 🛠️ Elemm v2 Developer Guide
+#  Elemm v2 Developer Guide
 
 This guide explains how to build and integrate tools into the Elemm v2 framework.
 
