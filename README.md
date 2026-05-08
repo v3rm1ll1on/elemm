@@ -1,40 +1,72 @@
-# Elemm (Element Mapping) v2
+# Elemm: The Landmark Manifest Protocol
 
-**Autonomous. Efficient. Reliable.**
+[![PyPI version](https://img.shields.io/pypi/v/elemm.svg)](https://pypi.org/project/elemm/)
+[![License](https://img.shields.io/pypi/l/elemm.svg)](https://github.com/v3rm1ll1on/elemm/blob/main/LICENSE)
+[![Python versions](https://img.shields.io/pypi/pyversions/elemm.svg)](https://pypi.org/project/elemm/)
 
-Elemm is a next-generation protocol for AI agents, designed to bridge the gap between static tool definitions and autonomous complex reasoning. It optimizes token consumption, reduces execution latency, and provides a robust self-healing framework for agentic workflows.
+**The high-performance communication framework for autonomous LLM agents.**
+
+Elemm is the **Landmark Manifest Protocol**, a high-performance communication framework designed to bridge the gap between static tool definitions and autonomous complex reasoning. By utilizing **Semantic Landmarks** and **Manifest-Driven Discovery**, Elemm optimizes token consumption, reduces execution latency, and provides a robust self-healing framework for agentic workflows.
 
 ---
 
-## Key Features
-- **Semantic Landmarks**: Group tools into logical namespaces for better discovery.
-- **High-Performance Sequencing**: Execute multi-step chains in a single LLM turn.
-- **SmartRepair Engine**: Provide agents with actionable remedies for protocol errors.
-- **Variable Piping**: Seamless data flow between tools with zero-latency resolution.
-- **Python-First Workflow**: Define tools via decorators and Pydantic models with automatic schema generation.
-- **Benchmark Proven**: Up to 90% token savings and 70% fewer turns compared to standard MCP.
+## Core Advantages
+
+Standard protocols like MCP often struggle with large-scale toolsets. Elemm provides a structural solution:
+
+- **Efficient Discovery**: Agents only see a high-level manifest, loading detailed tool schemas only when needed.
+- **Atomic Sequencing**: Execute multiple tool calls in a single LLM turn with native variable piping (`$step0.id`).
+- **SmartRepair Engine**: Built-in error handling that provides agents with actionable remedies instead of cryptic stack traces.
+- **Token Economy**: Reduces input tokens by up to 90% in complex forensic and administrative scenarios.
 
 ---
 
 ## Documentation
-- **[Getting Started](docs/GETTING_STARTED.md)**: Install and run your first landmark.
-- **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Build your own tools with decorators and Pydantic.
-- **[Architecture Overview](docs/ARCHITECTURE.md)**: Deep dive into the Elemm philosophy.
-- **[Protocol Specification](docs/PROTOCOL_SPEC.md)**: Technical details for implementers.
-- **[Benchmarking Results](docs/BENCHMARKING.md)**: Performance analysis vs. standard MCP.
+
+*   **[Getting Started](docs/GETTING_STARTED.md)**: Install and run your first landmark server.
+*   **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Build your own tools with decorators and Pydantic.
+*   **[Architecture Overview](docs/ARCHITECTURE.md)**: Deep dive into the Elemm philosophy.
+*   **[Protocol Specification](docs/PROTOCOL_SPEC.md)**: Technical details for implementers.
+*   **[Benchmarking Results](docs/BENCHMARKING.md)**: Performance analysis vs. standard MCP.
 
 ---
 
 ## Quick Start
-1. **Install**: `pip install elemm`
-2. **Connect**: Add `mcp.py` to your Claude Desktop config:
+
+### 1. Install
+```bash
+pip install elemm
+```
+
+### 2. Create a Landmark Server
+Elemm uses a decorator-based approach to turn standard Python functions into high-performance landmarks.
+
+```python
+from elemm import ElemmGateway
+
+gateway = ElemmGateway(name="SystemControl")
+
+@gateway.action(landmark="Security")
+async def quarantine_node(node_id: str):
+    """Quarantines a compromised server node."""
+    return {"status": "success", "node": node_id}
+
+if __name__ == "__main__":
+    # Runs an Elemm-compliant API server
+    gateway.run(port=8000)
+```
+
+### 3. Connect to an Agent
+Use the provided MCP bridge to connect your Elemm server to any MCP-compatible agent (e.g. Claude Desktop):
+
 ```json
 "elemm": {
   "command": "python3",
-  "args": ["/path/to/elemm/examples/mcp.py", "http://localhost:8000"]
+  "args": ["-m", "elemm.integrations.mcp_bridge", "http://localhost:8000"]
 }
 ```
-*Note: Ensure your Elemm-powered site is running on port 8000.*
+
+---
 
 ## License
 Copyright (C) 2026 Marc Stöcker.

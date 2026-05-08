@@ -1,132 +1,81 @@
-#  Elemm v2 Developer Guide
+# Elemm Developer Guide
 
-This guide explains how to build and integrate tools into the Elemm v2 framework.
-
----
-
-## 1. The Core Concept: Handlers & Metadata
-In Elemm, a tool consists of two parts:
-1.  **The Handler**: A Python function that performs the work.
-2.  **The Metadata**: Declarative information (JSON/YAML) that tells the AI *how* and *why* to use the tool.
+This guide explains how to build robust toolsets using the Elemm protocol.
 
 ---
 
-## 2. Creating your first Landmark
-The easiest way to register a tool is using the `@manager.landmark` decorator.
+## 1. Defining Actions with decorators
+
+The `ElemmGateway` is your primary interface. It allows you to register Python functions as "Actions" within specific "Landmarks".
 
 ```python
-from elemm.core.manager import AIProtocolManager
+from elemm import ElemmGateway
 from typing import Literal
 
-manager = AIProtocolManager()
+gateway = ElemmGateway(name="SecurityHub")
 
-@manager.landmark(
-    "security:lock_door",
-    description="Lock or unlock a specific door.",
-    remedy="Check the door_id in 'security:get_status' if this fails."
+@gateway.action(
+    landmark="AccessControl",
+    description="Control the locking mechanism of a specific door.",
+    remedy="If 'Access Denied', verify the door_id via 'AccessControl:get_status'."
 )
-async def lock_door(door_id: str, action: Literal["lock", "unlock"]):
-    # The logic goes here
-    return {"status": "success", "door": door_id, "state": action}
+async def toggle_lock(door_id: str, state: Literal["lock", "unlock"]):
+    # Business logic here
+    return {"status": "success", "door": door_id, "new_state": state}
 ```
-
-### 🧠 Pro-Tip: Let Elemm do the heavy lifting
-Instead of writing complex JSON schemas, just use Python type hints. Elemm's **Auto-Mapping engine** translates them for the AI:
-- `Literal["red", "blue"]` -> The AI sees a choice between "red" and "blue".
-- `int` / `float` -> The AI knows it needs a number.
-- **Pydantic Models** -> The AI gets a full structural map of the data.
 
 ---
 
-## 3. Using Pydantic for Complex Inputs
-If your tool requires complex nested data, just use a Pydantic model. Elemm will handle the schema generation and validation for you.
+## 2. Type Hints and Pydantic
+
+Elemm automatically generates JSON schemas from your Python type hints. This ensures the AI knows exactly what data type to send.
+
+### Using Pydantic for Complex Objects
+For nested or complex inputs, use Pydantic models:
 
 ```python
 from pydantic import BaseModel
 
-class Config(BaseModel):
-    brightness: int
-    color_temp: int = 2700
+class NetworkConfig(BaseModel):
+    ip: str
+    vlan: int = 10
+    dhcp: bool = True
 
-@manager.landmark("lighting:apply_config")
-def set_lighting(zone: str, config: Config):
-    # 'config' is automatically instantiated as a Pydantic model!
-    return {"zone": zone, "applied": config.model_dump()}
+@gateway.action(landmark="Network")
+def apply_config(hostname: str, config: NetworkConfig):
+    # 'config' is automatically validated and instantiated as a Pydantic model
+    return {"host": hostname, "applied": config.model_dump()}
 ```
 
 ---
 
-## 4. Integrating YAML Metadata
-While you can define everything in Python, we recommend keeping your descriptions and remedies in a `landmarks.yaml` file. This allows you to update the AI's "instructions" without redeploying code.
+## 3. SmartRepair: Guiding the Agent
 
-**`landmarks.yaml`**:
-```yaml
-landmarks:
-  - id: "security:lock_door"
-    remedy: "Access denied? Ensure the user has the 'admin' role."
-    parameters:
-      - name: "door_id"
-        options: ["front_door", "back_door", "garage"]
-```
+The `remedy` parameter in the `@gateway.action` decorator acts as a safety net. If an agent calls a tool incorrectly, Elemm will return the error along with the remedy.
 
-**Python**:
-```python
-manager.load_metadata("landmarks.yaml")
-```
+- **Standard Error**: `Invalid ID 'SRV-1'`
+- **Elemm SmartRepair**: `Invalid ID 'SRV-1'. Use 'NOC:list_nodes' to find the correct server ID.`
+
+This mechanism dramatically reduces "stuck" agents and improves autonomous task completion rates.
 
 ---
 
-## 5. SmartRepair: Helping the AI help itself
-Think of `remedy` as a **safety net**. When the AI fails (e.g., using a wrong ID), it usually gets a cryptic technical error. With a remedy, you give it a "Hitchhiker's Guide" response.
+## 4. Manifest-Driven Discovery
 
-- **❌ Bad (Technical)**: `ValueError: ID 'f_door' not in database.`
-- **✅ Good (Human/AI)**: `Invalid door_id. Use 'security:get_status' to find the correct ID (e.g., 'front_door').`
+Unlike standard MCP servers that send all tool definitions at once, Elemm uses a tiered discovery approach:
 
-> [!TIP]
-> Always assume the AI is a smart intern who just needs a little hint to get back on track.
+1.  **Landmarks**: Grouping tools by domain (e.g. `Security`, `HR`, `IT`).
+2.  **Manifest**: A compact overview of all namespaces.
+3.  **Landmark Inspection**: On-demand loading of specific tool schemas.
+
+This prevents the "Context Fatigue" that occurs when an LLM is overwhelmed by hundreds of tool definitions.
 
 ---
 
----
+## 5. Performance Best Practices
 
-## 6. Guiding the AI (Prompt Engineering via Metadata)
-While you don't call the tools yourself, you control how the AI uses them. The AI's "brain" is guided by your `description` and `instructions`.
+### Use Sequences for Chained Tasks
+Encourage agents to use `execute_sequence` for multi-step operations. You can guide this behavior in the landmark descriptions.
 
-### How to enforce Sequencing
-If you want the AI to use `execute_sequence` for better performance (e.g., when arming the house and turning off lights), tell it so in the global or landmark-level instructions.
-
-**Example `landmarks.yaml`**:
-```yaml
-instructions: |
-  When the user says "Goodnight", ALWAYS use 'execute_sequence' to arm the security system and turn off all lights in a single turn.
-```
-
-### What the AI actually does (Under the hood)
-When you provide good metadata, a complex task like "Lock the front door and if successful, arm the security system" results in a single efficient call:
-
-**AI Call Example**:
-```json
-execute_sequence(actions=[
-  {
-    "action": "security:lock_door",
-    "parameters": {"door_id": "front_door", "action": "lock"},
-    "alias": "door_lock"
-  },
-  {
-    "action": "lighting:set_state",
-    "condition": "$door_lock.status == 'success'",
-    "parameters": {"zone": "all", "state": "off"},
-    "alias": "lights_off"
-  },
-  {
-    "action": "security:arm",
-    "condition": "$lights_off.status == 'success'",
-    "parameters": {"mode": "night"}
-  }
-])
-```
-
-### Best Practices for Metadata
-- **Tool Description**: Start with a strong verb. "Lock the door" is better than "Door locking mechanism".
-- **Parameter Description**: Be specific about formats. "Target room ID (e.g. 'kitchen')" instead of "the room".
-- **Remedies**: Treat these as "System Prompts" that only trigger on failure. They are your second chance to guide the AI.
+### Explicit Variable Piping
+Elemm supports native variable piping. Results from previous steps can be accessed via `$stepN` aliases, avoiding the need for the agent to manually extract and re-insert data into the prompt.
