@@ -50,6 +50,7 @@ Standard protocols like MCP often struggle with large-scale toolsets. Elemm prov
 *   **[Getting Started](docs/GETTING_STARTED.md)**: Install and run your first landmark server.
 *   **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Build your own tools with decorators and Pydantic.
 *   **[Architecture Overview](docs/ARCHITECTURE.md)**: Deep dive into the Elemm philosophy.
+*   **[Migration Guide](docs/MIGRATION_GUIDE.md)**: Upgrading from v1.0.0 to v1.0.1.
 *   **[Protocol Specification](docs/PROTOCOL_SPEC.md)**: Technical details for implementers.
 *   **[Benchmarking Results](docs/BENCHMARKING.md)**: Performance analysis vs. standard MCP.
 
