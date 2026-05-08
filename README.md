@@ -19,6 +19,21 @@ In the Agentic Web, every API is a "Landmark". Agents no longer need massive, ha
 
 ---
 
+## The Philosophy: Decoupling Intelligence
+
+Elemm is more than just a protocol; it's a shift toward **Decentralized Intelligence**. In the traditional SaaS model, providers often bundle their APIs with expensive, centralized LLM interfaces. Elemm decouples the "Body" (the API) from the "Brain" (the Agent).
+
+### Bring Your Own Agent (BYOA)
+With Elemm, API providers only define the **Landmarks** and **Manifests**. The user brings their own autonomous agent to the platform. This shifts the computational burden and cost of "reasoning" to the edge—the user's own system.
+
+### Sustainability & Efficiency
+By eliminating the need for massive, repetitive system prompts and context-heavy tool injections, Elemm significantly reduces the global token footprint of AI interactions.
+- **Lower Latency**: No more waiting for centralized "gatekeeper" models to process 20k tokens of documentation.
+- **Reduced CO2 & Energy**: Fewer tokens mean less GPU compute time, directly translating into a lower carbon footprint for every autonomous task.
+- **Cost Sovereignty**: Providers save on LLM hosting and token costs, while users get the freedom to choose the model that best fits their task and budget.
+
+---
+
 ## Core Advantages
 
 Standard protocols like MCP often struggle with large-scale toolsets. Elemm provides a structural solution:
