@@ -1,72 +1,76 @@
-# Migration Guide: Moving to Elemm v1.0.1
+# Quick Migration: Shifting your API to Elemm
 
-This guide helps you transition your existing landmark implementations to the stabilized v1.0.1 protocol.
+This guide provides a 3-step action plan to migrate your existing tools, scripts, or APIs to the Elemm Landmark Protocol.
 
 ---
 
-## 1. High-Level API: Use `ElemmGateway`
+## Step 1: Categorize your Tools (Landmarks)
 
-In previous versions, you might have used `AIProtocolManager` directly. For v1.0.1, we introduced the `ElemmGateway` facade to simplify server setup and tool registration.
+Instead of a flat list of tools, group your functions into logical domains. 
 
-**Old (v1.0.0):**
-```python
-from elemm.core.manager import AIProtocolManager
-manager = AIProtocolManager()
+**Example:**
+- `get_user`, `list_users` -> Landmark: **HR**
+- `restart_server`, `get_load` -> Landmark: **Ops**
 
-@manager.action(namespace="Compute", name="start")
-async def start_instance(id: str):
-    ...
-```
+---
 
-**New (v1.0.1):**
+## Step 2: Wrap your Functions
+
+Replace your existing tool decorators (or manual registries) with the `@gateway.action` decorator.
+
 ```python
 from elemm import ElemmGateway
-gateway = ElemmGateway(name="CloudControl")
 
-@gateway.action(landmark="Compute")
-async def start_instance(id: str):
+gateway = ElemmGateway(name="MyService")
+
+# Just add the decorator and specify a landmark
+@gateway.action(landmark="Ops")
+async def get_system_load():
+    # Your existing code stays exactly the same
+    return {"load": 0.42}
+```
+
+**Key Difference:** You don't need to rename your functions or change your business logic. The protocol handles the namespacing (e.g., `Ops:get_system_load`) automatically.
+
+---
+
+## Step 3: Enrich with Metadata (3a or 3b)
+
+You need to tell the agent what your tools do. You have two ways to do this:
+
+### 3a: The Inline Way (Fastest)
+Add descriptions and "SmartRepair" remedies directly to your decorators. This is great for quick migrations and small toolsets.
+
+```python
+@gateway.action(
+    landmark="Ops",
+    description="Restarts a specific server node.",
+    remedy="Use 'Ops:list_servers' to find a valid server name."
+)
+async def restart_server(name: str):
     ...
 ```
-*Note: The `landmark` parameter replaces `namespace`. The tool name is automatically derived from the function name.*
 
----
+### 3b: The Declarative Way (Scalable)
+Move all metadata (descriptions, global remedies, instructions) into a `landmarks.yaml`. This keeps your Python code "pure" and allows you to update the agent's behavior without redeploying code.
 
-## 2. Automated Prefixing
-
-Elemm v1.0.1 automatically prefixes tool IDs with their landmark name (e.g., `Compute:start_instance`). You no longer need to manually manage unique strings across different landmarks.
-
----
-
-## 3. Declarative Metadata (YAML)
-
-If you were using custom dictionary-based metadata loading, switch to the standardized `load_metadata` method. We've also added support for global remedies.
-
-**Old YAML:**
 ```yaml
-namespaces:
-  - id: "Compute"
-    remedy: "Global fix..."
-```
-
-**New YAML (v1.0.1):**
-```yaml
+# landmarks.yaml
 landmarks:
-  - id: "Compute"
-    remedy_global: "Global fix..." # New alias for better readability
+  - id: "Ops"
+    description: "System administration and monitoring tools."
+    remedy_global: "Always verify the target node status before executing write actions."
+```
+
+In your Python code, simply load it:
+```python
+gateway.load_metadata("landmarks.yaml")
 ```
 
 ---
 
-## 4. Discovery Endpoints
+## Summary: What changed?
 
-The protocol now strictly follows the well-known URI pattern for discovery. Ensure your agentic wrappers point to:
-
-- **Manifest**: `GET /.well-known/elemm-manifest.md`
-- **Inspection**: `GET /.well-known/elemm-inspect.md?landmark_id=...`
-- **Execution**: `POST /.well-known/elemm/execute`
-
----
-
-## 5. Pydantic Unboxing
-
-v1.0.1 introduces "Smart Unboxing". If your function takes a single Pydantic model, it will now appear as individual parameters to the agent. This requires **no code changes** on your part, but you will notice cleaner tool schemas in the manifest.
+1.  **No more massive System Prompts**: The protocol handles discovery and guidance.
+2.  **Less Token Waste**: Agents only load the tools they actually need for the current landmark.
+3.  **Automatic Error Recovery**: The `remedy` loop fixes agent mistakes on-the-fly.

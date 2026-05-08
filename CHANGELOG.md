@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-05-08
+
+### Added
+- **Practical Migration Guide**: New hands-on guide for shifting existing APIs and tools from Classic MCP to Elemm.
+- **Visionary Documentation**: Expanded README with the 'Agentic Web' and 'Decoupled Intelligence' philosophy.
+- **Dynamic Gateway Pattern**: Documented the architectural pattern for scaling with distributed microservices.
+
+### Fixed
+- **Documentation Leaks**: Harmonized code examples across all guides to follow a consistent Cloud Infrastructure narrative.
+- **Reference Models**: Updated benchmark references to gemma4:e2b.
+
 ## [1.0.1] - 2026-05-08
 
 ### Added
