@@ -6,19 +6,19 @@ from elemm.core.sequencer import SequenceEngine
 async def test_sequencer_piping_and_remedy():
     manager = AIProtocolManager(instructions="Test")
     
-    @manager.bind("step1")
+    @manager.bind("step:one")
     def step1():
         return {"token": "RT-123", "meta": {"id": 1}}
     
-    @manager.bind("step2")
+    @manager.bind("step:two")
     def step2(token: str):
         return {"status": "ok", "token_used": token}
 
     engine = SequenceEngine(manager)
     
     actions = [
-        {"action": "step1", "alias": "res1"},
-        {"action": "step2", "parameters": {"token": "$res1.token"}}
+        {"action": "step:one", "alias": "res1"},
+        {"action": "step:two", "parameters": {"token": "$res1.token"}}
     ]
     
     results = await engine.run(actions, {})
@@ -29,14 +29,14 @@ async def test_sequencer_piping_and_remedy():
 async def test_sequencer_error_enrichment():
     manager = AIProtocolManager(instructions="Test")
     
-    @manager.bind("fail_tool")
+    @manager.bind("test:fail_tool")
     def fail_tool(required_param: str):
         return {"status": "error", "message": "Missing something"}
 
-    manager.landmarks["fail_tool"].remedy = "Use 'correct_value' for this param."
+    manager.landmarks["test:fail_tool"].remedy = "Use 'correct_value' for this param."
     
     engine = SequenceEngine(manager)
-    actions = [{"action": "fail_tool", "parameters": {}}]
+    actions = [{"action": "test:fail_tool", "parameters": {}}]
     
     results = await engine.run(actions, {})
     assert results[0]["result"]["status"] == "error"
@@ -68,18 +68,18 @@ def test_pipe_resolver_complex_paths():
 async def test_sequencer_conditions():
     manager = AIProtocolManager()
     
-    @manager.bind("always")
+    @manager.bind("test:always")
     def always(): return {"status": "ok"}
     
-    @manager.bind("conditional")
+    @manager.bind("test:conditional")
     def conditional(): return {"executed": True}
 
     engine = SequenceEngine(manager)
     
     # Test skipping
     actions = [
-        {"action": "always", "alias": "a"},
-        {"action": "conditional", "condition": "$a.status == 'error'"}
+        {"action": "test:always", "alias": "a"},
+        {"action": "test:conditional", "condition": "$a.status == 'error'"}
     ]
     results = await engine.run(actions, {})
     assert len(results) == 2
@@ -87,8 +87,8 @@ async def test_sequencer_conditions():
 
     # Test executing
     actions = [
-        {"action": "always", "alias": "a"},
-        {"action": "conditional", "condition": "$a.status == 'ok'"}
+        {"action": "test:always", "alias": "a"},
+        {"action": "test:conditional", "condition": "$a.status == 'ok'"}
     ]
     results = await engine.run(actions, {})
     assert len(results) == 2

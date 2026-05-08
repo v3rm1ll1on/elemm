@@ -64,12 +64,17 @@ class AIProtocolManager:
     def landmark(self, landmark_id: str, **landmark_data):
         """Dekorator für Landmark-Tools."""
         def decorator(func: Callable):
-            parts = landmark_id.split(":")
+            # Auto-Prefix if only namespace is provided
+            actual_id = landmark_id
+            if ":" not in landmark_id:
+                actual_id = f"{landmark_id}:{func.__name__}"
+            
+            parts = actual_id.split(":")
             
             # Fetch Metadata from Registry if available
-            tool_meta = self.registry.get(landmark_id)
+            tool_meta = self.registry.get(actual_id)
             
-            desc = landmark_data.pop("description", None) or (tool_meta.description if tool_meta else None) or func.__doc__ or f"Tool: {landmark_id}"
+            desc = landmark_data.pop("description", None) or (tool_meta.description if tool_meta else None) or func.__doc__ or f"Tool: {actual_id}"
             params = landmark_data.pop("parameters", None) or (tool_meta.parameters if tool_meta else None)
             
             # Auto-Discovery if no parameters provided
@@ -84,13 +89,15 @@ class AIProtocolManager:
                 root_id = parts[0]
                 if root_id not in self.landmarks:
                     root_meta = self.registry.get(root_id)
+                    root_data = root_meta.model_dump(exclude_none=True) if root_meta else {}
                     self.landmarks[root_id] = Landmark(
                         id=root_id,
-                        description=root_meta.description if root_meta else f"Area: {root_id}"
+                        description=root_data.get("description", f"Area: {root_id}"),
+                        **{k: v for k, v in root_data.items() if k != "id" and k != "description"}
                     )
                 
                 tool = Landmark(
-                    id=landmark_id, 
+                    id=actual_id, 
                     handler=func, 
                     description=desc, 
                     parameters=params, 
@@ -100,7 +107,7 @@ class AIProtocolManager:
                     **landmark_data
                 )
                 self.landmarks[root_id].tools.append(tool)
-                self.landmarks[landmark_id] = tool
+                self.landmarks[actual_id] = tool
             else:
                 self.landmarks[landmark_id] = Landmark(
                     id=landmark_id, 
@@ -169,7 +176,23 @@ class AIProtocolManager:
         try:
             import inspect
             sig = inspect.signature(landmark.handler)
-            filtered_args = {k: v for k, v in arguments.items() if k in sig.parameters}
+            sig_params = [p for n, p in sig.parameters.items() if n not in ["self", "cls", "context", "kwargs"]]
+            
+            # --- SMART WRAPPING ---
+            # If the handler expects a single Pydantic model, wrap the arguments
+            final_args = arguments
+            if len(sig_params) == 1:
+                param = sig_params[0]
+                try:
+                    from pydantic import BaseModel
+                    if inspect.isclass(param.annotation) and issubclass(param.annotation, BaseModel):
+                        # Construct the model from arguments
+                        model_inst = param.annotation(**arguments)
+                        final_args = {param.name: model_inst}
+                except Exception as e:
+                    logger.debug(f"Pydantic wrapping failed for {action_id}: {e}")
+            
+            filtered_args = {k: v for k, v in final_args.items() if k in sig.parameters}
             
             logger.info(f"Executing {action_id} with {filtered_args}")
             
@@ -180,14 +203,25 @@ class AIProtocolManager:
             
             # Smart Remedy Shadowing: Keep AI context clean
             if isinstance(result, dict) and result.get("status") == "error":
-                meta = self.registry.get(action_id)
-                if meta and meta.remedy:
-                    logger.warning(f"Tool Error shadowed by Remedy: {result.get('message')}")
-                    original_msg = result.get("message", "Unknown error")
-                    result["message"] = f"{original_msg} | Remedy: {meta.remedy}"
-                    # Remove raw error fields to prevent AI confusion
-                    result.pop("technical_details", None)
-                    result.pop("remedy", None) # It's now the main message
+                # Check Tool Remedy -> then Parent Landmark Remedy -> then Registry
+                remedy = landmark.remedy
+                
+                # If tool has no remedy, check parent landmark
+                if not remedy and ":" in action_id:
+                    parent_id = action_id.split(":")[0]
+                    parent = self.landmarks.get(parent_id)
+                    if parent:
+                        remedy = parent.remedy
+                
+                # Fallback to registry
+                if not remedy:
+                    meta = self.registry.get(action_id)
+                    remedy = meta.remedy if meta else None
+                
+                if remedy and "remedy" not in result:
+                    result["remedy"] = remedy
+            
+            return result
                 
             # Auto-Aliasing: In v2 we only pipe via explicit aliases ($step0 etc.)
             # or the global_context which is managed by the sequencer/broker.
@@ -276,3 +310,60 @@ class AIProtocolManager:
     def bind(self, landmark_id: str):
         """Decorator binding for legacy compatibility."""
         return self.landmark(landmark_id)
+
+
+class ElemmGateway:
+    """
+    High-level entry point for the Landmark Manifest Protocol.
+    
+    This class wraps AIProtocolManager and provides a convenient API for
+    defining actions and running gateway servers (FastAPI or MCP).
+    """
+
+    def __init__(self, name: str = "ElemmGateway", instructions: Optional[str] = None):
+        self.manager = AIProtocolManager(instructions=instructions, welcome_message=f"{name} SECURE INTERFACE")
+        self.name = name
+
+    def configure_landmark(self, landmark: str, **kwargs):
+        """
+        Configure metadata for a specific landmark (namespace).
+        Example: gateway.configure_landmark("Security", priority=1, description="...")
+        """
+        lm = self.manager.get_or_create_landmark(landmark)
+        for k, v in kwargs.items():
+            if hasattr(lm, k):
+                setattr(lm, k, v)
+        logger.info(f"Configured landmark {landmark}")
+
+    def action(self, landmark: str, **kwargs):
+        """
+        Decorator to register a function as an Elemm Action.
+        
+        Args:
+            landmark: The landmark ID (namespace:tool_name).
+            **kwargs: Metadata like 'description', 'remedy', etc.
+        """
+        return self.manager.landmark(landmark, **kwargs)
+
+    def run(self, host: str = "0.0.0.0", port: int = 8000):
+        """Starts a FastAPI gateway server."""
+        import uvicorn
+        from fastapi import FastAPI
+        from ..gateways.fastapi import FastAPIGateway
+        
+        app = FastAPI(title=self.name)
+        gateway = FastAPIGateway(self.manager)
+        gateway.bind_to_app(app)
+        
+        print(f"Elemm: Landmark Manifest Protocol active at http://{host}:{port}")
+        uvicorn.run(app, host=host, port=port)
+
+    def run_mcp(self):
+        """Starts an MCP gateway server via STDIO."""
+        from ..gateways.mcp_server import MCPGateway
+        gateway = MCPGateway(self.manager, server_name=self.name)
+        gateway.run_stdio()
+
+    def load_metadata(self, path: str):
+        """Loads additional YAML metadata."""
+        self.manager.load_metadata(path)

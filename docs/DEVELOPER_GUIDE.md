@@ -79,3 +79,30 @@ Encourage agents to use `execute_sequence` for multi-step operations. You can gu
 
 ### Explicit Variable Piping
 Elemm supports native variable piping. Results from previous steps can be accessed via `$stepN` aliases, avoiding the need for the agent to manually extract and re-insert data into the prompt.
+
+---
+
+## 6. Declarative Configuration (YAML)
+
+For enterprise scenarios, it is recommended to separate protocol metadata from the code using a `landmarks.yaml` file. You can load this via `gateway.load_metadata("landmarks.yaml")`.
+
+### YAML Schema Reference
+
+#### Landmark (Namespace)
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | Unique identifier for the landmark. |
+| `description` | `string` | High-level summary shown during discovery. |
+| `priority` | `int` | Discovery priority (1 is highest). |
+| `remedy` | `string` | Guidance shown to the agent on ANY tool error in this namespace. |
+| `remedy_global` | `string` | Alias for `remedy`. |
+| `instructions` | `string` | Mandatory behavioral rules for the agent when using this landmark. |
+
+#### Tool (Action)
+Defined within a landmark or as a standalone action in the registry.
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `id` | `string` | Unique identifier for the action. |
+| `description` | `string` | Detailed description of what the tool does. |
+| `remedy` | `string` | Specific guidance for this tool (overrides landmark remedy). |
+| `parameters` | `list` | List of parameter definitions (name, type, description, required). |

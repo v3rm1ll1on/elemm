@@ -7,10 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.1] - 2026-05-08
 
+### Added
+- **Pydantic Smart Unboxing**: Automatic expansion of single Pydantic model arguments into individual tool parameters for improved agent interaction.
+- **Hierarchical Remedies**: Implemented remedy inheritance where tools can automatically use global remedies defined at the landmark level.
+- **Declarative YAML Reference**: Added comprehensive schema documentation for `landmarks.yaml` configuration.
+- **Extended Registry Support**: Added support for YAML aliases like `remedy_global` and explicit `configure_landmark` programmatic API.
+
 ### Changed
 - **Branding Update**: Rebranded the protocol to **Elemm: The Landmark Manifest Protocol**.
-- **Documentation Overhaul**: Professionalized all documentation files, removed excessive emojis, and improved layout consistency.
-- **API Refinement**: Promoted `ElemmGateway` as the primary high-level API for landmark and action definitions.
+- **Documentation Overhaul**: Professionalized all documentation files and improved layout consistency.
+- **API Refinement**: Introduced `ElemmGateway` as the primary high-level API and added **Auto-Prefixing** for landmark actions.
 
 ## [1.0.0] - 2026-05-08
 

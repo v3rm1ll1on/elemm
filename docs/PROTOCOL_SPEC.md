@@ -26,9 +26,9 @@ Every Elemm-compliant gateway must expose the following core tools:
 - **Enforcement**: Gateways should enforce that this is the first tool called by the agent.
 
 ### `inspect_landmarks(landmark_id: string | string[])`
-- **Purpose**: Technical discovery.
-- **Returns**: Full JSON/TypeScript signatures for all actions within the specified landmarks.
-- **Type Mapping**: Supports automatic mapping of Pydantic models, Literals, and Enums to strictly typed schemas.
+- **Purpose**: Technical discovery for specific landmarks.
+- **Returns**: Full technical signatures (JSON/TypeScript) for all actions in the specified namespaces.
+- **Implementation Note**: Accepts either a single string ID or an array of IDs.
 
 ### `call_action(action: string, parameters: object, alias?: string)`
 - **Purpose**: Single action execution.
@@ -38,6 +38,7 @@ Every Elemm-compliant gateway must expose the following core tools:
 ### `execute_sequence(actions: object[])`
 - **Purpose**: Batch execution with dependency management.
 - **Piping**: Supports the `$alias.field` syntax for passing data between steps.
+- **State Persistence**: Each step's result is stored under its `alias` (or default `stepN`) in the session context.
 - **Conditions**: Actions can be conditionally executed based on previous results.
 - **Resolution**: All variables are resolved server-side before execution.
 

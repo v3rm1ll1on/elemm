@@ -35,7 +35,7 @@ Standard protocols like MCP often struggle with large-scale toolsets. Elemm prov
 
 ### 1. Install
 ```bash
-pip install elemm
+pip install elemm[fastapi]  # Includes web server support
 ```
 
 ### 2. Create a Landmark Server
@@ -43,18 +43,29 @@ Elemm uses a decorator-based approach to turn standard Python functions into hig
 
 ```python
 from elemm import ElemmGateway
+from pydantic import BaseModel
 
 gateway = ElemmGateway(name="SystemControl")
 
+class SecurityRequest(BaseModel):
+    node_id: str
+    urgent: bool = False
+
 @gateway.action(landmark="Security")
-async def quarantine_node(node_id: str):
+async def quarantine_node(request: SecurityRequest):
     """Quarantines a compromised server node."""
-    return {"status": "success", "node": node_id}
+    return {"status": "success", "node": request.node_id}
 
 if __name__ == "__main__":
     # Runs an Elemm-compliant API server
     gateway.run(port=8000)
 ```
+
+### Advanced Usage
+
+- **Pydantic Discovery**: Elemm automatically generates schemas from Pydantic models.
+- **Raw Integration**: Access the manifest as a dictionary via `gateway.manager.get_manifest_dict()` for custom LLM wrappers.
+- **Self-Healing**: The SmartRepair engine provides agents with actionable remedies (e.g., correct parameter names) when errors occur.
 
 ### 3. Connect to an Agent
 Use the provided MCP bridge to connect your Elemm server to any MCP-compatible agent (e.g. Claude Desktop):

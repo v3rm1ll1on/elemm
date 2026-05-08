@@ -21,7 +21,6 @@ Elemm organizes tools into **Landmarks** (logical namespaces). Use the `ElemmGat
 ```python
 from elemm import ElemmGateway
 
-# Initialize the gateway
 gateway = ElemmGateway(name="MyHomeAutomation")
 
 @gateway.action(landmark="Lighting")
@@ -30,7 +29,11 @@ async def set_brightness(room: str, level: int):
     return {"room": room, "brightness": level, "status": "adjusted"}
 
 if __name__ == "__main__":
+    # Start as FastAPI server
     gateway.run(port=8000)
+    
+    # OR start as MCP server (STDIO)
+    # gateway.run_mcp()
 ```
 
 ---

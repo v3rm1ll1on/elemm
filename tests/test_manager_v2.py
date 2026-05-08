@@ -13,14 +13,14 @@ class MockResponse(BaseModel):
 def test_manager_binding_and_enrichment():
     manager = AIProtocolManager(instructions="Test instructions")
     
-    @manager.landmark("test_action")
+    @manager.landmark("test:action")
     def my_tool(name: str, age: int = 20) -> MockResponse:
         """My tool description."""
         return MockResponse(status="ok", data=age)
 
     # Prüfe ob Landmark registriert wurde
-    assert "test_action" in manager.landmarks
-    lm = manager.landmarks["test_action"]
+    assert "test:action" in manager.landmarks
+    lm = manager.landmarks["test:action"]
     
     # Auto-Discovery check
     assert len(lm.parameters) == 2
@@ -45,9 +45,11 @@ def test_manager_pydantic_discovery():
         return {"status": "added"}
 
     lm = manager.landmarks["store:add"]
-    assert lm.parameters[0].type == "object"
-    assert "properties" in lm.parameters[0].options # Pydantic schema
-    assert "id" in lm.parameters[0].options["properties"]
+    assert len(lm.parameters) == 2
+    assert lm.parameters[0].name == "id"
+    assert lm.parameters[0].type == "integer"
+    assert lm.parameters[1].name == "name"
+    assert lm.parameters[1].type == "string"
 
 def test_manager_literal_discovery():
     manager = AIProtocolManager()
@@ -64,11 +66,11 @@ def test_manager_literal_discovery():
 async def test_manager_call_action():
     manager = AIProtocolManager()
     
-    @manager.landmark("tool")
+    @manager.landmark("test:tool")
     def tool(q: str):
         return {"received": q}
 
-    res = await manager.call_action("tool", {"q": "hello"})
+    res = await manager.call_action("test:tool", {"q": "hello"})
     assert res["received"] == "hello"
 
 def test_pipe_resolver_explicit_index():

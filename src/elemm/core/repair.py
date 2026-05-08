@@ -103,7 +103,7 @@ class SmartRepairEngine:
     def handle_namespace_execution_attempt(namespace_id: str) -> RepairResult:
         return RepairResult(
             message=f"STRUCTURAL ERROR: '{namespace_id}' is a Landmark Namespace, not an executable function.",
-            remedy=f"You MUST use 'inspect_landmarks' with landmark_ids=[\"{namespace_id}\"] to discover the actual tool IDs (e.g. '{namespace_id}:some_action') before attempting execution via 'call_action'."
+            remedy=f"You MUST use 'inspect_landmarks' with landmark_id=[\"{namespace_id}\"] to discover the actual tool IDs (e.g. '{namespace_id}:some_action') before attempting execution via 'call_action'."
         )
 
     @staticmethod

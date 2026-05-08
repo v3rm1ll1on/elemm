@@ -73,6 +73,11 @@ class MetadataRegistry(LandmarkRegistry):
         
         meta_copy = meta.copy()
         meta_copy["parameters"] = params
+        
+        # Handle Aliases like 'remedy_global' or 'desc'
+        if "remedy_global" in meta_copy and "remedy" not in meta_copy:
+            meta_copy["remedy"] = meta_copy.pop("remedy_global")
+            
         # Avoid passing 'id' to LandmarkMetadata if it doesn't want it (it usually doesn't)
         self._storage[action_id] = LandmarkMetadata(**{k: v for k, v in meta_copy.items() if k != "id" and k != "tools"})
 

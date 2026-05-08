@@ -13,8 +13,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from .core.manager import AIProtocolManager
+from .core.manager import AIProtocolManager, ElemmGateway
 from .core.models import Landmark, Manifest
 from .core.registry import MetadataRegistry
 
-__all__ = ["AIProtocolManager", "Landmark", "Manifest", "MetadataRegistry"]
+__all__ = ["AIProtocolManager", "ElemmGateway", "Landmark", "Manifest", "MetadataRegistry"]

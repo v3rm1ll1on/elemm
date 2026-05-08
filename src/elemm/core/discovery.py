@@ -102,6 +102,45 @@ class ParameterDiscovery:
         # Einfache Docstring-Extraktion (nimmt die erste Zeile als Beschreibung für alle Parameter an, falls nichts spezifisches da ist)
         
         parameters = []
+        sig_params = [p for n, p in sig.parameters.items() if n not in ["self", "cls", "context", "kwargs"]]
+        
+        # --- SMART UNBOXING ---
+        # If there is only one parameter and it's a Pydantic model, extract its fields.
+        if len(sig_params) == 1:
+            param = sig_params[0]
+            try:
+                from pydantic import BaseModel
+                if inspect.isclass(param.annotation) and issubclass(param.annotation, BaseModel):
+                    schema = param.annotation.model_json_schema()
+                    definitions = schema.get("$defs", schema.get("definitions", {}))
+                    props = schema.get("properties", {})
+                    required_fields = schema.get("required", [])
+                    
+                    for p_name, p_info in props.items():
+                        # Resolve $ref if any
+                        p_info = TypeMapper.resolve_refs(p_info, definitions)
+                        
+                        p_type = p_info.get("type", "string")
+                        # Map JSON schema types to Elemm types
+                        type_map = {"integer": "integer", "number": "number", "boolean": "boolean", "array": "array", "object": "object"}
+                        p_type = type_map.get(p_type, "string")
+                        
+                        # Extract Options from Enum
+                        p_options = p_info.get("enum")
+                        
+                        parameters.append(Parameter(
+                            name=p_name,
+                            type=p_type,
+                            description=p_info.get("description", f"Parameter: {p_name}"),
+                            required=p_name in required_fields,
+                            default=p_info.get("default"),
+                            options=p_options
+                        ))
+                    return parameters
+            except:
+                pass
+
+        # Standard Discovery
         for name, param in sig.parameters.items():
             if name in ["self", "cls", "context", "kwargs"]:
                 continue
@@ -118,7 +157,7 @@ class ParameterDiscovery:
             parameters.append(Parameter(
                 name=name,
                 type=p_type,
-                description=f"Parameter: {name}", # In v1.0.0 erweitern wir das ggf. noch um Docstring-Parsing
+                description=f"Parameter: {name}", 
                 required=required,
                 default=default_val,
                 options=options

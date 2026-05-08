@@ -56,13 +56,15 @@ class MCPGateway:
                     inputSchema={
                         "type": "object",
                         "properties": {
-                            "landmark_ids": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "The IDs of the landmarks to inspect."
+                            "landmark_id": {
+                                "oneOf": [
+                                    {"type": "string"},
+                                    {"type": "array", "items": {"type": "string"}}
+                                ],
+                                "description": "The ID or list of IDs for the landmarks to inspect."
                             }
                         },
-                        "required": ["landmark_ids"]
+                        "required": ["landmark_id"]
                     }
                 ),
                 types.Tool(
@@ -144,13 +146,19 @@ class MCPGateway:
 
 
             if name == "inspect_landmarks":
-                lm_ids = arguments.get("landmark_ids", [])
-                if not lm_ids:
+                lm_id_input = arguments.get("landmark_id")
+                if not lm_id_input:
                     return [types.TextContent(
                         type="text", 
-                        text="PROTOCOL ERROR: 'landmark_ids' cannot be empty. Specify which landmarks you want to inspect."
+                        text="PROTOCOL ERROR: 'landmark_id' cannot be empty. Specify which landmarks you want to inspect."
                     )]
                 
+                # Normalize to list
+                if isinstance(lm_id_input, str):
+                    lm_ids = [lm_id_input]
+                else:
+                    lm_ids = lm_id_input
+
                 results = []
                 for lm_id in lm_ids:
                     landmark = self.manager.landmarks.get(lm_id)
