@@ -15,7 +15,7 @@ In the Agentic Web, every API is a "Landmark". Agents no longer need massive, ha
 
 - **Unified Discovery**: Every Elemm-compliant server exposes its structure at `/.well-known/elemm-manifest.md`.
 - **Zero System Prompt**: By providing rich semantic landmarks and manifest-driven discovery, you can eliminate thousands of tokens from your system prompts. The protocol *is* the documentation.
-- **One MCP Server, Infinite APIs**: Use a single MCP bridge to connect to dozens of Elemm-powered microservices. Each service manages its own tools, while the bridge provides a unified entry point for the agent.
+- **One MCP Server, Infinite APIs**: Build a single **Dynamic Gateway** (MCP server) that connects to dozens of independent Elemm-powered microservices. The gateway discovers and loads landmarks on-the-fly, allowing you to scale your agent's capabilities without ever restarting your main infrastructure or modifying the agent's core configuration.
 
 ---
 
