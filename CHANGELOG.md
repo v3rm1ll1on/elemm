@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Safety Lock**: Mandatory `get_manifest` discovery phase to prevent blind tool execution.
 - **Context Isolation**: Multi-landmark execution isolation using `ContextVar`.
 - **Developer Experience**: New `@manager.landmark` decorator for simplified tool registration.
+- **Solaris Gauntlet Benchmark**: Advanced head-to-head comparison suite with token and cost tracking for protocol validation.
 
 ### Changed
 - **Migration to GPLv3**: Project is now licensed under the GNU General Public License v3.

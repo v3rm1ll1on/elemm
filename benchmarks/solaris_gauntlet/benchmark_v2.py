@@ -10,14 +10,18 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from metrics_collector import BenchmarkMetrics
 
-OLLAMA_URL = "http://192.168.178.76:11434/api/chat"
-MODEL = "gemma4:e2b"
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+API_KEY = os.getenv("PROVIDER_API_KEY", "")
+
+# Default model if not specified via CLI
+DEFAULT_MODEL = "gemma2:9b"
 
 def estimate_tokens(obj: Any) -> int:
     """Rough heuristic for token count (characters / 4)."""
     return len(json.dumps(obj)) // 4
 
-async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quiet=False, num_ctx=32768, log_file=None):
+async def run_agent(task_prompt: str, server_script: str, is_classic: bool, model_name: str, provider: str = "ollama", quiet=False, num_ctx=32768, log_file=None):
     mode_name = "classic" if is_classic else "elemm"
     metrics = BenchmarkMetrics(mode=mode_name, task=task_prompt)
     
@@ -90,33 +94,56 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                     # Calculate FULL context size (Messages + Tools)
                     ctx_size = estimate_tokens(messages) + estimate_tokens(tools)
                     log("\n" + "="*80)
-                    log(f" STEP {i} | Model: {MODEL} | Ctx: ~{ctx_size}")
+                    log(f" STEP {i} | Model: {model_name} | Ctx: ~{ctx_size}")
                     log("="*80)
                     
                     start_t = time.time()
-                    response = await chat_client.post(OLLAMA_URL, json={
-                        "model": MODEL,
-                        "messages": messages,
-                        "tools": tools,
-                        "stream": False,
-                        "options": {"num_ctx": num_ctx}
-                    }, timeout=120.0)
+                    
+                    if provider == "ollama":
+                        response = await chat_client.post(OLLAMA_URL, json={
+                            "model": model_name,
+                            "messages": messages,
+                            "tools": tools,
+                            "stream": False,
+                            "options": {"num_ctx": num_ctx}
+                        }, timeout=120.0)
+                    else:
+                        # OpenAI / Google / Anthropic compatible format
+                        headers = {
+                            "Authorization": f"Bearer {API_KEY}",
+                            "HTTP-Referer": "https://elemm.ai", # Required by some OpenRouter models
+                            "X-Title": "Elemm Protocol Benchmark"
+                        } if API_KEY else {}
+                        response = await chat_client.post(f"{OPENAI_BASE_URL}/chat/completions", headers=headers, json={
+                            "model": model_name,
+                            "messages": messages,
+                            "tools": tools,
+                            "tool_choice": "auto"
+                        }, timeout=120.0)
+
                     latency = (time.time() - start_t) * 1000
                     
                     if response.status_code != 200:
-                        log(f"❌ Ollama Error: {response.text}")
+                        log(f"❌ Provider Error ({provider}): {response.text}")
                         break
                         
                     resp_json = response.json()
-                    agent_msg = resp_json.get("message", {})
-                    content = agent_msg.get("content", "")
-                    tool_calls = agent_msg.get("tool_calls", [])
+                    
+                    if provider == "ollama":
+                        msg_obj = resp_json.get("message", {})
+                        content = msg_obj.get("content", "")
+                        tool_calls = msg_obj.get("tool_calls", [])
+                    else:
+                        choice = resp_json.get("choices", [{}])[0]
+                        msg_obj = choice.get("message", {})
+                        content = msg_obj.get("content", "")
+                        tool_calls = msg_obj.get("tool_calls", [])
                     
                     # Estimate tokens for this turn
                     tokens_in = ctx_size
-                    tokens_out = estimate_tokens(agent_msg)
+                    tokens_out = estimate_tokens(msg_obj)
                     
-                    messages.append(agent_msg)
+                    messages.append(msg_obj)
                     metrics.add_step(tokens_in, tokens_out, latency, ctx_size)
                     
                     if content:
@@ -135,10 +162,20 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                             log("⚠️ No tool calls. Mission stagnant.")
                             break
 
+                    remedies = []
                     for tc in tool_calls:
                         name = tc["function"]["name"]
                         args = tc["function"]["arguments"]
-                        log(f"🛠️ CALLING: {name}({args})")
+                        
+                        # Handle JSON string arguments (common in OpenAI/OpenRouter)
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except Exception as e:
+                                log(f"⚠️ Failed to parse tool arguments for {name}: {args}")
+                                args = {}
+
+                        log(f"🛠️ CALLING: {name}({json.dumps(args)})")
                         
                         try:
                             start_tool_t = time.time()
@@ -150,20 +187,23 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                             try:
                                 res_json = json.loads(res_text)
                                 log(f"📥 RESULT: {json.dumps(res_json, indent=2)}")
+                                if "remedy" in res_json:
+                                    remedies.append(f"Tool '{name}': {res_json['remedy']}")
                             except:
-                                log(f"📥 RESULT: {res_text}")
+                                log(f"📥 RESULT: {res_text[:200]}...")
                             
                             is_error = getattr(result, "isError", False)
                             if is_error:
                                 log("🚨 STATUS: FAILED")
+                                if "PROTOCOL VIOLATION" in res_text:
+                                    remedies.append(f"Protocol Error in '{name}': {res_text}")
                             
                             messages.append({
                                 "role": "tool",
+                                "tool_call_id": tc.get("id", "none"),
                                 "name": name,
                                 "content": res_text
                             })
-                            # Tool results don't count as 'steps' in metrics usually, 
-                            # but we track the latency here
                             metrics.latency_ms += tool_latency
                             
                             if "MISSION_SUCCESS" in res_text:
@@ -172,6 +212,11 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
                                 return metrics
                         except Exception as e:
                             log(f"❌ Tool Execution Error: {e}")
+                    
+                    if remedies:
+                        guidance = "--- PROTOCOL GUIDANCE ---\n" + "\n".join(remedies)
+                        log(f"💡 SMARTREPAIR: Sending guidance to agent...")
+                        messages.append({"role": "user", "content": guidance})
                             
     metrics.finish(success=False, summary="Max steps reached or agent stopped.")
     return metrics
@@ -183,11 +228,14 @@ def parse_ctx(val: str) -> int:
 
 async def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["classic", "elemm"], default="elemm")
+    parser.add_argument("--mode", choices=["classic", "elemm", "compare"], default="elemm")
+    parser.add_argument("--compare", action="store_true", help="Run both modes and compare them side-by-side")
     parser.add_argument("-n", type=int, default=1)
     parser.add_argument("--ctx", type=parse_ctx, default=32768, help="Context window size (e.g. 4k, 32k, 128k)")
     parser.add_argument("-q", "--quiet", action="store_true", help="Suppress step-by-step output")
     parser.add_argument("-s", "--silent", action="store_true", help="Alias for --quiet")
+    parser.add_argument("--provider", choices=["ollama", "openai"], default="ollama", help="LLM Provider (default: ollama)")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"LLM model name (default: {DEFAULT_MODEL})")
     parser.add_argument("-o", "--output", help="Write full log to this file")
     args = parser.parse_args()
     
@@ -203,7 +251,6 @@ async def main():
         logging.captureWarnings(True)
         logging.getLogger("py.warnings").setLevel(logging.ERROR)
     
-    script = "mcp_classic.py" if args.mode == "classic" else "api_elemm_v2.py"
     prompt = (
         "Your mission is to resolve the active security breach in the Solaris Enterprise Hub.\n"
         "Initial Intelligence: Incident ID SEC-9982 has been flagged. The activity is originating from IP 10.0.4.142.\n\n"
@@ -213,52 +260,65 @@ async def main():
         "3. Remediation: Quarantine the account, restart the infrastructure node, and secure the risk capital.\n"
         "4. Completion: Submit the final report using the required incident ID."
     )
+
+    results_elemm = []
+    results_classic = []
     
-    results = []
+    modes_to_run = ["classic", "elemm"] if args.mode == "compare" else [args.mode]
+    
     for i in range(args.n):
-        run_header = f"\n🚀 STARTING RUN {i+1}/{args.n}..."
-        if not is_quiet:
-            print(run_header)
-        if log_file:
-            log_file.write(run_header + "\n")
+        for current_mode in modes_to_run:
+            is_classic = (current_mode == "classic")
+            script = "mcp_classic.py" if is_classic else "api_elemm_v2.py"
             
-        m = await run_agent(prompt, script, args.mode == "classic", quiet=is_quiet, num_ctx=args.ctx, log_file=log_file)
-        
-        # Capture report output
-        import io
-        from contextlib import redirect_stdout
-        f = io.StringIO()
-        with redirect_stdout(f):
-            m.render_report()
-        report_str = f.getvalue()
-        
-        print(report_str) # Always print to console
-        if log_file:
-            log_file.write(report_str + "\n")
+            run_header = f"\n🚀 STARTING RUN {i+1}/{args.n} | MODE: {current_mode.upper()}..."
+            if not is_quiet:
+                print(run_header)
+            if log_file:
+                log_file.write(run_header + "\n")
+                
+            m = await run_agent(prompt, script, is_classic, model_name=args.model, provider=args.provider, quiet=is_quiet, num_ctx=args.ctx, log_file=log_file)
             
-        results.append(m)
+            # Capture report output
+            import io
+            from contextlib import redirect_stdout
+            f = io.StringIO()
+            with redirect_stdout(f):
+                m.render_report()
+            report_str = f.getvalue()
+            
+            if not is_quiet:
+                print(report_str) 
+            if log_file:
+                log_file.write(report_str + "\n")
+                
+            if current_mode == "elemm":
+                results_elemm.append(m)
+            else:
+                results_classic.append(m)
         
     # Print Final Aggregate Summary
-    if args.n > 1:
+    def print_summary(mode_name, results):
+        if not results: return
         summary_lines = []
         summary_lines.append("\n" + "#"*80)
-        summary_lines.append(f" AGGREGATED SUMMARY | {args.n} RUNS | MODE: {args.mode.upper()}")
+        summary_lines.append(f" AGGREGATED SUMMARY | {len(results)} RUNS | MODE: {mode_name.upper()}")
         summary_lines.append("#"*80)
         
         success_count = sum(1 for r in results if r.success)
         total_in = sum(r.tokens_in for r in results)
         total_out = sum(r.tokens_out for r in results)
-        avg_steps = sum(r.steps for r in results) / args.n
-        avg_nudges = sum(r.nudges for r in results) / args.n
-        avg_in = total_in / args.n
-        avg_out = total_out / args.n
-        avg_peak = sum(r.total_context_tokens for r in results) / args.n
-        avg_dur = sum(r.end_time - r.start_time for r in results) / args.n
+        avg_steps = sum(r.steps for r in results) / len(results)
+        avg_nudges = sum(r.nudges for r in results) / len(results)
+        avg_in = total_in / len(results)
+        avg_out = total_out / len(results)
+        avg_peak = sum(r.total_context_tokens for r in results) / len(results)
+        avg_dur = sum(r.end_time - r.start_time for r in results) / len(results)
         
         # Calculate Total Cost (Reference: Gemini 3.1 Pro prices)
         total_cost_pro = (total_in / 1_000_000 * 2.00) + (total_out / 1_000_000 * 12.00)
 
-        summary_lines.append(f"Success Rate      | {success_count}/{args.n} ({success_count/args.n*100:.1f}%)")
+        summary_lines.append(f"Success Rate      | {success_count}/{len(results)} ({success_count/len(results)*100:.1f}%)")
         summary_lines.append(f"Avg Steps         | {avg_steps:.2f}")
         summary_lines.append(f"Avg Nudges        | {avg_nudges:.2f}")
         summary_lines.append(f"Avg Tokens In     | {avg_in:.1f}")
@@ -268,7 +328,7 @@ async def main():
         summary_lines.append("#"*80)
 
         summary_lines.append("\n" + "-"*40)
-        summary_lines.append(f" 💰 AGGREGATED COST ANALYSIS ({args.n} RUNS)")
+        summary_lines.append(f" 💰 AGGREGATED COST ANALYSIS ({len(results)} RUNS)")
         summary_lines.append("-"*40)
         summary_lines.append(f"Total Tokens In   | {total_in}")
         summary_lines.append(f"Total Tokens Out  | {total_out}")
@@ -291,6 +351,57 @@ async def main():
         print(summary_str)
         if log_file:
             log_file.write(summary_str + "\n")
+
+    if args.mode == "compare":
+        # Final head-to-head table (Premium UI)
+        table_lines = []
+        table_lines.append("\n" + "╔" + "═"*76 + "╗")
+        table_lines.append("║" + " ELEMM vs. CLASSIC MCP - HEAD-TO-HEAD PERFORMANCE ".center(76) + "║")
+        table_lines.append("╠" + "═"*22 + "╦" + "═"*17 + "╦" + "═"*18 + "╦" + "═"*15 + "╣")
+        table_lines.append(f"║ {'Metric':<20} ║ {'CLASSIC MCP':<15} ║ {'ELEMM PROTOCOL':<16} ║ {'DIFF':<13} ║")
+        table_lines.append("╠" + "═"*22 + "╬" + "═"*17 + "╬" + "═"*18 + "╬" + "═"*15 + "╣")
+        
+        def get_stats(results):
+            s_rate = sum(1 for r in results if r.success) / len(results) * 100
+            a_steps = sum(r.steps for r in results) / len(results)
+            a_in = sum(r.tokens_in for r in results) / len(results)
+            a_out = sum(r.tokens_out for r in results) / len(results)
+            t_in = sum(r.tokens_in for r in results)
+            t_out = sum(r.tokens_out for r in results)
+            cost = (t_in / 1_000_000 * 2.00) + (t_out / 1_000_000 * 12.00)
+            return s_rate, a_steps, a_in, a_out, cost
+
+        c_s, c_st, c_in, c_out, c_cost = get_stats(results_classic)
+        e_s, e_st, e_in, e_out, e_cost = get_stats(results_elemm)
+        
+        def add_row(name, c_val, e_val, unit="", invert=False):
+            diff = e_val - c_val
+            diff_pct = (diff / c_val * 100) if c_val != 0 else (100.0 if diff > 0 else 0.0)
+            # Higher is better for Success Rate, lower is better for everything else
+            is_better = (diff > 0 if not invert else diff < 0)
+            mark = "✅" if is_better else "❌"
+            if abs(diff_pct) < 1: mark = "➖"
+            
+            table_lines.append(f"║ {name:<20} ║ {c_val:>10.2f}{unit:<4} ║ {e_val:>11.2f}{unit:<4} ║ {mark} {diff_pct:>+6.1f}% ║")
+
+        add_row("Success Rate", c_s, e_s, "%", invert=False)
+        add_row("Avg Steps", c_st, e_st, "", invert=True)
+        add_row("Avg Tokens In", c_in, e_in, "", invert=True)
+        add_row("Avg Tokens Out", c_out, e_out, "", invert=True)
+        add_row("Est. Total Cost", c_cost, e_cost, "$", invert=True)
+        
+        table_lines.append("╚" + "═"*22 + "╩" + "═"*17 + "╩" + "═"*18 + "╩" + "═"*15 + "╝")
+        
+        # Add a "Winder" summary
+        gain = ((c_cost - e_cost) / c_cost * 100) if c_cost > 0 else 0
+        table_lines.append(f"\n 🔥 RESULT: ELEMM is {gain:.1f}% more cost-efficient than Classic MCP!\n")
+        
+        comp_str = "\n".join(table_lines)
+        print(comp_str)
+        if log_file:
+            log_file.write(comp_str + "\n")
+    else:
+        print_summary(args.mode, results_elemm if results_elemm else results_classic)
 
     if log_file:
         log_file.close()
