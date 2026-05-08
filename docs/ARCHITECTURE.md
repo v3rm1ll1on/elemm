@@ -1,99 +1,52 @@
-# Elemm Architecture: Hierarchical Navigation and Scalability
+# 🏛️ Elemm v2 Architecture Overview
 
-Elemm transforms a flat API structure into a navigable world of landmarks. This allows AI agents to access extremely large toolsets without overloading the context window.
+## The Philosophy: Landmarks vs. Flat Toolsets
+Traditional MCP implementations often overwhelm agents with a flat list of dozens of tools. This leads to "Context Bloating," high latency, and frequent model hallucinations.
 
-## 1. Discovery Lifecycle
+**Elemm (Element Mapping)** introduces the concept of **Landmarks**:
+- **Landmarks** are semantic namespaces (clusters) of related functionality.
+- **Lazy Loading**: Agents only see high-level descriptions first. They must "inspect" a landmark to get detailed technical signatures.
+- **Discovery-Driven**: The protocol forces the agent to explore and understand the environment before executing high-stakes operations.
 
-The following diagram illustrates how Elemm filters a massive backend into a manageable context for the agent:
+---
 
-```mermaid
-graph TD
-    subgraph "Backend (500+ Tools)"
-        T1[Tool 1]
-        T2[Tool 2]
-        T3[Tool 3]
-        TN[...]
-    end
+## 🛰️ The Discovery Cycle
+The Elemm protocol follows a strict three-stage handshake:
 
-    subgraph "Elemm Protocol Layer"
-        LM[Landmark Registry]
-        HB[Hybrid Mode Toggle]
-        CF[Context Filter]
-    end
+1.  **`get_manifest()`**: The agent requests the system summary. It receives a list of available Landmarks and their high-level purpose, but NO tool signatures yet.
+2.  **`inspect_landmark(id)`**: The agent selects relevant namespaces based on the task and requests their technical signatures (TypeScript-style).
+3.  **Execution**: Once technical requirements are known, the agent proceeds to call tools.
 
-    subgraph "Agent View (Context: root)"
-        G1[Global Search]
-        N1[Explore IT]
-        N2[Explore HR]
-    end
+---
 
-    subgraph "Agent View (Context: IT)"
-        I1[Query Logs]
-        I2[Restart Server]
-        G1
-    end
+## ⚡ The Execution Engine
+Elemm supports two modes of interaction:
 
-    T1 & T2 & T3 & TN --> LM
-    LM --> HB
-    HB -- API > Threshold --> CF
-    CF -- Filter by Group --> N1 & N2
-    N1 -- "navigate('it')" --> I1 & I2
-```
+### 1. Atomic Actions (`call_action`)
+A single request-response cycle for simple, independent tasks.
 
-## 2. Automated Navigation (Signposts)
+### 2. High-Performance Pipelines (`execute_sequence`)
+The core strength of Elemm. It allows chaining multiple actions into a single "Turn."
+- **Variable Piping**: Results from Step 0 can be passed to Step 1 using `$step0.fieldname`.
+- **Zero-Latency Chaining**: The entire sequence is executed server-side, eliminating back-and-forth roundtrips to the LLM.
+- **Memory Bank**: Every result in a sequence is automatically indexed and available for subsequent steps.
 
-A core feature of Elemm is the automatic generation of navigation points.
+---
 
-### Technical Distinction: Tool vs. ID
-It is important to distinguish between the **Core Tools** used by the agent, internal HTTP endpoints, and the **Native Tools**:
-- **get_manifest**: This is the primary discovery tool. It returns a Markdown manifest containing the available landmarks (navigation points) and a list of global tools.
-- **navigate**: The official MCP tool used to move between modules. When calling `navigate`, the agent provides a `landmark_id`.
-- **enter_module**: The internal HTTP endpoint (in FastAPI) equivalent to `navigate`. The MCP bridge (`mcp/bridge.py`) automatically maps `enter_module` to `navigate` to maintain protocol equivalence.
-- **inspect_landmark**: Retrieves detailed documentation, available tools, and specific instructions for a subsystem without actively switching the context.
-- **Native Tools**: Once an agent has navigated to a landmark (e.g. `it_ops`), all tools belonging to that group are exposed directly to the agent's toolbelt. The agent can call them **natively** (e.g. `query_logs()`) instead of using a generic executor.
-- **execute_action**: A protocol-level fallback tool used to run any registered action by its ID.
-- **explore_{tag_id}**: This is the default technical **ID** of a navigation landmark generated from FastAPI tags (e.g., `explore_it`). This ID is passed to `navigate`.
+## 🛡️ SmartRepair & Forensic Auditing
+Elemm is designed for **Autonomous Reliability**. If an agent makes a mistake (e.g., calling a tool directly or using wrong parameters), the system doesn't just error out:
 
-### How it works
-Elemm analyzes the `openapi_tags` of a FastAPI application (if using the integration) or directly auto-discovers Python modules. If a route has a tag defined, Elemm automatically generates a navigation landmark.
-- **FastAPI Auto-Discovery**: Groups automatically receive the prefix `explore_{tag_id}` to clearly mark them as navigation signposts.
-- **Native Auto-Discovery (`core/manager.py`)**: When using the framework-agnostic base directly, navigation entries are generated using the raw group name (without the `explore_` prefix). This allows for custom naming schemes independent of FastAPI tags.
-- **Sanitization**: Special characters are cleaned (e.g., `User & Admin` becomes `explore_user_and_admin`).
+- **Remediation Messages**: Every error includes a `remedy` field explaining *exactly* how to fix the call.
+- **Protocol Hardening**: Strict validation ensures agents cannot bypass the discovery phase.
+- **Forensic Logs**: Every action, piped variable, and repair attempt is logged for auditability.
 
-## 3. Hybrid Mode (Auto-Flattening)
+---
 
-Elemm adapts to the size of the API.
-- **Flat View**: If an API has fewer than the `hybrid_threshold` (default: 10) landmarks and no explicit group structure, Elemm removes the filtering. All tools become globally visible.
-- **Hierarchical View**: As soon as the API grows or groups are defined, it switches to structured mode.
-- **Mass-API Consideration**: For enterprise environments with hundreds of tools (e.g., the 200+ tools benchmark scenario), ensuring the API exceeds this threshold (or has explicit groups) is critical. Otherwise, "Auto-Flattening" would expose all tools at once, completely destroying the token-efficiency and context advantage.
-- **Configuration**: The threshold can be adjusted during initialization: `Elemm(..., hybrid_threshold=5)`.
+## 🛠️ Component Breakdown
 
-## 4. Versioning and Deprecation
-
-In enterprise environments, Landmark IDs must remain stable. If you need to change a structure:
-
-### Recommendations:
-1. **Stability**: Prefer generic Landmark IDs (e.g., `explore_it_ops` instead of `explore_it_v1`).
-2. **Deprecation**: If a landmark is deprecated, do not remove it immediately. Use the `hidden=True` attribute and provide a `remedy` explaining the new path.
-3. **Redirection**: You can create a "legacy" landmark that simply returns a message: "This module has moved to 'explore_new_module'. Please navigate there."
-
-## 5. Token Hygiene
-
-The hierarchical structure drastically reduces token consumption.
-- **Global Access**: Tools with `global_access=True` are visible everywhere. Use sparingly to avoid context noise.
-- **Efficiency**: In practice, the tool catalog size per step is reduced by a factor of 10 to 50.
-## 6. The Zero-Prompt Vision: Self-Documenting Infrastructure
-
-A core design goal of Elemm is to eliminate the need for long, complex system prompts that explain API structures to the agent.
-
-- **Embedded Persona**: By injecting the `agent_welcome` message into the primary navigation tools, the agent "discovers" its role and instructions through tool metadata rather than a static system prompt.
-- **On-Demand Guidance**: Instructions (via the Agent Repair Kit) are delivered just-in-time when an error occurs, keeping the context window clean during successful operations.
-- **Protocol-First Discovery**: The agent learns the API hierarchy at runtime by using `list_navigation_points`. This makes Elemm-based agents highly portable across different backend systems without requiring a single line of prompt engineering for the specific API layout.
-
-## 7. Distributed Architecture: The Gateway
-
-For extremely large enterprise environments, Elemm provides a **Gateway** model. This allows a single MCP endpoint to bridge multiple independent Elemm servers.
-
-- **Broker Logic**: The Gateway dynamically connects to remote sites, aggregates their tool manifests, and proxies execution calls.
-- **Cross-Domain Orchestration**: An agent can navigate from a Banking module on Host A to a Forensic module on Host B seamlessly.
-- **Unified Identity**: The Gateway manages scoped authentication across all connected hosts, ensuring that security contexts (like OAuth tokens) are correctly propagated only to the relevant targets.
+| Component | Responsibility |
+| :--- | :--- |
+| **AIProtocolManager** | Orchestrates registration, execution, and memory state. |
+| **ManifestPresenter** | Generates adaptive markdown summaries (Summary vs. Full). |
+| **SmartRepairEngine** | Analyzes failures and provides actionable recovery guidance. |
+| **Gateways (MCP/FastAPI)** | Bridges the core logic to standard communication protocols. |

@@ -1,0 +1,45 @@
+landmarks:
+  - id: "system"
+    description: "Core system administration tools for monitoring and management."
+    tools:
+      - id: "get_info"
+        description: "Returns basic system information (hostname, kernel, uptime)."
+        returns: "{ hostname: string, kernel: string, uptime: string }"
+      
+      - id: "execute_bash"
+        description: "Executes a safe bash command and returns the output."
+        parameters:
+          - name: "command"
+            type: "string"
+            required: true
+            description: "The bash command to run (e.g., 'df -h')."
+        returns: "{ stdout: string, stderr: string, code: number }"
+        remedy: "Avoid interactive commands or sudo without passwordless config."
+
+  - id: "security"
+    description: "Security auditing and network reconnaissance tools."
+    tools:
+      - id: "list_users"
+        description: "Lists all logged-in users and their terminal info."
+        returns: "{ users: string[] }"
+
+      - id: "network_audit"
+        description: "Scans for open ports or active network connections."
+        parameters:
+          - name: "mode"
+            type: "string"
+            required: true
+            description: "Audit mode: 'listening' (ports) or 'active' (connections)."
+        returns: "{ connections: object[] }"
+
+  - id: "logs"
+    description: "System log analysis and forensic tools."
+    tools:
+      - id: "tail_syslog"
+        description: "Returns the last N lines of the system log."
+        parameters:
+          - name: "lines"
+            type: "number"
+            default: 20
+            description: "Number of lines to return."
+        returns: "{ content: string }"

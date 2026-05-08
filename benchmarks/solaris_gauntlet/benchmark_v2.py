@@ -17,13 +17,15 @@ def estimate_tokens(obj: Any) -> int:
     """Rough heuristic for token count (characters / 4)."""
     return len(json.dumps(obj)) // 4
 
-async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quiet=False, num_ctx=32768):
+async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quiet=False, num_ctx=32768, log_file=None):
     mode_name = "classic" if is_classic else "elemm"
     metrics = BenchmarkMetrics(mode=mode_name, task=task_prompt)
     
     def log(msg):
         if not quiet:
             print(msg)
+        if log_file:
+            log_file.write(str(msg) + "\n")
 
     args_list = [os.path.join(os.path.dirname(__file__), server_script)]
     if not is_classic:
@@ -122,6 +124,7 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, quie
 
                     if not tool_calls:
                         if i < 30:
+                            metrics.add_nudge()
                             log("⚠️ No tool calls. Nudging agent to retry...")
                             messages.append({
                                 "role": "user", 
@@ -183,7 +186,22 @@ async def main():
     parser.add_argument("--mode", choices=["classic", "elemm"], default="elemm")
     parser.add_argument("-n", type=int, default=1)
     parser.add_argument("--ctx", type=parse_ctx, default=32768, help="Context window size (e.g. 4k, 32k, 128k)")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Suppress step-by-step output")
+    parser.add_argument("-s", "--silent", action="store_true", help="Alias for --quiet")
+    parser.add_argument("-o", "--output", help="Write full log to this file")
     args = parser.parse_args()
+    
+    is_quiet = args.quiet or args.silent
+    log_file = open(args.output, "w") if args.output else None
+    
+    if is_quiet:
+        import logging
+        logging.basicConfig(level=logging.ERROR)
+        logging.getLogger().setLevel(logging.ERROR)
+        logging.getLogger("elemm").setLevel(logging.ERROR)
+        logging.getLogger("mcp").setLevel(logging.ERROR)
+        logging.captureWarnings(True)
+        logging.getLogger("py.warnings").setLevel(logging.ERROR)
     
     script = "mcp_classic.py" if args.mode == "classic" else "api_elemm_v2.py"
     prompt = (
@@ -198,12 +216,59 @@ async def main():
     
     results = []
     for i in range(args.n):
-        m = await run_agent(prompt, script, args.mode == "classic", num_ctx=args.ctx)
+        run_header = f"\n🚀 STARTING RUN {i+1}/{args.n}..."
+        if not is_quiet:
+            print(run_header)
+        if log_file:
+            log_file.write(run_header + "\n")
+            
+        m = await run_agent(prompt, script, args.mode == "classic", quiet=is_quiet, num_ctx=args.ctx, log_file=log_file)
+        
+        # Capture report output
+        import io
+        from contextlib import redirect_stdout
+        f = io.StringIO()
+        with redirect_stdout(f):
+            m.render_report()
+        report_str = f.getvalue()
+        
+        print(report_str) # Always print to console
+        if log_file:
+            log_file.write(report_str + "\n")
+            
         results.append(m)
         
-    # Print Final Summary
-    for r in results:
-        r.render_report()
+    # Print Final Aggregate Summary
+    if args.n > 1:
+        summary_lines = []
+        summary_lines.append("\n" + "#"*80)
+        summary_lines.append(f" AGGREGATED SUMMARY | {args.n} RUNS | MODE: {args.mode.upper()}")
+        summary_lines.append("#"*80)
+        
+        success_count = sum(1 for r in results if r.success)
+        avg_steps = sum(r.steps for r in results) / args.n
+        avg_nudges = sum(r.nudges for r in results) / args.n
+        avg_in = sum(r.tokens_in for r in results) / args.n
+        avg_out = sum(r.tokens_out for r in results) / args.n
+        avg_peak = sum(r.total_context_tokens for r in results) / args.n
+        avg_dur = sum(r.end_time - r.start_time for r in results) / args.n
+        
+        summary_lines.append(f"Success Rate      | {success_count}/{args.n} ({success_count/args.n*100:.1f}%)")
+        summary_lines.append(f"Avg Steps         | {avg_steps:.2f}")
+        summary_lines.append(f"Avg Nudges        | {avg_nudges:.2f}")
+        summary_lines.append(f"Avg Tokens In     | {avg_in:.1f}")
+        summary_lines.append(f"Avg Tokens Out    | {avg_out:.1f}")
+        summary_lines.append(f"Avg Peak Context  | {avg_peak:.1f}")
+        summary_lines.append(f"Avg Duration (s)  | {avg_dur:.2f}")
+        summary_lines.append("#"*80 + "\n")
+        
+        summary_str = "\n".join(summary_lines)
+        print(summary_str)
+        if log_file:
+            log_file.write(summary_str + "\n")
+
+    if log_file:
+        log_file.close()
 
 if __name__ == "__main__":
     asyncio.run(main())

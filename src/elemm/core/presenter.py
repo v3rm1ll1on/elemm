@@ -78,7 +78,14 @@ class ManifestPresenter:
         # JSDoc Comments
         lines.append("/**")
         lines.append(f" * Tool: {tool.id}")
-        if tool.description:
+        # Description Filtering (Hardening)
+        clean_id = tool.id.split(":")[-1].replace("_", " ").lower()
+        desc = tool.description or ""
+        # Check if description is basically just the ID or too short
+        is_redundant = desc.lower().strip(".") == clean_id
+        is_too_short = len(desc) < 5
+
+        if tool.description and not is_redundant and not is_too_short:
             lines.append(f" * Description: {tool.description}")
         if tool.instructions:
             lines.append(f" * Instructions: {tool.instructions}")
@@ -92,7 +99,9 @@ class ManifestPresenter:
             param_defs = []
             for p in tool.parameters:
                 ts_type = "any"
-                if p.type == "string": ts_type = "string"
+                if p.options:
+                    ts_type = " | ".join([f"\"{o}\"" for o in p.options])
+                elif p.type == "string": ts_type = "string"
                 elif p.type in ["integer", "number"]: ts_type = "number"
                 elif p.type == "boolean": ts_type = "boolean"
                 elif p.type == "array": ts_type = "any[]"

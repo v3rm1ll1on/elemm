@@ -68,6 +68,7 @@ class FastAPIGateway:
             return JSONResponse(status_code=422, content=response_body)
 
         @self.app.get("/.well-known/elemm-manifest.md", tags=["discovery"], include_in_schema=False)
+        @self.app.get("/.well-known/elemm-inspect.md", tags=["discovery"], include_in_schema=False)
         async def well_known_manifest(
             response: Response, 
             landmark_id: Optional[str] = Query(None),
@@ -76,6 +77,9 @@ class FastAPIGateway:
         ):
             """Manifest-Discovery im v1-Format."""
             response.headers["Link"] = '</.well-known/elemm-manifest.md>; rel="elemm-manifest"'
+            
+            # Auto-switch to technical if it's an inspect call
+            is_inspect = landmark_id is not None
             
             # Wenn landmark_id übergeben wird, zeigen wir Details (FOCUS)
             if landmark_id:
@@ -86,10 +90,10 @@ class FastAPIGateway:
                     ids = landmark_id
                 
                 lms = [self.manager.landmarks[lid] for lid in ids if lid in self.manager.landmarks]
-                manifest_md = self.manager.presenter.present_manifest(lms, full=True, skip_header=False, technical=technical)
+                manifest_md = self.manager.presenter.present_manifest(lms, full=True, skip_header=False, technical=True)
             else:
                 # Standard-Manifest mit v1-Logik (Summary)
-                manifest_md = self.manager.get_manifest_md(technical=technical)
+                manifest_md = self.manager.get_manifest_md(technical=technical or full)
             
             return Response(content=manifest_md, media_type="text/markdown")
 

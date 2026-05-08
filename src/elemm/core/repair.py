@@ -6,6 +6,7 @@ class RepairResult(BaseModel):
     message: str
     remedy: str
     suggested_fix: Optional[str] = None
+    valid_options: Optional[List[str]] = None
     example: Optional[str] = None
     expected_schema: Optional[Dict[str, Any]] = None
 
@@ -13,8 +14,28 @@ class SmartRepairEngine:
     """Zentrale Logik für präzise Fehlerbehebung und Agenten-Guiding."""
     
     @staticmethod
+    def normalize_id(s: Any) -> str:
+        """Central normalization for IDs and values (lowercase, no symbols)."""
+        import re
+        return re.sub(r'[^a-z0-9]', '', str(s).lower())
+
+    @staticmethod
     def handle_missing_action(action_id: str, available_ids: List[str]) -> RepairResult:
         import difflib
+        
+        given_norm = SmartRepairEngine.normalize_id(action_id)
+        options_map = {SmartRepairEngine.normalize_id(o): o for o in available_ids}
+        
+        # 1. Check for normalized match
+        if given_norm in options_map:
+            best_match = options_map[given_norm]
+            return RepairResult(
+                message=f"Action '{action_id}' not found.",
+                remedy=f"Did you mean '{best_match}'? (Protocol is case-sensitive and uses underscores).",
+                suggested_fix=best_match
+            )
+            
+        # 2. Fallback to fuzzy
         suggestions = difflib.get_close_matches(action_id, available_ids, n=3, cutoff=0.5)
         msg = f"Action '{action_id}' not found."
         remedy = f"Please check the manifest. "
@@ -27,11 +48,13 @@ class SmartRepairEngine:
         )
 
     @staticmethod
-    def handle_invalid_params(action_id: str, missing: List[str], schema: Dict[str, Any]) -> RepairResult:
+    def handle_invalid_params(action_id: str, missing: List[str], schema: Dict[str, Any], custom_remedy: Optional[str] = None) -> RepairResult:
         example_params = {p: "VALUE" for p in missing}
+        remedy = custom_remedy or f"Provide the missing fields. See technical signature."
+        
         return RepairResult(
             message=f"Missing required parameters for '{action_id}': {missing}",
-            remedy=f"Provide the missing fields. See technical signature.",
+            remedy=remedy,
             example=f"call_action(action='{action_id}', parameters={example_params})",
             expected_schema=schema
         )
@@ -47,8 +70,8 @@ class SmartRepairEngine:
             
         example = f"call_action(action='{tool_id}', parameters={json.dumps(actual_params)})"
         return RepairResult(
-            message=f"Direct call to '{tool_id}' is prohibited by protocol.",
-            remedy="Use the 'call_action' tool.",
+            message=f"CRITICAL PROTOCOL ERROR: Direct tool execution via MCP is strictly prohibited for '{tool_id}'.",
+            remedy="You MUST ALWAYS use the 'call_action' or 'execute_sequence' tools for ALL operations. Never attempt direct calls again.",
             suggested_fix=example,
             example=example
         )
@@ -64,8 +87,8 @@ class SmartRepairEngine:
     @staticmethod
     def handle_namespace_execution_attempt(namespace_id: str) -> RepairResult:
         return RepairResult(
-            message=f"Cannot execute '{namespace_id}' because it is a namespace/group, not a specific tool.",
-            remedy=f"Call 'inspect_landmarks' with landmark_ids=[\"{namespace_id}\"] to see the available executable tools inside this namespace."
+            message=f"STRUCTURAL ERROR: '{namespace_id}' is a Landmark Namespace, not an executable function.",
+            remedy=f"You MUST use 'inspect_landmarks' with landmark_ids=[\"{namespace_id}\"] to discover the actual tool IDs (e.g. '{namespace_id}:some_action') before attempting execution via 'call_action'."
         )
 
     @staticmethod
@@ -80,4 +103,44 @@ class SmartRepairEngine:
         return RepairResult(
             message=msg,
             remedy=remedy
+        )
+    @staticmethod
+    def handle_invalid_value(param_name: str, given_value: Any, allowed_options: List[str]) -> RepairResult:
+        import difflib
+        
+        # 1. Exact Case-Insensitive Match
+        given_str = str(given_value).lower()
+        if given_str in [o.lower() for o in allowed_options]:
+            best_match = [o for o in allowed_options if o.lower() == given_str][0]
+            return RepairResult(message="Case mismatch fixed.", remedy=f"Used '{best_match}'", suggested_fix=best_match)
+
+        # 2. Normalization Logic
+        given_norm = SmartRepairEngine.normalize_id(given_value)
+        
+        # Find all options that match the normalized input
+        matches = [o for o in allowed_options if SmartRepairEngine.normalize_id(o) == given_norm]
+        
+        if len(matches) == 1:
+            best_match = matches[0]
+            msg = f"Normalized match found for '{given_value}'."
+            return RepairResult(message=msg, remedy=f"Please use the exact ID: '{best_match}'", suggested_fix=best_match)
+        elif len(matches) > 1:
+            return RepairResult(
+                message=f"Ambiguous value '{given_value}' for parameter '{param_name}'.",
+                remedy=f"Did you mean one of these? {matches}. Please be more specific."
+            )
+
+        # 3. Last Resort: Difflib Fuzzy
+        suggestions = difflib.get_close_matches(given_str, [o.lower() for o in allowed_options], n=3, cutoff=0.5)
+        
+        msg = f"Invalid value '{given_value}' for parameter '{param_name}'."
+        remedy = f"Please use one of the supported values: {allowed_options}."
+        if suggestions:
+            remedy += f" Did you mean '{suggestions[0]}'?"
+            
+        return RepairResult(
+            message=msg,
+            remedy=remedy,
+            suggested_fix=str(suggestions[0]) if suggestions else None,
+            valid_options=allowed_options
         )

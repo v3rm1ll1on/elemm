@@ -1,0 +1,1 @@
+[{"step":0,"alias":"heat","result":{"id":"heat-2","name":"Bedroom Radiator","type":"heating","status":"off","temperature":22.0,"power_usage":0.0}},{"step":1,"alias":"step1","result":{"status":"success","message":"Updated heat-2"}}]

@@ -17,7 +17,21 @@ class SequenceEngine:
             raw_params = action_req.get("parameters", {})
             alias = action_req.get("alias")
             
-            # 1. Resolve Piping
+            # 1. Resolve Condition
+            condition = action_req.get("condition")
+            if condition:
+                resolved_cond, err = self.resolve_all(condition, context)
+                if not err:
+                    if not self._evaluate_condition(resolved_cond):
+                        results.append({
+                            "step": i,
+                            "action": action_id,
+                            "alias": alias,
+                            "result": {"status": "skipped", "message": f"Condition '{condition}' not met."}
+                        })
+                        continue
+
+            # 2. Resolve Piping
             resolved_params, err = self.resolve_all(raw_params, context)
             if err:
                 results.append({
@@ -58,9 +72,26 @@ class SequenceEngine:
         return results
 
     def resolve_all(self, data: Any, context: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
-        """Resolves all placeholders in a nested structure."""
-        if isinstance(data, str) and data.startswith("$"):
-            return self._resolve_single_value(data, context)
+        """Resolves all placeholders in a nested structure (supports interpolation)."""
+        if isinstance(data, str):
+            if data.startswith("$") and " " not in data:
+                # Direct object reference (could be non-string result)
+                return self._resolve_single_value(data, context)
+            
+            # String interpolation: "Hello $name"
+            # We look for $ followed by alphanumeric and optionally [.], stopping at space or end
+            def replace_match(match):
+                placeholder = match.group(0)
+                val, err = self._resolve_single_value(placeholder, context)
+                if err: raise ValueError(err)
+                return str(val)
+
+            try:
+                # This regex finds $alias, $alias.path, $alias[0], $alias[0].path
+                new_str = re.sub(r"\$[\w\[\]\.]+", replace_match, data)
+                return new_str, None
+            except ValueError as e:
+                return None, str(e)
 
         if isinstance(data, dict):
             new_dict = {}
@@ -112,12 +143,31 @@ class SequenceEngine:
         return self._navigate_path(source, path.split("."), alias_name)
 
     def _navigate_path(self, source: Any, parts: List[str], alias_context: str) -> Tuple[Any, Optional[str]]:
-        """Navigiert rekursiv durch Pfade mit Ambiguitäts-Erkennung."""
+        """Navigiert rekursiv durch Pfade mit Unterstützung für [index]."""
         if not parts:
             return source, None
             
-        current_key = parts[0]
+        part = parts[0]
         remaining = parts[1:]
+
+        # Handle indexing in part: "users[1]" -> key="users", index=1
+        index_match = re.match(r"(\w+)\[(\d+)\]", part)
+        if index_match:
+            key, idx_str = index_match.groups()
+            idx = int(idx_str)
+            
+            # First, navigate to the key
+            val, err = self._navigate_path(source, [key], alias_context)
+            if err: return None, err
+            
+            # Then, apply index
+            if isinstance(val, list):
+                if idx < len(val):
+                    return self._navigate_path(val[idx], remaining, alias_context)
+                return None, f"Index {idx} out of range for '{key}' in '${alias_context}'"
+            return None, f"Cannot use index [{idx}] on non-list field '{key}'"
+
+        current_key = part
 
         if isinstance(source, dict):
             if current_key in source:
@@ -152,3 +202,32 @@ class SequenceEngine:
                 return None, f"Field '{current_key}' not found in any item of list '${alias_context}'."
 
         return None, f"Cannot navigate to '{current_key}' on primitive type {type(source).__name__}"
+
+    def _evaluate_condition(self, condition: Any) -> bool:
+        """Evaluates a boolean condition or expression."""
+        if isinstance(condition, bool):
+            return condition
+        
+        if isinstance(condition, str):
+            # Simple expression evaluator for Showcase
+            # Supports: <, >, ==, !=, is, is not
+            try:
+                # Remove common AI fluff
+                clean = condition.strip().lower()
+                if clean in ["true", "yes", "on"]: return True
+                if clean in ["false", "no", "off"]: return False
+                
+                # Basic Comparison support: "22 < 20"
+                match = re.match(r"([\d\.\-]+)\s*(<|>|==|!=)\s*([\d\.\-]+)", clean)
+                if match:
+                    v1, op, v2 = match.groups()
+                    v1, v2 = float(v1), float(v2)
+                    if op == "<": return v1 < v2
+                    if op == ">": return v1 > v2
+                    if op == "==": return v1 == v2
+                    if op == "!=": return v1 != v2
+                
+                return bool(clean)
+            except Exception:
+                return False
+        return bool(condition)

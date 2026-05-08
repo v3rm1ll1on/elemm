@@ -1,13 +1,19 @@
-# Elemm v2: Gateway Auth Roadmap
+# 📋 Elemm Roadmap & TODOs
 
-## 🚀 High Priority: Gateway-Aware Manifest Hints
-- [ ] **Dynamic Token Mapping:**
-    - Implement a `gateway_hints` section in `landmarks.yaml` to specify where authentication tokens are located in API responses.
-    - Update `Presenter` to include these hints in a hidden block when `?technical=true` is requested.
-    - Modify `ElemmGateway` (Broker) to parse and then strip these hints before presenting the manifest to the Agent.
-    - Support mapping custom keys (e.g., `token`, `session_id`) to the `Authorization` header automatically.
+## ✅ Phase 1: Protocol v2 Hardening (Done)
+- [x] Implement semantic Landmarks and discovery handshake.
+- [x] High-performance `execute_sequence` with variable piping.
+- [x] SmartRepair engine for autonomous recovery.
+- [x] Benchmarking suite (Solaris Gauntlet) with cost analysis.
+- [x] Comprehensive v2 documentation.
 
-## 🛡️ Protocol Hardening
-- [ ] **Presenter:** Implement Redundancy Filter for descriptions (Token saving).
-- [ ] **Manager:** Support dynamic Remedies directly on Landmark objects in call_action.
-- [ ] **Manager:** Pass Landmark remedies to SmartRepairEngine for validation errors.
+## 🚀 Phase 2: Gateway & Security (Next)
+- [ ] **Dynamic Token Mapping**: Pass auth tokens from `gateway_hints` into tool calls.
+- [ ] **OAuth2 Integration**: Support secure handshake for Landmarks requiring authentication.
+- [ ] **FastAPI Multi-Tenant Support**: Allow multiple users to have separate manager instances.
+- [ ] **Streaming Support**: Stream results for long-running sequences.
+
+## 🏗️ Phase 3: Ecosystem
+- [ ] **Elemm UI**: A visual debugger for sequences and piped variables.
+- [ ] **Python SDK**: A high-level client for interacting with Elemm gateways.
+- [ ] **Pre-built Landmarks**: A library of common Landmarks (Auth, SQL, K8s).

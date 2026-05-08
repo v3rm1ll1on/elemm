@@ -19,13 +19,13 @@ import asyncio
 import json
 import re
 from typing import List, Dict, Any, Optional
-from elemm.mcp import LandmarkBridge
+from mcp.server import Server
 import mcp.types as types
 from urllib.parse import urlparse
 
 logger = logging.getLogger("elemm-gateway")
 
-class ElemmGateway(LandmarkBridge):
+class ElemmGateway:
     """
     The Specialized Elemm Gateway.
     Acts as a universal broker for any Elemm-compliant site.
@@ -38,8 +38,7 @@ class ElemmGateway(LandmarkBridge):
     CLEAN_MD_PATTERN = re.compile(r"\n---\n### Technical Discovery.*```json-elemm.*?```", re.DOTALL)
 
     def __init__(self, server_name: str = "elemm-gateway"):
-        # No local manager, we are a broker
-        super().__init__(manager=None, base_url="", server_name=server_name)
+        self.server = Server(server_name)
         self.connected_sites = {} 
         self.active_site_url = None
         self.ctx = "root"

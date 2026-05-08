@@ -1,0 +1,56 @@
+landmarks:
+  - id: "catalog"
+    description: "Browse the Synth-Genesis biological and electronic inventory."
+    tools:
+      - id: "list_products"
+        description: "Returns all available synths and bio-mods."
+        returns: "{ products: object[] }"
+      
+      - id: "get_details"
+        description: "Get technical specs and visual data for a specific product."
+        remedy: "If the product_id is unknown, use catalog:list_products to find valid IDs."
+        parameters:
+          - name: "product_id"
+            type: "string"
+            required: true
+            description: "The unique ID of the product."
+        returns: "{ id: string, name: string, price: number, specs: string, image_url: string }"
+
+  - id: "cart"
+    description: "Manage your active shopping session. Requires authentication."
+    instructions: "Always show the current total price after adding an item."
+    tools:
+      - id: "add_item"
+        description: "Add a product to your cart."
+        remedy: "If authentication fails, initialize a session via auth:login first."
+        parameters:
+          - name: "product_id"
+            type: "string"
+            required: true
+            description: "The ID of the product."
+          - name: "quantity"
+            type: "number"
+            default: 1
+            required: false
+            description: "Number of units."
+        returns: "{ status: string, cart_count: number, total: number }"
+
+      - id: "view_cart"
+        description: "See all items in your cart."
+        returns: "{ items: object[], total: number }"
+
+  - id: "auth"
+    description: "Access control and identity verification."
+    tools:
+      - id: "login"
+        description: "Initialize a secure session."
+        parameters:
+          - name: "username"
+            type: "string"
+            required: true
+            description: "Your runner alias."
+          - name: "passkey"
+            type: "string"
+            required: true
+            description: "Your biometric passkey."
+        returns: "{ status: string, token: string }"

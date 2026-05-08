@@ -108,10 +108,33 @@ class AIProtocolManager:
             return {"status": "error", "message": f"Tool {action_id} has no implementation."}
 
         # 3. Validate Parameters
-        missing = [p.name for p in (landmark.parameters or []) if p.required and p.name not in arguments]
+        params = landmark.parameters or []
+        
+        # 3.1 Check Required Fields
+        missing = [p.name for p in params if p.required and p.name not in arguments]
         if missing:
-            schema = {p.name: p.type for p in (landmark.parameters or [])}
-            return self.repair.handle_invalid_params(action_id, missing, schema).dict(exclude_none=True)
+            schema = {p.name: p.type for p in params}
+            return self.repair.handle_invalid_params(action_id, missing, schema, custom_remedy=landmark.remedy).dict(exclude_none=True)
+
+        # 3.2 Validate Values and Types
+        for p in params:
+            if p.name in arguments:
+                val = arguments[p.name]
+                
+                # 3.2.1 Type Check (Basic)
+                if p.type == "number" and not isinstance(val, (int, float)):
+                    try:
+                        val = float(val) # Try to auto-cast if it's a string number
+                    except:
+                        return {
+                            "status": "error",
+                            "message": f"Type mismatch for '{p.name}': Expected number, got {type(val).__name__}.",
+                            "remedy": f"Please provide a numeric value (int or float) for '{p.name}'."
+                        }
+
+                # 3.2.2 Check Valid Options (Enum) with Fuzzy Matching
+                if p.options and val not in p.options:
+                    return self.repair.handle_invalid_value(p.name, val, p.options).dict(exclude_none=True)
 
         # Pre-execution placeholder check
         for k, v in arguments.items():
@@ -137,7 +160,8 @@ class AIProtocolManager:
                 meta = self.registry.get(action_id)
                 if meta and meta.remedy:
                     logger.warning(f"Tool Error shadowed by Remedy: {result.get('message')}")
-                    result["message"] = meta.remedy
+                    original_msg = result.get("message", "Unknown error")
+                    result["message"] = f"{original_msg} | Remedy: {meta.remedy}"
                     # Remove raw error fields to prevent AI confusion
                     result.pop("technical_details", None)
                     result.pop("remedy", None) # It's now the main message

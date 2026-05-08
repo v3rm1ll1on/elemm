@@ -130,6 +130,11 @@ class MCPGateway:
 
             if name == "inspect_landmarks":
                 lm_ids = arguments.get("landmark_ids", [])
+                if not lm_ids:
+                    return [types.TextContent(
+                        type="text", 
+                        text="PROTOCOL ERROR: 'landmark_ids' cannot be empty. Specify which landmarks you want to inspect."
+                    )]
                 
                 results = []
                 for lm_id in lm_ids:

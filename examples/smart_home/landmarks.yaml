@@ -1,0 +1,218 @@
+welcome_message: "Welcome to the Vigilix Ultra-Mansion autonomous interface. Protocol v2 active."
+instructions: |
+  1. DISCOVERY: Always start with 'get_manifest' to see available areas.
+  2. INSPECTION: Before calling any tool, use 'inspect_landmark' to get the exact parameter schema and options.
+  3. PRECISION: Use literal IDs for rooms and devices. Never translate IDs.
+  4. SEQUENCING: Use 'execute_sequence' for multi-step tasks to ensure atomicity and efficiency.
+  5. REPAIR: If a tool returns an error, look for the 'remedy' or 'suggested_fix' fields to self-correct.
+
+landmarks:
+  - id: "security"
+    description: "Military-grade home security and perimeter defense."
+    tools:
+      - id: "security:get_full_status"
+        description: "Comprehensive security report (Alarm, Windows, Smoke)."
+        returns: "{ alarm: object, windows_open: string[], smoke_detectors: string }"
+      - id: "security:arm"
+        description: "Arm the security system in a specific mode."
+        remedy: "Use one of the supported modes: [home, away, night, panic]."
+        parameters:
+          - name: "mode"
+            type: "string"
+            required: true
+            description: "Security mode."
+            options: ["home", "away", "night", "panic"]
+        returns: "{ status: string, active_sensors: number }"
+      - id: "security:siren_test"
+        description: "Perform a brief siren and strobe test."
+        returns: "{ status: string, decibel_peak: number }"
+
+  - id: "lighting"
+    description: "Advanced RGB and lighting effects."
+    tools:
+      - id: "lighting:set_color"
+        description: "Set a precise RGB color for a zone."
+        parameters:
+          - name: "zone"
+            type: "string"
+            required: true
+            description: "Target zone."
+            options: ["kitchen", "living_room", "office", "hallway", "garage", "garden", "basement"]
+          - name: "color_hex"
+            type: "string"
+            required: true
+            description: "Hex code or name."
+        returns: "{ status: string, color: string }"
+      - id: "lighting:pulse_effect"
+        description: "Start a pulsing light effect."
+        parameters:
+          - name: "zone"
+            type: "string"
+            required: true
+            description: "Target zone."
+            options: ["kitchen", "living_room", "office", "hallway", "garage", "garden", "basement"]
+          - name: "color"
+            type: "string"
+            required: true
+            description: "Pulse color."
+          - name: "speed"
+            type: "number"
+            required: true
+            description: "Pulses per minute (1-300)."
+        returns: "{ status: string }"
+
+  - id: "climate"
+    description: "Precision climate and air quality sensing."
+    tools:
+      - id: "climate:get_status"
+        description: "Get detailed air quality and temperature metrics for a room."
+        parameters:
+          - name: "room"
+            type: "string"
+            required: true
+            description: "Target room."
+            options: ["kitchen", "living_room", "office"]
+        returns: "{ temp: number, humidity: number, co2_ppm: number, status: string }"
+      - id: "climate:set_target_temp"
+        description: "Set the target temperature for a specific room."
+        parameters:
+          - name: "room"
+            type: "string"
+            required: true
+            description: "Target room."
+            options: ["kitchen", "living_room", "office"]
+          - name: "temp"
+            type: "number"
+            required: true
+            description: "Target temperature in Celsius."
+        returns: "{ status: string, current_temp: number }"
+
+  - id: "kitchen"
+    description: "Kitchen appliance and lighting control."
+    tools:
+      - id: "kitchen:control"
+        description: "Control kitchen devices."
+        parameters:
+          - name: "device"
+            type: "string"
+            required: true
+            description: "Device name."
+            options: ["coffee_machine", "oven", "fridge_boost", "light"]
+          - name: "action"
+            type: "string"
+            required: true
+            description: "Action to perform."
+            options: ["on", "off", "boost"]
+
+  - id: "living_room"
+    description: "Living room entertainment and comfort."
+    tools:
+      - id: "living_room:control"
+        description: "Control living room devices."
+        parameters:
+          - name: "device"
+            type: "string"
+            required: true
+            description: "Device name."
+            options: ["tv", "main_light", "shutter"]
+          - name: "action"
+            type: "string"
+            required: true
+            description: "Action (on, off, toggle, open, close)."
+            options: ["on", "off", "toggle", "open", "close"]
+
+  - id: "garage"
+    description: "Garage and EV charging."
+    tools:
+      - id: "garage:control"
+        description: "Control garage systems."
+        parameters:
+          - name: "device"
+            type: "string"
+            required: true
+            description: "Device name."
+            options: ["garage_door", "ev_charger"]
+          - name: "action"
+            type: "string"
+            required: true
+            description: "Action."
+            options: ["open", "close", "on", "off"]
+
+  - id: "basement"
+    description: "Basement infrastructure and laundry."
+    tools:
+      - id: "basement:flood_sensor"
+        description: "Check for water in the basement. Returns moisture_level (0-100). Note: 0-10 is DRY, >10 is FLOODING!"
+        returns: "{ status: string, moisture_level: number }"
+      - id: "basement:laundry"
+        description: "Control laundry appliances."
+        parameters:
+          - name: "machine"
+            type: "string"
+            required: true
+            description: "Machine (washer, dryer)."
+            options: ["washer", "dryer"]
+          - name: "action"
+            type: "string"
+            required: true
+            description: "Action."
+            options: ["start", "stop", "pause"]
+      - id: "basement:control"
+        description: "General basement control."
+        parameters:
+          - name: "device"
+            type: "string"
+            required: true
+            description: "Device."
+            options: ["washer", "dryer", "light"]
+          - name: "action"
+            type: "string"
+            required: true
+            description: "Action."
+            options: ["on", "off", "start", "stop"]
+
+  - id: "garden"
+    description: "Outdoor maintenance and irrigation."
+    tools:
+      - id: "garden:irrigation"
+        description: "Control irrigation zones."
+        parameters:
+          - name: "zone"
+            type: "string"
+            required: true
+            description: "Zone (west, east)."
+            options: ["west", "east"]
+          - name: "duration_min"
+            type: "number"
+            required: true
+            description: "Duration in minutes."
+      - id: "garden:control"
+        description: "Control garden devices."
+        parameters:
+          - name: "device"
+            type: "string"
+            required: true
+            description: "Device."
+            options: ["mower", "irrigation_west", "irrigation_east"]
+          - name: "action"
+            type: "string"
+            required: true
+            description: "Action."
+            options: ["on", "off", "start", "stop", "dock"]
+
+  - id: "hallway"
+    description: "Hallway access and lighting."
+    tools:
+      - id: "hallway:control"
+        description: "Control hallway systems."
+        parameters:
+          - name: "device"
+            type: "string"
+            required: true
+            description: "Device."
+            options: ["lock", "light"]
+          - name: "action"
+            type: "string"
+            required: true
+            description: "Action."
+            options: ["on", "off", "lock", "unlock"]
