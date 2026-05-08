@@ -15,7 +15,7 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 API_KEY = os.getenv("PROVIDER_API_KEY", "")
 
 # Default model if not specified via CLI
-DEFAULT_MODEL = "gemma2:9b"
+DEFAULT_MODEL = "gemma4:e2b"
 
 def estimate_tokens(obj: Any) -> int:
     """Rough heuristic for token count (characters / 4)."""
