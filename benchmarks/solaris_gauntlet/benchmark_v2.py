@@ -99,30 +99,36 @@ async def run_agent(task_prompt: str, server_script: str, is_classic: bool, mode
                     
                     start_t = time.time()
                     
-                    if provider == "ollama":
-                        response = await chat_client.post(OLLAMA_URL, json={
-                            "model": model_name,
-                            "messages": messages,
-                            "tools": tools,
-                            "stream": False,
-                            "options": {"num_ctx": num_ctx}
-                        }, timeout=120.0)
-                    else:
-                        # OpenAI / Google / Anthropic compatible format
-                        headers = {
-                            "Authorization": f"Bearer {API_KEY}",
-                            "HTTP-Referer": "https://elemm.ai", # Required by some OpenRouter models
-                            "X-Title": "Elemm Protocol Benchmark"
-                        } if API_KEY else {}
-                        response = await chat_client.post(f"{OPENAI_BASE_URL}/chat/completions", headers=headers, json={
-                            "model": model_name,
-                            "messages": messages,
-                            "tools": tools,
-                            "tool_choice": "auto"
-                        }, timeout=120.0)
-
-                    latency = (time.time() - start_t) * 1000
-                    
+                    try:
+                        if provider == "ollama":
+                            response = await chat_client.post(OLLAMA_URL, json={
+                                "model": model_name,
+                                "messages": messages,
+                                "tools": tools,
+                                "stream": False,
+                                "options": {"num_ctx": num_ctx}
+                            }, timeout=120.0)
+                        else:
+                            # OpenAI / Google / Anthropic compatible format
+                            headers = {
+                                "Authorization": f"Bearer {API_KEY}",
+                                "HTTP-Referer": "https://elemm.ai", # Required by some OpenRouter models
+                                "X-Title": "Elemm Protocol Benchmark"
+                            } if API_KEY else {}
+                            response = await chat_client.post(f"{OPENAI_BASE_URL}/chat/completions", headers=headers, json={
+                                "model": model_name,
+                                "messages": messages,
+                                "tools": tools,
+                                "tool_choice": "auto"
+                            }, timeout=120.0)
+                        latency = (time.time() - start_t) * 1000
+                    except httpx.ConnectError:
+                        log(f"❌ Connection Error: Could not connect to {provider} at {OLLAMA_URL if provider == 'ollama' else OPENAI_BASE_URL}. Is the server running?")
+                        break
+                    except Exception as e:
+                        log(f"❌ Unexpected Error ({provider}): {e}")
+                        break
+                        
                     if response.status_code != 200:
                         log(f"❌ Provider Error ({provider}): {response.text}")
                         break
@@ -368,11 +374,13 @@ async def main():
             a_out = sum(r.tokens_out for r in results) / len(results)
             t_in = sum(r.tokens_in for r in results)
             t_out = sum(r.tokens_out for r in results)
+            total_tokens = t_in + t_out
+            avg_dur = sum(r.end_time - r.start_time for r in results) / len(results)
             cost = (t_in / 1_000_000 * 2.00) + (t_out / 1_000_000 * 12.00)
-            return s_rate, a_steps, a_in, a_out, cost
+            return s_rate, a_steps, a_in, a_out, cost, total_tokens, avg_dur
 
-        c_s, c_st, c_in, c_out, c_cost = get_stats(results_classic)
-        e_s, e_st, e_in, e_out, e_cost = get_stats(results_elemm)
+        c_s, c_st, c_in, c_out, c_cost, c_total, c_dur = get_stats(results_classic)
+        e_s, e_st, e_in, e_out, e_cost, e_total, e_dur = get_stats(results_elemm)
         
         def add_row(name, c_val, e_val, unit="", invert=False):
             diff = e_val - c_val
@@ -388,6 +396,8 @@ async def main():
         add_row("Avg Steps", c_st, e_st, "", invert=True)
         add_row("Avg Tokens In", c_in, e_in, "", invert=True)
         add_row("Avg Tokens Out", c_out, e_out, "", invert=True)
+        add_row("Total Tokens", c_total, e_total, "", invert=True)
+        add_row("Avg Duration", c_dur, e_dur, "s", invert=True)
         add_row("Est. Total Cost", c_cost, e_cost, "$", invert=True)
         
         table_lines.append("╚" + "═"*22 + "╩" + "═"*17 + "╩" + "═"*18 + "╩" + "═"*15 + "╝")
