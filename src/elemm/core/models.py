@@ -1,3 +1,18 @@
+# Copyright (C) 2026 Marc Stöcker
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Dict, Any, Optional, Callable, Union
 
@@ -8,7 +23,7 @@ class Parameter(BaseModel):
     description: str
     required: bool = True
     default: Optional[Any] = None
-    options: Optional[List[Any]] = None
+    options: Optional[Union[List[Any], Dict[str, Any]]] = None
     aliases: List[str] = Field(default_factory=list)
 
 class LandmarkMetadata(BaseModel):

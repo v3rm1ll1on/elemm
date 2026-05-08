@@ -1,12 +1,15 @@
 {
   "mcpServers": {
     "elemm-gateway": {
-      "command": "elemm-connect",
+      "command": "python3",
       "args": [
+        "-m",
+        "elemm_gateway.cli",
         "http://localhost:8000"
       ],
       "env": {
-        "PYTHONPATH": "src"
+        "PYTHONPATH": "src",
+        "NOTE": "Change 'PYTHONPATH' to the absolute path of the 'src' directory if Claude cannot find the module."
       }
     }
   }

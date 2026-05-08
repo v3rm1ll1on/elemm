@@ -1,17 +1,17 @@
-# This file is part of Elemm.
+# Copyright (C) 2026 Marc Stöcker
 #
-# Elemm is free software: you can redistribute it and/or modify
+# This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 #
-# Elemm is distributed in the hope that it will be useful,
+# This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with Elemm.  If not, see <https://www.gnu.org/licenses/>.
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import httpx
 import logging
@@ -152,7 +152,7 @@ class ElemmGateway:
         tool_id = name
         if "-" in tool_id:
             # Check if it starts with the server name or common gateway patterns
-            for prefix in [self.server_name, "elemm-gateway", "gateway"]:
+            for prefix in [getattr(self, "server_name", "elemm-gateway"), "elemm-gateway", "gateway"]:
                 if tool_id.startswith(f"{prefix}-"):
                     tool_id = tool_id[len(prefix)+1:]
                     break
@@ -239,6 +239,7 @@ class ElemmGateway:
             
             # If there are more actions, execute the rest as a sequence on the remote site
             actions = remaining_actions
+            if not actions: return conn_res
 
         # 2. Proxy the sequence to the active site
         if self.active_site_url:
@@ -253,7 +254,7 @@ class ElemmGateway:
                     return [types.TextContent(type="text", text=f"Gateway Error (Proxy Sequence): {str(e)}")]
 
         # 3. Fallback to local (only if not connected to a remote site)
-        return await super()._handle_execute_sequence(actions)
+        return [types.TextContent(type="text", text="Error: Sequence execution requires an active connection.")]
 
     async def _proxy_core_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
         """Proxies core protocol discovery tools to the remote site."""
@@ -346,6 +347,7 @@ class ElemmGateway:
         except Exception as e:
             return [types.TextContent(type="text", text=f"Connection Error: {e}")]
 
-    def run(self):
+    def run_stdio(self):
         """Runs the Gateway over STDIO."""
-        self.run_stdio()
+        # Standard implementation would be here
+        pass

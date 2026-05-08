@@ -246,13 +246,18 @@ async def main():
         summary_lines.append("#"*80)
         
         success_count = sum(1 for r in results if r.success)
+        total_in = sum(r.tokens_in for r in results)
+        total_out = sum(r.tokens_out for r in results)
         avg_steps = sum(r.steps for r in results) / args.n
         avg_nudges = sum(r.nudges for r in results) / args.n
-        avg_in = sum(r.tokens_in for r in results) / args.n
-        avg_out = sum(r.tokens_out for r in results) / args.n
+        avg_in = total_in / args.n
+        avg_out = total_out / args.n
         avg_peak = sum(r.total_context_tokens for r in results) / args.n
         avg_dur = sum(r.end_time - r.start_time for r in results) / args.n
         
+        # Calculate Total Cost (Reference: Gemini 3.1 Pro prices)
+        total_cost_pro = (total_in / 1_000_000 * 2.00) + (total_out / 1_000_000 * 12.00)
+
         summary_lines.append(f"Success Rate      | {success_count}/{args.n} ({success_count/args.n*100:.1f}%)")
         summary_lines.append(f"Avg Steps         | {avg_steps:.2f}")
         summary_lines.append(f"Avg Nudges        | {avg_nudges:.2f}")
@@ -260,7 +265,27 @@ async def main():
         summary_lines.append(f"Avg Tokens Out    | {avg_out:.1f}")
         summary_lines.append(f"Avg Peak Context  | {avg_peak:.1f}")
         summary_lines.append(f"Avg Duration (s)  | {avg_dur:.2f}")
-        summary_lines.append("#"*80 + "\n")
+        summary_lines.append("#"*80)
+
+        summary_lines.append("\n" + "-"*40)
+        summary_lines.append(f" 💰 AGGREGATED COST ANALYSIS ({args.n} RUNS)")
+        summary_lines.append("-"*40)
+        summary_lines.append(f"Total Tokens In   | {total_in}")
+        summary_lines.append(f"Total Tokens Out  | {total_out}")
+        summary_lines.append("-" * 40)
+        summary_lines.append(f"{'Model':<25} | {'Total Cost':<10}")
+        summary_lines.append("-" * 40)
+        
+        prices = {
+            "Gemini 3.1 Flash-Lite": (0.25, 1.50),
+            "Gemini 3.1 Pro":        (2.00, 12.00),
+            "GPT-5.4 mini":          (0.75, 4.50),
+            "GPT-5.5 / Claude Opus": (5.00, 30.00),
+        }
+        for model, (p_in, p_out) in prices.items():
+            cost = (total_in / 1_000_000 * p_in) + (total_out / 1_000_000 * p_out)
+            summary_lines.append(f"{model:<25} | ${cost:.6f}")
+        summary_lines.append("-" * 40 + "\n")
         
         summary_str = "\n".join(summary_lines)
         print(summary_str)

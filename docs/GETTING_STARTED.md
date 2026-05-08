@@ -15,6 +15,9 @@ source venv/bin/activate
 pip install -e .
 ```
 
+> [!TIP]
+> **The Minimalist Way**: If you just want to connect to an existing site, you can use the provided `examples/mcp.py` wrapper directly in your Claude Desktop config. (See the main README for the JSON snippet).
+
 ---
 
 ## 2. Define your Landmarks
@@ -60,3 +63,4 @@ Once the agent is connected, the standard workflow is:
 - Explore **`docs/ARCHITECTURE.md`** to understand the core concepts.
 - Check **`docs/BENCHMARKING.md`** to see how to run performance tests.
 - Dive into **`docs/PROTOCOL_SPEC.md`** for advanced configuration.
+- Follow the **`docs/DEVELOPER_GUIDE.md`** for a step-by-step implementation guide.

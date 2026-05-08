@@ -71,7 +71,7 @@ async def quarantine(
     username: str = Body(..., embed=True), 
     token: str = Body(..., embed=True)
 ):
-    """Internal technical quarantine handler."""
+    """Internal technical quarantine handler. Remedy: Ensure you have the Corporate Username (CORP-XX) and the corresponding RT-token."""
     if username.startswith("EMP-"): raise HTTPException(status_code=422, detail="Mismatch! Use CORP-XX ID.")
     emp_id = next((k for k, v in DB["hr"].items() if v == username), None)
     acc_id = next((k for k, v in DB["finance"].items() if v == emp_id), None)

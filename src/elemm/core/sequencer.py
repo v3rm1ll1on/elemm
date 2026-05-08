@@ -1,3 +1,18 @@
+# Copyright (C) 2026 Marc Stöcker
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import re
 import logging
 from typing import Any, Dict, List, Optional, Tuple
@@ -88,7 +103,8 @@ class SequenceEngine:
 
             try:
                 # This regex finds $alias, $alias.path, $alias[0], $alias[0].path
-                new_str = re.sub(r"\$[\w\[\]\.]+", replace_match, data)
+                # It ensures that a trailing dot (sentence end) is NOT matched.
+                new_str = re.sub(r"\$[\w\[\]]+(?:\.[\w\[\]]+)*", replace_match, data)
                 return new_str, None
             except ValueError as e:
                 return None, str(e)
@@ -217,15 +233,25 @@ class SequenceEngine:
                 if clean in ["true", "yes", "on"]: return True
                 if clean in ["false", "no", "off"]: return False
                 
-                # Basic Comparison support: "22 < 20"
-                match = re.match(r"([\d\.\-]+)\s*(<|>|==|!=)\s*([\d\.\-]+)", clean)
+                # Comparison support: "22 < 20" or "status == success"
+                match = re.match(r"([\w\d\.\-\'\"]+)\s*(<|>|==|!=)\s*([\w\d\.\-\'\"]+)", clean)
                 if match:
                     v1, op, v2 = match.groups()
-                    v1, v2 = float(v1), float(v2)
-                    if op == "<": return v1 < v2
-                    if op == ">": return v1 > v2
-                    if op == "==": return v1 == v2
-                    if op == "!=": return v1 != v2
+                    # Strip quotes if present
+                    v1 = v1.strip("'\"")
+                    v2 = v2.strip("'\"")
+                    
+                    # Try numeric first, then string
+                    try:
+                        f1, f2 = float(v1), float(v2)
+                        if op == "<": return f1 < f2
+                        if op == ">": return f1 > f2
+                        if op == "==": return f1 == f2
+                        if op == "!=": return f1 != f2
+                    except ValueError:
+                        # Fallback to string comparison
+                        if op == "==": return v1 == v2
+                        if op == "!=": return v1 != v2
                 
                 return bool(clean)
             except Exception:

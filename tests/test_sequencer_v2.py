@@ -59,6 +59,37 @@ def test_pipe_resolver_complex_paths():
     assert val == 20
     assert err is None
     
-    # Test Embedded Piping (Not supported in strict v2 mode)
+    # Test Embedded Piping (Supported in v1.0.0 via interpolation)
     text, err = engine.resolve_all("The value is $res[0].id", context)
-    assert text == "The value is $res[0].id"
+    assert text == "The value is A"
+    assert err is None
+
+@pytest.mark.asyncio
+async def test_sequencer_conditions():
+    manager = AIProtocolManager()
+    
+    @manager.bind("always")
+    def always(): return {"status": "ok"}
+    
+    @manager.bind("conditional")
+    def conditional(): return {"executed": True}
+
+    engine = SequenceEngine(manager)
+    
+    # Test skipping
+    actions = [
+        {"action": "always", "alias": "a"},
+        {"action": "conditional", "condition": "$a.status == 'error'"}
+    ]
+    results = await engine.run(actions, {})
+    assert len(results) == 2
+    assert results[1]["result"]["status"] == "skipped"
+
+    # Test executing
+    actions = [
+        {"action": "always", "alias": "a"},
+        {"action": "conditional", "condition": "$a.status == 'ok'"}
+    ]
+    results = await engine.run(actions, {})
+    assert len(results) == 2
+    assert results[1]["result"]["executed"] is True

@@ -1,3 +1,18 @@
+# Copyright (C) 2026 Marc Stöcker
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import logging
 from typing import Any, Dict, List, Optional, Callable
 from pydantic import BaseModel
@@ -33,7 +48,7 @@ class AIProtocolManager:
         # Handle kwargs from benchmark
         self.instructions: str = kwargs.get("instructions", self.DEFAULT_INSTRUCTIONS)
         self.welcome_message: str = kwargs.get("welcome_message", "ELEMM v2 SECURE INTERFACE")
-        self.version = kwargs.get("version", "2.2.0")
+        self.version = kwargs.get("version", "1.0.0")
         self.ctx_threshold = kwargs.get("ctx_threshold", 2000)
         self.manifest_max_ctx = self.ctx_threshold
         
@@ -42,6 +57,9 @@ class AIProtocolManager:
         
         from .sequencer import SequenceEngine
         self.sequencer = SequenceEngine(self)
+
+        from .discovery import ParameterDiscovery
+        self.discovery = ParameterDiscovery()
 
     def landmark(self, landmark_id: str, **landmark_data):
         """Dekorator für Landmark-Tools."""
@@ -52,7 +70,12 @@ class AIProtocolManager:
             tool_meta = self.registry.get(landmark_id)
             
             desc = landmark_data.pop("description", None) or (tool_meta.description if tool_meta else None) or func.__doc__ or f"Tool: {landmark_id}"
-            params = landmark_data.pop("parameters", None) or (tool_meta.parameters if tool_meta else [])
+            params = landmark_data.pop("parameters", None) or (tool_meta.parameters if tool_meta else None)
+            
+            # Auto-Discovery if no parameters provided
+            if params is None:
+                params = self.discovery.extract_parameters(func)
+                
             returns = landmark_data.pop("returns", None) or (tool_meta.returns if tool_meta else None)
             remedy = landmark_data.pop("remedy", None) or (tool_meta.remedy if tool_meta else None)
             instructions = landmark_data.pop("instructions", None) or (tool_meta.instructions if tool_meta else None)
@@ -99,12 +122,12 @@ class AIProtocolManager:
         
         # 1. Check Existence
         if not landmark:
-            return self.repair.handle_missing_action(action_id, list(self.landmarks.keys())).dict(exclude_none=True)
+            return self.repair.handle_missing_action(action_id, list(self.landmarks.keys())).model_dump(exclude_none=True)
 
         # 2. Check Callability (Area vs Tool)
         if not landmark.handler:
             if landmark.tools:
-                return self.repair.handle_namespace_execution_attempt(action_id).dict(exclude_none=True)
+                return self.repair.handle_namespace_execution_attempt(action_id).model_dump(exclude_none=True)
             return {"status": "error", "message": f"Tool {action_id} has no implementation."}
 
         # 3. Validate Parameters
@@ -114,7 +137,7 @@ class AIProtocolManager:
         missing = [p.name for p in params if p.required and p.name not in arguments]
         if missing:
             schema = {p.name: p.type for p in params}
-            return self.repair.handle_invalid_params(action_id, missing, schema, custom_remedy=landmark.remedy).dict(exclude_none=True)
+            return self.repair.handle_invalid_params(action_id, missing, schema, custom_remedy=landmark.remedy).model_dump(exclude_none=True)
 
         # 3.2 Validate Values and Types
         for p in params:
@@ -134,7 +157,7 @@ class AIProtocolManager:
 
                 # 3.2.2 Check Valid Options (Enum) with Fuzzy Matching
                 if p.options and val not in p.options:
-                    return self.repair.handle_invalid_value(p.name, val, p.options).dict(exclude_none=True)
+                    return self.repair.handle_invalid_value(p.name, val, p.options).model_dump(exclude_none=True)
 
         # Pre-execution placeholder check
         for k, v in arguments.items():

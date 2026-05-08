@@ -1,3 +1,18 @@
+# Copyright (C) 2026 Marc Stöcker
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
 
@@ -131,16 +146,20 @@ class SmartRepairEngine:
             )
 
         # 3. Last Resort: Difflib Fuzzy
-        suggestions = difflib.get_close_matches(given_str, [o.lower() for o in allowed_options], n=3, cutoff=0.5)
+        # Map lower to original for retrieval
+        lower_to_orig = {o.lower(): o for o in allowed_options}
+        suggestions = difflib.get_close_matches(given_str, list(lower_to_orig.keys()), n=3, cutoff=0.5)
         
         msg = f"Invalid value '{given_value}' for parameter '{param_name}'."
         remedy = f"Please use one of the supported values: {allowed_options}."
-        if suggestions:
-            remedy += f" Did you mean '{suggestions[0]}'?"
+        
+        best_suggestion = lower_to_orig[suggestions[0]] if suggestions else None
+        if best_suggestion:
+            remedy += f" Did you mean '{best_suggestion}'?"
             
         return RepairResult(
             message=msg,
             remedy=remedy,
-            suggested_fix=str(suggestions[0]) if suggestions else None,
+            suggested_fix=best_suggestion,
             valid_options=allowed_options
         )
