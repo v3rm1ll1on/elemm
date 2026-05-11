@@ -75,7 +75,8 @@ The fastest way to use Elemm is via the built-in **Gateway**. It acts as a unive
 {
   "mcpServers": {
     "elemm-gateway": {
-      "command": "elemm-gateway"
+      "command": "/absolute/path/to/project/.venv/bin/python3",
+      "args": ["-m", "elemm_gateway.cli"]
     }
   }
 }

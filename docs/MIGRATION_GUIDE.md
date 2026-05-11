@@ -46,7 +46,8 @@ In v1.0.x, connecting to external APIs required custom code. In v1.1.0, the buil
 {
   "mcpServers": {
     "elemm-gateway": {
-      "command": "elemm-gateway"
+      "command": "/absolute/path/to/project/.venv/bin/python3",
+      "args": ["-m", "elemm_gateway.cli"]
     }
   }
 }
