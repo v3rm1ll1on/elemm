@@ -15,7 +15,7 @@ This launches a web server with discovery endpoints.
 ```bash
 PYTHONPATH=src python3 examples/synth_shop/synth_shop_v2.py --fastapi
 ```
-Access the manifest at: `http://localhost:8004/.well-known/elemm/manifest.json`
+Access the manifest at: `http://localhost:8004/.well-known/elemm-manifest.md`
 
 ### 2. As a Native MCP Server
 This runs the shop as a standard MCP toolset over STDIO.

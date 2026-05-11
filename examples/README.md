@@ -1,4 +1,4 @@
-# Elemm v1.0.0 Examples
+# Elemm v1.1.3 Examples
 
 Welcome to the official Elemm examples. This directory demonstrates how to build autonomous, reliable, and efficient toolsets using the Landmark Manifest Protocol.
 
@@ -22,25 +22,11 @@ A cyberpunk e-commerce environment demonstrating:
 
 ---
 
-## [Office Management](./office_management)
-**Pydantic and Resource Lifecycle**
-Practical resource management for modern workplaces:
-- **Pydantic Integration**: Automatic schema generation for complex nested booking data.
-- **Full Lifecycle**: Search, book, and cancel workflows within a structured landmark.
-
----
-
 ## [Linux Admin](./linux_admin)
 **Infrastructure Management**
 Tools for system-level monitoring and administration:
 - **Safe Execution**: Wrapping system calls within a secure protocol boundary.
 - **Technical Discovery**: Navigating complex infrastructure landmarks.
-
----
-
-## [Basic Navigation](./basic_navigation)
-**The Hello World**
-The simplest starting point to understand the `@gateway.action` decorator and the three-stage protocol handshake.
 
 ---
 
@@ -53,15 +39,18 @@ Copy-pasteable JSON templates for connecting your AI agent (e.g., Claude Desktop
 
 ---
 
-## Elemm Gateway (mcp_bridge.py)
+## Elemm Gateway
 **Connecting to Agents**
-The `mcp_bridge.py` script acts as a broker between the Landmark Manifest Protocol and standard MCP-compatible agents like Claude Desktop.
+
+The **Elemm Gateway** is a protocol-aware broker that connects any AI agent to your Landmark servers.
 
 **Quick Start:**
-1. Start an example server (e.g., `python examples/smart_home/server.py`).
-2. Point your agent to the bridge (see root README for configuration details).
-3. Use the templates in `examples/mcp_configs/` for a quick setup.
-4. Experience the performance and cost advantages of manifest-driven discovery.
+1. Start an example server (e.g., `python examples/smart_home/smarthome_v2.py`).
+2. Run the Gateway: `elemm-gateway http://localhost:8002` (or use the configurations in `examples/mcp_configs/`).
+3. Experience the performance and cost advantages of manifest-driven discovery.
+
+> [!TIP]
+> Use the minimalist `examples/mcp.py` as a template for your own custom MCP bridge scripts.
 
 ---
 *Maintained by Marc Stöcker.*
