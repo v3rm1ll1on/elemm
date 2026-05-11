@@ -62,6 +62,8 @@ Standard protocols like MCP often struggle with large-scale toolsets. Elemm prov
 
 ### 1. Install
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install elemm
 ```
 
