@@ -18,11 +18,7 @@ pip install elemm
 
 The **Elemm Gateway** is a universal MCP server that connects to any OpenAPI, GraphQL, or native Elemm API. No code required.
 
-```bash
-elemm-gateway
-```
-
-This starts a STDIO-based MCP server that any compatible client (Claude Desktop, Cursor, Anything LLM, etc.) can use immediately.
+Because it uses the STDIO transport by default, **you do not run it directly in your terminal**. Instead, you configure your MCP client to start it.
 
 ### Connecting to Claude Desktop
 
@@ -38,7 +34,9 @@ Add the following to your `claude_desktop_config.json`:
 }
 ```
 
-Then tell your agent: *"Connect to https://petstore3.swagger.io/api/v3/openapi.json and list all available pets."*
+*(Note: Use the absolute path to `elemm-gateway` if it is not in your system PATH).*
+
+Then start Claude and tell your agent: *"Connect to https://petstore3.swagger.io/api/v3/openapi.json and list all available pets."*
 
 > [!TIP]
 > See the [Gateway Reference](GATEWAY.md) for the complete documentation on security policies, authentication vault, sequence engine, and more.

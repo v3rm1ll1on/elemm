@@ -51,9 +51,20 @@ pip install elemm
 
 ### Run (STDIO — Recommended for MCP)
 
-```bash
-elemm-gateway
+The CLI installs globally. Since it communicates via `stdio` by default, **you configure your MCP client to run it**, rather than running it manually in a terminal.
+
+Example for Claude Desktop (`claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "elemm-gateway": {
+      "command": "elemm-gateway"
+    }
+  }
+}
 ```
+
+*(If Claude cannot find the command, provide the absolute path to the `elemm-gateway` executable).*
 
 ### Run (SSE — For Web Clients)
 

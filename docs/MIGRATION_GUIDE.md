@@ -40,14 +40,19 @@ from elemm import AIProtocolManager, MetadataRegistry
 
 ## Step 2: Use the Gateway for External APIs
 
-In v1.0.x, connecting to external APIs required custom code. In v1.1.0, the built-in Gateway handles this:
+In v1.0.x, connecting to external APIs required custom code. In v1.1.0, the built-in Gateway handles this. Just point your MCP client (like Claude Desktop) to the `elemm-gateway` command:
 
-```bash
-# v1.1.0 — connect to any API instantly
-elemm-gateway
+```json
+{
+  "mcpServers": {
+    "elemm-gateway": {
+      "command": "elemm-gateway"
+    }
+  }
+}
 ```
 
-The Gateway auto-detects OpenAPI specs, GraphQL endpoints, and native Elemm services.
+The Gateway auto-detects OpenAPI specs, GraphQL endpoints, and native Elemm services when the agent connects.
 
 ---
 

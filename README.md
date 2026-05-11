@@ -65,19 +65,10 @@ Standard protocols like MCP often struggle with large-scale toolsets. Elemm prov
 pip install elemm
 ```
 
-### 2. Run the Gateway (Universal MCP Server)
-The fastest way to use Elemm is via the built-in **Gateway**. It turns any OpenAPI or GraphQL API into an MCP-compatible tool server:
+### 2. Connect your AI Agent (MCP Client)
+The fastest way to use Elemm is via the built-in **Gateway**. It acts as a universal MCP server that turns any OpenAPI or GraphQL API into a tool server.
 
-```bash
-elemm-gateway
-```
-
-Then tell your agent:
-> *"Connect to https://api.apis.guru/v2/specs/github.com/api.github.com/1.1.4/openapi.json and show me the latest issues."*
-
-The Gateway provides exactly **8 core tools** to the agent. All domain-specific actions are discovered on-the-fly via the Elemm protocol.
-
-### 3. Connecting to MCP Clients
+**Do not run this manually in your terminal.** Instead, configure your AI agent (like Claude Desktop or Cursor) to run the `elemm-gateway` command.
 
 **Claude Desktop** (`claude_desktop_config.json`):
 ```json
@@ -89,6 +80,15 @@ The Gateway provides exactly **8 core tools** to the agent. All domain-specific 
   }
 }
 ```
+
+*(Note: Use the absolute path to `elemm-gateway` if it is not in your system PATH).*
+
+### 3. Start Discovering
+
+Once connected, tell your agent:
+> *"Connect to https://api.apis.guru/v2/specs/github.com/api.github.com/1.1.4/openapi.json and show me the latest issues."*
+
+The Gateway provides exactly **8 core tools** to the agent. All domain-specific actions are discovered on-the-fly via the Elemm protocol.
 
 ### 4. Build Your Own Landmark Server (Optional)
 Elemm uses a decorator-based approach to turn standard Python functions into high-performance landmarks:
