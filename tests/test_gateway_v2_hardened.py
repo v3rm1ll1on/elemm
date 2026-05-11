@@ -126,7 +126,7 @@ async def test_auth_remedy_standard(gateway):
         error_data = results[0]["result"]
         assert error_data["status"] == "error"
         assert "remedy" in error_data
-        assert "instruction" in error_data
+        assert "Authentication failed" in error_data["remedy"]
 
 @pytest.mark.asyncio
 async def test_landmark_discovery_grouping(gateway):

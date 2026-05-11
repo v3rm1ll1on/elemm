@@ -94,14 +94,26 @@ class ElemmGateway:
                                     "type": "object",
                                     "properties": {
                                         "action": {"type": "string"},
-                                        "alias": {"type": "string", "description": "Optional custom alias for this step."},
+                                        "alias": {"type": "string"},
+                                        "parameters": {"type": "object"}
+                                    },
+                                    "required": ["action"]
+                                }
+                            },
+                            "steps": {
+                                "type": "array",
+                                "description": "Alias for 'actions'.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "action": {"type": "string"},
+                                        "alias": {"type": "string"},
                                         "parameters": {"type": "object"}
                                     },
                                     "required": ["action"]
                                 }
                             }
-                        },
-                        "required": ["actions"]
+                        }
                     }
                 )
             ]
@@ -130,10 +142,10 @@ class ElemmGateway:
                 return await self._connect(arguments.get("url", ""))
             
             if name == "execute_sequence":
-                return await self.sequence_engine.execute(arguments.get("actions", []))
+                return await self.sequence_engine.execute(**arguments)
 
             # Core Tool Proxying
-            if name in ["get_manifest"]:
+            if name in ["get_manifest", "get_landmarks", "inspect_landmark", "list_aliases"]:
                 return await self._proxy_core_tool(name, arguments)
 
             # Action Execution
@@ -247,13 +259,37 @@ class ElemmGateway:
                 # Fallback for OpenAPI/GraphQL (already parsed)
                 signatures = []
                 for tid in ids:
-                    relevant_tools = [t for t in site_data["tools"] if t["name"].startswith(f"{tid}:") or t["name"].startswith(f"{tid}_")]
+                    # Match exact tool ID or all tools in a landmark namespace
+                    relevant_tools = [t for t in site_data["tools"] if t["name"] == tid or t["name"].startswith(f"{tid}:") or t["name"].startswith(f"{tid}_")]
+                    
                     for t in relevant_tools:
-                        sig = f"/**\n * Tool: {t['name']}\n * Description: {t['description']}\n */\n"
-                        sig += f"function call_action(action: '{t['name']}', parameters: {json.dumps(t['inputSchema'].get('properties', {}), indent=4)}): any;\n"
+                        props = t['inputSchema'].get('properties', {})
+                        required = t['inputSchema'].get('required', [])
+                        
+                        sig = f"/**\n * Tool: {t['name']}\n * Description: {t['description']}\n"
+                        for p_name, p_schema in props.items():
+                            p_type = p_schema.get('type', 'any')
+                            p_desc = p_schema.get('description', '')
+                            req_mark = "[REQUIRED]" if p_name in required else "[OPTIONAL]"
+                            sig += f" * @param {p_name} ({p_type}) {req_mark} {p_desc}\n"
+                        sig += " */\n"
+                        
+                        # Generate TS-style signature
+                        params_list = []
+                        for p_name, p_schema in props.items():
+                            p_type = p_schema.get('type', 'any')
+                            opt = "" if p_name in required else "?"
+                            params_list.append(f"{p_name}{opt}: {p_type}")
+                        
+                        sig += f"function call_action(action: '{t['name']}', parameters: {{ {', '.join(params_list)} }}): any;\n"
                         signatures.append(sig)
                 
-                content = "### TECHNICAL SIGNATURES\n```typescript\n" + "\n".join(signatures) + "\n```"
+                if not signatures:
+                    content = f"No tools found for landmark/id '{ids}'. Use 'elemm:get_landmarks' to see valid names."
+                else:
+                    content = "### TECHNICAL SIGNATURES\n```typescript\n" + "\n\n".join(signatures) + "\n```"
+                    content += "\n\n(HINT: Combine multiple calls into one 'execute_sequence' for maximum token efficiency!)"
+                
                 return [types.TextContent(type="text", text=self._inject_global_landmark(content))]
             
             if name == "list_aliases":
@@ -265,15 +301,26 @@ class ElemmGateway:
                     for a, v in sorted(aliases.items()):
                         res += f"- **${a}**: {v}\n"
                 return [types.TextContent(type="text", text=res)]
+            
+            if name == "execute_sequence":
+                return await self.sequence_engine.execute(arguments.get("actions", []))
 
         return [types.TextContent(type="text", text=f"Error: Core tool '{name}' not supported by gateway.")]
 
     async def _execute_single(self, tool_name: str, arguments: Dict) -> str:
         """UNIVERSAL PROXY: Sends the call to the remote site's execution endpoint or directly via HTTP for OpenAPI/GraphQL."""
-        if not self.active_site_url:
+        if not self.active_site_url and tool_name not in ["connect_to_site"] and not tool_name.startswith("elemm:"):
             return "Error: Gateway not connected to a remote site."
 
+        if tool_name == "execute_sequence":
+            res = await self.sequence_engine.execute(arguments.get("actions", []))
+            return res[0].text if res else "No result"
+
         # Handle Internal Meta Tools (Token Efficiency Optimization)
+        if tool_name == "connect_to_site":
+            res = await self._connect(arguments.get("url", ""))
+            return res[0].text if res else "Connected"
+
         if tool_name.startswith("elemm:"):
             internal_name = tool_name.split(":", 1)[1]
             # Use proxy logic but return stringified result
@@ -312,8 +359,8 @@ class ElemmGateway:
             })
         
         # Find tool meta
-        tool_meta = next((t["meta"] for t in site_data["tools"] if t["name"] == name), None)
-        if not tool_meta:
+        tool_data = next((t for t in site_data["tools"] if t["name"] == name), None)
+        if not tool_data:
             # Check if it's a Landmark Namespace (Grouping)
             landmarks = set(t["name"].split("_", 1)[0] for t in site_data["tools"] if "_" in t["name"])
             if name in landmarks:
@@ -326,10 +373,10 @@ class ElemmGateway:
             return json.dumps(repair.model_dump(), indent=2)
         
         try:
-            if tool_meta.get("type") == "graphql":
-                return await self.graphql_executor.execute(tool_meta, arguments)
+            if site_data.get("type") == "graphql":
+                return await self.graphql_executor.execute(tool_data, arguments)
             else:
-                return await self.openapi_executor.execute(tool_meta, arguments)
+                return await self.openapi_executor.execute(tool_data, arguments)
         except Exception as e:
             return json.dumps({
                 "status": "error",

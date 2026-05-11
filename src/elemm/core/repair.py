@@ -98,6 +98,33 @@ class SmartRepairEngine:
             remedy=f"Available keys in this alias are: {available_keys}. Use call_action(action='elemm:list_aliases') to verify state.",
             example=f"${alias}.{available_keys[0]}" if available_keys else None
         )
+    
+    @staticmethod
+    def handle_remote_error(status_code: int, remote_msg: str) -> RepairResult:
+        """Translates HTTP status codes into actionable remedies for the agent."""
+        remedy = "Verify technical signatures with 'elemm:inspect_landmark' and check your parameters."
+        
+        if status_code == 404:
+            remedy = "The resource was not found. Check if the 'owner', 'repo', or specific IDs (like issue_number) are spelled correctly."
+        elif status_code == 401:
+            remedy = "Authentication failed. Your ~/.elemm/vault.json might be missing a valid API key for this host."
+        elif status_code == 403:
+            remedy = "Access denied. This usually means the resource is private or your permissions are insufficient."
+        elif status_code == 429:
+            remedy = "Rate limit reached. Please wait and reduce the frequency of your calls. Use 'execute_sequence' to batch requests."
+        elif status_code == 422:
+            remedy = "Validation failed. The parameters were syntactically correct but the remote logic rejected them (e.g. invalid state transition)."
+        elif status_code >= 500:
+            remedy = "Remote server error. This is a problem on their side. Try again in a few minutes."
+            
+        msg = f"Remote API Error (HTTP {status_code})"
+        if remote_msg:
+            msg += f": {remote_msg}"
+            
+        return RepairResult(
+            message=msg,
+            remedy=remedy
+        )
 
     @staticmethod
     def handle_namespace_execution_attempt(namespace_id: str) -> RepairResult:

@@ -7,6 +7,7 @@ import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 import mcp.types as types
+from elemm.core.repair import SmartRepairEngine
 
 class ManifestBuilder:
     """Single Source of Truth for Elemm Manifest generation and styling."""
@@ -16,7 +17,7 @@ class ManifestBuilder:
         "1. **DISCOVERY**: Use `call_action(action='elemm:get_landmarks')` to see available areas.\n"
         "2. **INSPECTION**: Use `call_action(action='elemm:inspect_landmark', parameters={landmark_id: '...'})` for technical signatures BEFORE execution.\n"
         "3. **HYGIENE (CRITICAL)**: Use `_select` (comma-separated fields), `_filter` (key=val), and `_limit` (number) in EVERY tool call to prevent context overflow.\n"
-        "4. **SEQUENCING**: Use 'execute_sequence' for ALL multi-step tasks.\n"
+        "4. **SEQUENCING**: Use the native tool `execute_sequence` for ALL multi-step tasks. It supports piping and aliasing.\n"
         "5. **PIPING**: Use '$alias.field' to pass results between sequence steps. Support deep paths (e.g. `$step0.items[0].id`).\n"
     )
 
@@ -97,13 +98,13 @@ class VaultManager:
         auth_type = entry.get("type", "apiKey")
         name = entry.get("name", "key")
         val = entry.get("value", "")
-        location = entry.get("in", "query")
-
+        
         if auth_type == "apiKey":
-            if location == "query":
-                params[name] = val
-            else:
+            target = entry.get("in", "query")
+            if target == "header":
                 headers[name] = val
+            else:
+                params[name] = val
         elif auth_type == "bearer":
             headers["Authorization"] = f"Bearer {val}"
         elif auth_type == "basic":
@@ -111,6 +112,14 @@ class VaultManager:
         
         logger.info(f"Vault: Applied {auth_type} for {host}")
         return True
+
+    def get_auth_param_names(self, host: str) -> List[str]:
+        """Returns names of parameters that this vault can provide for the host."""
+        entry = self.get_entry(host)
+        if not entry: return []
+        if isinstance(entry, str): return ["key"]
+        name = entry.get("name", "key")
+        return [name]
 
 class ResponseSquisher:
     """Handles context hygiene by filtering JSON responses."""
@@ -159,10 +168,11 @@ class GraphQLExecutor:
     def __init__(self, vault_manager: VaultManager):
         self.vault = vault_manager
 
-    async def execute(self, tool_meta: Dict[str, Any], arguments: Dict[str, Any]) -> str:
-        base_url = tool_meta.get("base_url", "")
-        operation_type = tool_meta.get("operation_type", "query")
-        field_name = tool_meta.get("field_name", "")
+    async def execute(self, tool_data: Dict[str, Any], arguments: Dict[str, Any]) -> str:
+        meta = tool_data.get("meta", {})
+        base_url = meta.get("base_url", "")
+        operation_type = meta.get("operation_type", "query")
+        field_name = meta.get("field_name", "")
         
         # Extract hygiene params
         select = arguments.pop("_select", "id") # Default to 'id' if nothing selected
@@ -176,9 +186,8 @@ class GraphQLExecutor:
         for k, v in arguments.items():
             var_name = f"var_{k}"
             # Use original GQL type if available in metadata, else guess
-            prop_meta = tool_meta.get("inputSchema", {}).get("properties", {}).get(k, {})
+            prop_meta = tool_data.get("inputSchema", {}).get("properties", {}).get(k, {})
             g_type = prop_meta.get("gql_type")
-            
             
             if not g_type:
                 if isinstance(v, bool): g_type = "Boolean!"
@@ -221,24 +230,45 @@ class GraphQLExecutor:
                     pass
 
                 if "errors" in res_json or resp.status_code != 200:
+                    debug_echo = {
+                        "url": base_url,
+                        "query": query,
+                        "variables": var_values
+                    }
+                    
                     # SmartRepair: Translate common GQL errors
                     errors = res_json.get("errors", [])
                     error_msg = errors[0].get("message", "") if errors else resp.text
-                    remedy = "Check technical signatures with 'elemm:inspect_landmark'."
+                    
+                    repair = SmartRepairEngine.handle_remote_error(resp.status_code, error_msg)
+                    
+                    # Map HTTP errors if applicable, else use GQL default
+                    status_map = {
+                        401: "AUTHENTICATION_FAILED",
+                        403: "ACCESS_DENIED",
+                        429: "RATE_LIMIT_EXCEEDED",
+                        500: "SERVER_ERROR"
+                    }
+                    protocol_error = status_map.get(resp.status_code, "GRAPHQL_ERROR")
+                    remedy = repair.remedy
                     
                     if "must have a selection of subfields" in error_msg:
                         field_match = re.search(r'Field "(.*?)"', error_msg)
                         target = field_match.group(1) if field_match else "the field"
                         remedy = f"Field '{target}' is an object/interface. You MUST specify sub-fields in '_select' using dot-notation (e.g. '{target}.id' or '{target}.name')."
+                        protocol_error = "NESTING_REQUIRED"
                     elif "Variable" in error_msg and "expecting type" in error_msg:
                         remedy = "Type mismatch in variables. Ensure IDs are strings and follow the technical signature exactly."
+                        protocol_error = "TYPE_MISMATCH"
 
                     return json.dumps({
                         "status": "error",
-                        "message": error_msg,
+                        "_PROTOCOL_ERROR": protocol_error,
+                        "message": repair.message,
                         "remedy": remedy,
                         "http_code": resp.status_code,
-                        "raw_errors": errors
+                        "raw_errors": errors,
+                        "_DEBUG_ECHO": debug_echo
                     }, indent=2)
                 
                 # Unbox GQL 'data' field
@@ -274,15 +304,38 @@ class OpenAPIExecutor:
     def __init__(self, vault_manager: VaultManager):
         self.vault = vault_manager
 
-    async def execute(self, tool_meta: Dict[str, Any], arguments: Dict[str, Any]) -> str:
-        base_url = tool_meta.get("base_url", "")
-        path = tool_meta.get("path", "")
-        method = tool_meta.get("method", "GET").upper()
+    async def execute(self, tool_data: Dict[str, Any], arguments: Dict[str, Any]) -> str:
+        meta = tool_data.get("meta", {})
+        base_url = meta.get("base_url", "")
+        path = meta.get("path", "")
+        method = meta.get("method", "GET").upper()
         
         # Extract hygiene params
         select = arguments.pop("_select", None)
         filter_str = arguments.pop("_filter", None)
         limit = arguments.pop("_limit", None)
+
+        # Pre-Validation: Catch missing required fields locally (Agent Guidance)
+        required_fields = tool_data.get("inputSchema", {}).get("required", [])
+        
+        # Exclude fields provided by the vault
+        host_key = urlparse(base_url).netloc
+        vault_provided = self.vault.get_auth_param_names(host_key)
+        
+        missing = [f for f in required_fields if f not in arguments and f not in vault_provided]
+        if missing:
+            return json.dumps({
+                "status": "error",
+                "_PROTOCOL_ERROR": "VALIDATION_FAILED",
+                "message": f"Local Validation Failed: Missing required parameters {missing}",
+                "remedy": f"The tool '{tool_data.get('name')}' requires these fields: {required_fields}. Check technical signatures with 'elemm:inspect_landmark'.",
+                "_DEBUG_ECHO": {
+                    "tool": tool_data.get("name"),
+                    "received_params": list(arguments.keys()),
+                    "missing_params": missing,
+                    "vault_aware": True
+                }
+            }, indent=2)
 
         # Prepare request
         full_url = f"{base_url}{path}"
@@ -291,7 +344,7 @@ class OpenAPIExecutor:
         json_body = None
 
         # Map arguments to path/query/body
-        for param_meta in tool_meta.get("params", []):
+        for param_meta in meta.get("params", []):
             p_name = param_meta["name"]
             p_in = param_meta["in"]
             if p_name in arguments:
@@ -321,37 +374,41 @@ class OpenAPIExecutor:
                     timeout=30.0
                 )
                 
-                if resp.status_code == 429:
-                    retry_after = resp.headers.get("Retry-After", "a few")
-                    return json.dumps({
-                        "status": "error",
-                        "_PROTOCOL_ERROR": "RATE_LIMIT_REACHED",
-                        "message": f"Rate limit reached for {host_key}.",
-                        "remedy": f"Wait {retry_after} seconds before retrying this operation.",
-                        "instruction": "The remote service is throttling requests. Please pause execution."
-                    }, indent=2)
-
-                if resp.status_code in [401, 403]:
-                    return json.dumps({
-                        "status": "error",
-                        "_PROTOCOL_ERROR": "AUTHENTICATION_FAILED",
-                        "message": f"The remote server ({host_key}) rejected the request due to authentication issues (HTTP {resp.status_code}).",
-                        "remedy": f"Add the correct API key for '{host_key}' to your local ~/.elemm/vault.json file.",
-                        "instruction": f"The user needs to provide an API key for '{host_key}'. Please explain that this key should be placed in ~/.elemm/vault.json."
-                    }, indent=2)
-                
+                # Unified Error Handling with Forensics
                 if resp.status_code != 200:
-                    # Try to extract a useful message from the API error response
+                    debug_echo = {
+                        "method": method,
+                        "url": str(resp.url),
+                        "sent_params": params,
+                        "sent_body_preview": str(json_body)[:200] if json_body else None
+                    }
+                    
+                    # Extract error details
                     error_data = {}
                     try: error_data = resp.json()
                     except: pass
-                    
                     error_msg = error_data.get("error", {}).get("message") or error_data.get("message") or resp.text
+                    
+                    status_map = {
+                        400: "BAD_REQUEST",
+                        401: "AUTHENTICATION_FAILED",
+                        403: "ACCESS_DENIED",
+                        404: "NOT_FOUND",
+                        422: "VALIDATION_FAILED",
+                        429: "RATE_LIMIT_EXCEEDED",
+                        500: "SERVER_ERROR"
+                    }
+                    
+                    protocol_error = status_map.get(resp.status_code, "REMOTE_ERROR")
+                    repair = SmartRepairEngine.handle_remote_error(resp.status_code, error_msg)
+                    
                     return json.dumps({
                         "status": "error",
-                        "message": f"Remote API returned HTTP {resp.status_code}",
-                        "details": error_msg,
-                        "remedy": "Verify technical signatures with 'elemm:inspect_landmark' and check your parameters."
+                        "_PROTOCOL_ERROR": protocol_error,
+                        "message": repair.message,
+                        "remedy": repair.remedy,
+                        "remote_response": error_msg,
+                        "_DEBUG_ECHO": debug_echo
                     }, indent=2)
 
                 data = resp.json()
@@ -388,7 +445,12 @@ class SequenceEngine:
         """Returns all currently stored aliases."""
         return self.aliases
 
-    async def execute(self, actions: List[Dict[str, Any]]) -> List[types.TextContent]:
+    async def execute(self, actions: List[Dict[str, Any]] = None, **kwargs) -> List[types.TextContent]:
+        # Support both 'actions' (protocol) and 'steps' (LLM intuition)
+        actions = actions or kwargs.get("steps", [])
+        if not actions:
+            return [types.TextContent(type="text", text="Error: No actions or steps provided in sequence.")]
+            
         results = []
         for i, step in enumerate(actions):
             action_id = step.get("action")

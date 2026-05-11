@@ -18,7 +18,7 @@ async def test_graphql_nesting_remedy():
     }
     
     with patch("httpx.AsyncClient.post", return_value=mock_resp):
-        res_str = await executor.execute({"field_name": "test"}, {"id": "1"})
+        res_str = await executor.execute({"meta": {"field_name": "test"}}, {"id": "1"})
         res = json.loads(res_str)
         
         assert res["status"] == "error"
@@ -35,11 +35,11 @@ async def test_openapi_error_details_extraction():
     mock_resp.json.return_value = {"message": "Invalid date format. Use YYYY-MM-DD."}
     
     with patch("httpx.AsyncClient.request", return_value=mock_resp):
-        res_str = await executor.execute({"base_url": "http://api", "path": "/test"}, {"q": "val"})
+        res_str = await executor.execute({"meta": {"base_url": "http://api", "path": "/test"}}, {"q": "val"})
         res = json.loads(res_str)
         
         assert res["status"] == "error"
-        assert "Invalid date format" in res["details"]
+        assert "Invalid date format" in res["message"]
         assert "elemm:inspect_landmark" in res["remedy"]
 
 @pytest.mark.asyncio
@@ -52,7 +52,7 @@ async def test_empty_result_info_injection():
     mock_resp.json.return_value = []
     
     with patch("httpx.AsyncClient.request", return_value=mock_resp):
-        res_str = await executor.execute({"base_url": "http://api", "path": "/test"}, {"q": "val"})
+        res_str = await executor.execute({"meta": {"base_url": "http://api", "path": "/test"}}, {"q": "val"})
         res = json.loads(res_str)
         
         assert res["status"] == "success"
