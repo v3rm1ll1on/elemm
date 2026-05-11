@@ -1,420 +1,51 @@
-import sys
-import os
-import argparse
-import asyncio
-import httpx
-import json
-import time
-from typing import Any
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
-from metrics_collector import BenchmarkMetrics
+"# Copyright (C) 2026 Marc Stöcker
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+nimport sys import os import argparse import asyncio import httpx import json import time from typing import Any from mcp import ClientSession, StdioServerParameters from mcp.client.stdio import stdio_client from metrics_collector import BenchmarkMetrics OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat") OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1") API_KEY = os.getenv("PROVIDER_API_KEY", "") # Default model if not specified via CLI DEFAULT_MODEL = "gemma4:e2b" def estimate_tokens(obj: Any) -> int: """Rough heuristic for token count (characters / 4).""" return len(json.dumps(obj)) // 4 async def run_agent(task_prompt: str, server_script: str, is_classic: bool, model_name: str, provider: str = "ollama", quiet=False, num_ctx=32768, log_file=None): mode_name = "classic" if is_classic else "elemm" metrics = BenchmarkMetrics(mode=mode_name, task=task_prompt) def log(msg): if not quiet: print(msg) if log_file: log_file.write(str(msg) + "
+") args_list = [os.path.join(os.path.dirname(__file__), server_script)] if not is_classic: args_list.append("--mcp") server_params = StdioServerParameters( command=sys.executable, args=args_list, env=os.environ.copy() ) async with stdio_client(server_params) as (read, write): async with ClientSession(read, write) as session: await session.initialize() discovery_res = await session.list_tools() tools = [ { "type": "function", "function": { "name": t.name, "description": t.description, "parameters": t.inputSchema } } for t in discovery_res.tools ] log(f"🔍 Discovered {len(tools)} tools: {[t['function']['name'] for t in tools]}") async with httpx.AsyncClient() as chat_client: # v1 Genius: System Persona and Mode-Specific Instructions shared_persona = ( "You are the Solaris Forensic Auditor. Your style is purely technical, silent, and decisive. " "DO NOT EXPLAIN. Output ONLY valid tool calls to resolve the incident. Results are the only metric of success." ) if is_classic: system_prompt = ( f"{shared_persona}
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/chat")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-API_KEY = os.getenv("PROVIDER_API_KEY", "")
+" "### SOLARIS TECHNICAL REFERENCE MANUAL ###
+" "1. NETWORK & INFRA: Internal IP addresses can be resolved to Hostnames via the NOC. Infrastructure logs are stored in IT and indexed by Hostname.
+" "2. PERSONNEL & FINANCE: Employee IDs (EMP-XXXX) are used in HR and Finance. Corporate Usernames (CORP-XX) are resolved in HR. Financial accounts are linked to tokens in Banking.
+" "3. REMEDIATION PROTOCOLS: 
+" " - All quarantine actions REQUIRE a Corporate Username (NOT EMP-ID) and a matching Evidence Token (RT-XXXX) from IT logs.
+" " - Infrastructure restarts require a verified SRV-XXXX hostname.
+" " - Final reports must be submitted via the OPS reporter once all mitigation flags are set to SUCCESS in the MISSION_STATE.
+" "4. COMPLIANCE: Adhere strictly to provided technical schemas. Do not attempt to use unresolved IDs for state-changing operations." ) else: # In ELEMM mode, we trust the Tool Descriptions and the Protocol Handshake. system_prompt = ( f"{shared_persona}
 
-# Default model if not specified via CLI
-DEFAULT_MODEL = "gemma4:e2b"
+" "Use the available tools to investigate and resolve the incident. " "Follow the protocol hints provided in the tool descriptions." ) messages = [ {"role": "system", "content": system_prompt}, {"role": "user", "content": task_prompt} ] for i in range(1, 31): # Calculate FULL context size (Messages + Tools) ctx_size = estimate_tokens(messages) + estimate_tokens(tools) log("
+" + "="*80) log(f" STEP {i} | Model: {model_name} | Ctx: ~{ctx_size}") log("="*80) start_t = time.time() try: if provider == "ollama": response = await chat_client.post(OLLAMA_URL, json={ "model": model_name, "messages": messages, "tools": tools, "stream": False, "options": {"num_ctx": num_ctx} }, timeout=120.0) else: # OpenAI / Google / Anthropic compatible format headers = { "Authorization": f"Bearer {API_KEY}", "HTTP-Referer": "https://elemm.ai", # Required by some OpenRouter models "X-Title": "Elemm Protocol Benchmark" } if API_KEY else {} response = await chat_client.post(f"{OPENAI_BASE_URL}/chat/completions", headers=headers, json={ "model": model_name, "messages": messages, "tools": tools, "tool_choice": "auto" }, timeout=120.0) latency = (time.time() - start_t) CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 1000 except httpx.ConnectError: log(f"❌ Connection Error: Could not connect to {provider} at {OLLAMA_URL if provider == 'ollama' else OPENAI_BASE_URL}. Is the server running?") break except Exception as e: log(f"❌ Unexpected Error ({provider}): {e}") break if response.status_code != 200: log(f"❌ Provider Error ({provider}): {response.text}") break resp_json = response.json() if provider == "ollama": msg_obj = resp_json.get("message", {}) content = msg_obj.get("content", "") tool_calls = msg_obj.get("tool_calls", []) else: choice = resp_json.get("choices", [{}])[0] msg_obj = choice.get("message", {}) content = msg_obj.get("content", "") tool_calls = msg_obj.get("tool_calls", []) # Estimate tokens for this turn tokens_in = ctx_size tokens_out = estimate_tokens(msg_obj) messages.append(msg_obj) metrics.add_step(tokens_in, tokens_out, latency, ctx_size) if content: log(f"🤖 AGENT: {content}") if not tool_calls: if i < 30: metrics.add_nudge() log("⚠️ No tool calls. Nudging agent to retry...") messages.append({ "role": "user", "content": "I noticed you didn't call any tools. If you are stuck due to a previous error, analyze the 'remedy' or 'message' field in the last tool result and try a corrected approach." }) continue else: log("⚠️ No tool calls. Mission stagnant.") break remedies = [] for tc in tool_calls: name = tc["function"]["name"] args = tc["function"]["arguments"] # Handle JSON string arguments (common in OpenAI/OpenRouter) if isinstance(args, str): try: args = json.loads(args) except Exception as e: log(f"⚠️ Failed to parse tool arguments for {name}: {args}") args = {} log(f"🛠️ CALLING: {name}({json.dumps(args)})") try: start_tool_t = time.time() result = await session.call_tool(name, args) tool_latency = (time.time() - start_tool_t) CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 1000 res_text = result.content[0].text if result.content else "No output" try: res_json = json.loads(res_text) log(f"📥 RESULT: {json.dumps(res_json, indent=2)}") if "remedy" in res_json: remedies.append(f"Tool '{name}': {res_json['remedy']}") except: log(f"📥 RESULT: {res_text[:200]}...") is_error = getattr(result, "isError", False) if is_error: log("🚨 STATUS: FAILED") if "PROTOCOL VIOLATION" in res_text: remedies.append(f"Protocol Error in '{name}': {res_text}") messages.append({ "role": "tool", "tool_call_id": tc.get("id", "none"), "name": name, "content": res_text }) metrics.latency_ms += tool_latency if "MISSION_SUCCESS" in res_text: log("
+🎯 MISSION ACCOMPLISHED!") metrics.finish(success=True, summary="Mission success detected in tool output.") return metrics except Exception as e: log(f"❌ Tool Execution Error: {e}") if remedies: guidance = "--- PROTOCOL GUIDANCE ---
+" + "
+".join(remedies) log(f"💡 SMARTREPAIR: Sending guidance to agent...") messages.append({"role": "user", "content": guidance}) metrics.finish(success=False, summary="Max steps reached or agent stopped.") return metrics def parse_ctx(val: str) -> int: if val.lower().endswith('k'): return int(val[:-1]) CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 1024 return int(val) async def main(): parser = argparse.ArgumentParser() parser.add_argument("--mode", choices=["classic", "elemm", "compare"], default="elemm") parser.add_argument("--compare", action="store_true", help="Run both modes and compare them side-by-side") parser.add_argument("-n", type=int, default=1) parser.add_argument("--ctx", type=parse_ctx, default=32768, help="Context window size (e.g. 4k, 32k, 128k)") parser.add_argument("-q", "--quiet", action="store_true", help="Suppress step-by-step output") parser.add_argument("-s", "--silent", action="store_true", help="Alias for --quiet") parser.add_argument("--provider", choices=["ollama", "openai"], default="ollama", help="LLM Provider (default: ollama)") parser.add_argument("--model", default=DEFAULT_MODEL, help=f"LLM model name (default: {DEFAULT_MODEL})") parser.add_argument("-o", "--output", help="Write full log to this file") args = parser.parse_args() is_quiet = args.quiet or args.silent log_file = open(args.output, "w") if args.output else None if is_quiet: import logging logging.basicConfig(level=logging.ERROR) logging.getLogger().setLevel(logging.ERROR) logging.getLogger("elemm").setLevel(logging.ERROR) logging.getLogger("mcp").setLevel(logging.ERROR) logging.captureWarnings(True) logging.getLogger("py.warnings").setLevel(logging.ERROR) prompt = ( "Your mission is to resolve the active security breach in the Solaris Enterprise Hub.
+" "Initial Intelligence: Incident ID SEC-9982 has been flagged. The activity is originating from IP 10.0.4.142.
 
-def estimate_tokens(obj: Any) -> int:
-    """Rough heuristic for token count (characters / 4)."""
-    return len(json.dumps(obj)) // 4
-
-async def run_agent(task_prompt: str, server_script: str, is_classic: bool, model_name: str, provider: str = "ollama", quiet=False, num_ctx=32768, log_file=None):
-    mode_name = "classic" if is_classic else "elemm"
-    metrics = BenchmarkMetrics(mode=mode_name, task=task_prompt)
-    
-    def log(msg):
-        if not quiet:
-            print(msg)
-        if log_file:
-            log_file.write(str(msg) + "\n")
-
-    args_list = [os.path.join(os.path.dirname(__file__), server_script)]
-    if not is_classic:
-        args_list.append("--mcp")
-
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=args_list,
-        env=os.environ.copy()
-    )
-
-    async with stdio_client(server_params) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            
-            discovery_res = await session.list_tools()
-            tools = [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.inputSchema
-                    }
-                } for t in discovery_res.tools
-            ]
-            log(f"🔍 Discovered {len(tools)} tools: {[t['function']['name'] for t in tools]}")
-            
-            async with httpx.AsyncClient() as chat_client:
-                # v1 Genius: System Persona and Mode-Specific Instructions
-                shared_persona = (
-                    "You are the Solaris Forensic Auditor. Your style is purely technical, silent, and decisive. "
-                    "DO NOT EXPLAIN. Output ONLY valid tool calls to resolve the incident. Results are the only metric of success."
-                )
-
-                if is_classic:
-                    system_prompt = (
-                        f"{shared_persona}\n\n"
-                        "### SOLARIS TECHNICAL REFERENCE MANUAL ###\n"
-                        "1. NETWORK & INFRA: Internal IP addresses can be resolved to Hostnames via the NOC. Infrastructure logs are stored in IT and indexed by Hostname.\n"
-                        "2. PERSONNEL & FINANCE: Employee IDs (EMP-XXXX) are used in HR and Finance. Corporate Usernames (CORP-XX) are resolved in HR. Financial accounts are linked to tokens in Banking.\n"
-                        "3. REMEDIATION PROTOCOLS: \n"
-                        "   - All quarantine actions REQUIRE a Corporate Username (NOT EMP-ID) and a matching Evidence Token (RT-XXXX) from IT logs.\n"
-                        "   - Infrastructure restarts require a verified SRV-XXXX hostname.\n"
-                        "   - Final reports must be submitted via the OPS reporter once all mitigation flags are set to SUCCESS in the MISSION_STATE.\n"
-                        "4. COMPLIANCE: Adhere strictly to provided technical schemas. Do not attempt to use unresolved IDs for state-changing operations."
-                    )
-                else:
-                    # In ELEMM mode, we trust the Tool Descriptions and the Protocol Handshake.
-                    system_prompt = (
-                        f"{shared_persona}\n\n"
-                        "Use the available tools to investigate and resolve the incident. "
-                        "Follow the protocol hints provided in the tool descriptions."
-                    )
-
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": task_prompt}
-                ]
-                
-                for i in range(1, 31):
-                    # Calculate FULL context size (Messages + Tools)
-                    ctx_size = estimate_tokens(messages) + estimate_tokens(tools)
-                    log("\n" + "="*80)
-                    log(f" STEP {i} | Model: {model_name} | Ctx: ~{ctx_size}")
-                    log("="*80)
-                    
-                    start_t = time.time()
-                    
-                    try:
-                        if provider == "ollama":
-                            response = await chat_client.post(OLLAMA_URL, json={
-                                "model": model_name,
-                                "messages": messages,
-                                "tools": tools,
-                                "stream": False,
-                                "options": {"num_ctx": num_ctx}
-                            }, timeout=120.0)
-                        else:
-                            # OpenAI / Google / Anthropic compatible format
-                            headers = {
-                                "Authorization": f"Bearer {API_KEY}",
-                                "HTTP-Referer": "https://elemm.ai", # Required by some OpenRouter models
-                                "X-Title": "Elemm Protocol Benchmark"
-                            } if API_KEY else {}
-                            response = await chat_client.post(f"{OPENAI_BASE_URL}/chat/completions", headers=headers, json={
-                                "model": model_name,
-                                "messages": messages,
-                                "tools": tools,
-                                "tool_choice": "auto"
-                            }, timeout=120.0)
-                        latency = (time.time() - start_t) * 1000
-                    except httpx.ConnectError:
-                        log(f"❌ Connection Error: Could not connect to {provider} at {OLLAMA_URL if provider == 'ollama' else OPENAI_BASE_URL}. Is the server running?")
-                        break
-                    except Exception as e:
-                        log(f"❌ Unexpected Error ({provider}): {e}")
-                        break
-                        
-                    if response.status_code != 200:
-                        log(f"❌ Provider Error ({provider}): {response.text}")
-                        break
-                        
-                    resp_json = response.json()
-                    
-                    if provider == "ollama":
-                        msg_obj = resp_json.get("message", {})
-                        content = msg_obj.get("content", "")
-                        tool_calls = msg_obj.get("tool_calls", [])
-                    else:
-                        choice = resp_json.get("choices", [{}])[0]
-                        msg_obj = choice.get("message", {})
-                        content = msg_obj.get("content", "")
-                        tool_calls = msg_obj.get("tool_calls", [])
-                    
-                    # Estimate tokens for this turn
-                    tokens_in = ctx_size
-                    tokens_out = estimate_tokens(msg_obj)
-                    
-                    messages.append(msg_obj)
-                    metrics.add_step(tokens_in, tokens_out, latency, ctx_size)
-                    
-                    if content:
-                        log(f"🤖 AGENT: {content}")
-
-                    if not tool_calls:
-                        if i < 30:
-                            metrics.add_nudge()
-                            log("⚠️ No tool calls. Nudging agent to retry...")
-                            messages.append({
-                                "role": "user", 
-                                "content": "I noticed you didn't call any tools. If you are stuck due to a previous error, analyze the 'remedy' or 'message' field in the last tool result and try a corrected approach."
-                            })
-                            continue
-                        else:
-                            log("⚠️ No tool calls. Mission stagnant.")
-                            break
-
-                    remedies = []
-                    for tc in tool_calls:
-                        name = tc["function"]["name"]
-                        args = tc["function"]["arguments"]
-                        
-                        # Handle JSON string arguments (common in OpenAI/OpenRouter)
-                        if isinstance(args, str):
-                            try:
-                                args = json.loads(args)
-                            except Exception as e:
-                                log(f"⚠️ Failed to parse tool arguments for {name}: {args}")
-                                args = {}
-
-                        log(f"🛠️ CALLING: {name}({json.dumps(args)})")
-                        
-                        try:
-                            start_tool_t = time.time()
-                            result = await session.call_tool(name, args)
-                            tool_latency = (time.time() - start_tool_t) * 1000
-                            
-                            res_text = result.content[0].text if result.content else "No output"
-                            
-                            try:
-                                res_json = json.loads(res_text)
-                                log(f"📥 RESULT: {json.dumps(res_json, indent=2)}")
-                                if "remedy" in res_json:
-                                    remedies.append(f"Tool '{name}': {res_json['remedy']}")
-                            except:
-                                log(f"📥 RESULT: {res_text[:200]}...")
-                            
-                            is_error = getattr(result, "isError", False)
-                            if is_error:
-                                log("🚨 STATUS: FAILED")
-                                if "PROTOCOL VIOLATION" in res_text:
-                                    remedies.append(f"Protocol Error in '{name}': {res_text}")
-                            
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": tc.get("id", "none"),
-                                "name": name,
-                                "content": res_text
-                            })
-                            metrics.latency_ms += tool_latency
-                            
-                            if "MISSION_SUCCESS" in res_text:
-                                log("\n🎯 MISSION ACCOMPLISHED!")
-                                metrics.finish(success=True, summary="Mission success detected in tool output.")
-                                return metrics
-                        except Exception as e:
-                            log(f"❌ Tool Execution Error: {e}")
-                    
-                    if remedies:
-                        guidance = "--- PROTOCOL GUIDANCE ---\n" + "\n".join(remedies)
-                        log(f"💡 SMARTREPAIR: Sending guidance to agent...")
-                        messages.append({"role": "user", "content": guidance})
-                            
-    metrics.finish(success=False, summary="Max steps reached or agent stopped.")
-    return metrics
-
-def parse_ctx(val: str) -> int:
-    if val.lower().endswith('k'):
-        return int(val[:-1]) * 1024
-    return int(val)
-
-async def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["classic", "elemm", "compare"], default="elemm")
-    parser.add_argument("--compare", action="store_true", help="Run both modes and compare them side-by-side")
-    parser.add_argument("-n", type=int, default=1)
-    parser.add_argument("--ctx", type=parse_ctx, default=32768, help="Context window size (e.g. 4k, 32k, 128k)")
-    parser.add_argument("-q", "--quiet", action="store_true", help="Suppress step-by-step output")
-    parser.add_argument("-s", "--silent", action="store_true", help="Alias for --quiet")
-    parser.add_argument("--provider", choices=["ollama", "openai"], default="ollama", help="LLM Provider (default: ollama)")
-    parser.add_argument("--model", default=DEFAULT_MODEL, help=f"LLM model name (default: {DEFAULT_MODEL})")
-    parser.add_argument("-o", "--output", help="Write full log to this file")
-    args = parser.parse_args()
-    
-    is_quiet = args.quiet or args.silent
-    log_file = open(args.output, "w") if args.output else None
-    
-    if is_quiet:
-        import logging
-        logging.basicConfig(level=logging.ERROR)
-        logging.getLogger().setLevel(logging.ERROR)
-        logging.getLogger("elemm").setLevel(logging.ERROR)
-        logging.getLogger("mcp").setLevel(logging.ERROR)
-        logging.captureWarnings(True)
-        logging.getLogger("py.warnings").setLevel(logging.ERROR)
-    
-    prompt = (
-        "Your mission is to resolve the active security breach in the Solaris Enterprise Hub.\n"
-        "Initial Intelligence: Incident ID SEC-9982 has been flagged. The activity is originating from IP 10.0.4.142.\n\n"
-        "Tasks:\n"
-        "1. Identify the compromised server node and the malicious actor's identity.\n"
-        "2. Locate the actor's corporate credentials and audit their last financial transaction.\n"
-        "3. Remediation: Quarantine the account, restart the infrastructure node, and secure the risk capital.\n"
-        "4. Completion: Submit the final report using the required incident ID."
-    )
-
-    results_elemm = []
-    results_classic = []
-    
-    modes_to_run = ["classic", "elemm"] if args.mode == "compare" else [args.mode]
-    
-    for i in range(args.n):
-        for current_mode in modes_to_run:
-            is_classic = (current_mode == "classic")
-            script = "mcp_classic.py" if is_classic else "api_elemm_v2.py"
-            
-            run_header = f"\n🚀 STARTING RUN {i+1}/{args.n} | MODE: {current_mode.upper()}..."
-            if not is_quiet:
-                print(run_header)
-            if log_file:
-                log_file.write(run_header + "\n")
-                
-            m = await run_agent(prompt, script, is_classic, model_name=args.model, provider=args.provider, quiet=is_quiet, num_ctx=args.ctx, log_file=log_file)
-            
-            # Capture report output
-            import io
-            from contextlib import redirect_stdout
-            f = io.StringIO()
-            with redirect_stdout(f):
-                m.render_report()
-            report_str = f.getvalue()
-            
-            if not is_quiet:
-                print(report_str) 
-            if log_file:
-                log_file.write(report_str + "\n")
-                
-            if current_mode == "elemm":
-                results_elemm.append(m)
-            else:
-                results_classic.append(m)
-        
-    # Print Final Aggregate Summary
-    def print_summary(mode_name, results):
-        if not results: return
-        summary_lines = []
-        summary_lines.append("\n" + "#"*80)
-        summary_lines.append(f" AGGREGATED SUMMARY | {len(results)} RUNS | MODE: {mode_name.upper()}")
-        summary_lines.append("#"*80)
-        
-        success_count = sum(1 for r in results if r.success)
-        total_in = sum(r.tokens_in for r in results)
-        total_out = sum(r.tokens_out for r in results)
-        avg_steps = sum(r.steps for r in results) / len(results)
-        avg_nudges = sum(r.nudges for r in results) / len(results)
-        avg_in = total_in / len(results)
-        avg_out = total_out / len(results)
-        avg_peak = sum(r.total_context_tokens for r in results) / len(results)
-        avg_dur = sum(r.end_time - r.start_time for r in results) / len(results)
-        
-        # Calculate Total Cost (Reference: Gemini 3.1 Pro prices)
-        total_cost_pro = (total_in / 1_000_000 * 2.00) + (total_out / 1_000_000 * 12.00)
-
-        summary_lines.append(f"Success Rate      | {success_count}/{len(results)} ({success_count/len(results)*100:.1f}%)")
-        summary_lines.append(f"Avg Steps         | {avg_steps:.2f}")
-        summary_lines.append(f"Avg Nudges        | {avg_nudges:.2f}")
-        summary_lines.append(f"Avg Tokens In     | {avg_in:.1f}")
-        summary_lines.append(f"Avg Tokens Out    | {avg_out:.1f}")
-        summary_lines.append(f"Avg Peak Context  | {avg_peak:.1f}")
-        summary_lines.append(f"Avg Duration (s)  | {avg_dur:.2f}")
-        summary_lines.append("#"*80)
-
-        summary_lines.append("\n" + "-"*40)
-        summary_lines.append(f" 💰 AGGREGATED COST ANALYSIS ({len(results)} RUNS)")
-        summary_lines.append("-"*40)
-        summary_lines.append(f"Total Tokens In   | {total_in}")
-        summary_lines.append(f"Total Tokens Out  | {total_out}")
-        summary_lines.append("-" * 40)
-        summary_lines.append(f"{'Model':<25} | {'Total Cost':<10}")
-        summary_lines.append("-" * 40)
-        
-        prices = {
-            "Gemini 3.1 Flash-Lite": (0.25, 1.50),
-            "Gemini 3.1 Pro":        (2.00, 12.00),
-            "GPT-5.4 mini":          (0.75, 4.50),
-            "GPT-5.5 / Claude Opus": (5.00, 30.00),
-        }
-        for model, (p_in, p_out) in prices.items():
-            cost = (total_in / 1_000_000 * p_in) + (total_out / 1_000_000 * p_out)
-            summary_lines.append(f"{model:<25} | ${cost:.6f}")
-        summary_lines.append("-" * 40 + "\n")
-        
-        summary_str = "\n".join(summary_lines)
-        print(summary_str)
-        if log_file:
-            log_file.write(summary_str + "\n")
-
-    if args.mode == "compare":
-        # Final head-to-head table (Premium UI)
-        table_lines = []
-        table_lines.append("\n" + "╔" + "═"*76 + "╗")
-        table_lines.append("║" + " ELEMM vs. CLASSIC MCP - HEAD-TO-HEAD PERFORMANCE ".center(76) + "║")
-        table_lines.append("╠" + "═"*22 + "╦" + "═"*17 + "╦" + "═"*18 + "╦" + "═"*15 + "╣")
-        table_lines.append(f"║ {'Metric':<20} ║ {'CLASSIC MCP':<15} ║ {'ELEMM PROTOCOL':<16} ║ {'DIFF':<13} ║")
-        table_lines.append("╠" + "═"*22 + "╬" + "═"*17 + "╬" + "═"*18 + "╬" + "═"*15 + "╣")
-        
-        def get_stats(results):
-            s_rate = sum(1 for r in results if r.success) / len(results) * 100
-            a_steps = sum(r.steps for r in results) / len(results)
-            a_in = sum(r.tokens_in for r in results) / len(results)
-            a_out = sum(r.tokens_out for r in results) / len(results)
-            t_in = sum(r.tokens_in for r in results)
-            t_out = sum(r.tokens_out for r in results)
-            total_tokens = t_in + t_out
-            avg_dur = sum(r.end_time - r.start_time for r in results) / len(results)
-            cost = (t_in / 1_000_000 * 2.00) + (t_out / 1_000_000 * 12.00)
-            return s_rate, a_steps, a_in, a_out, cost, total_tokens, avg_dur
-
-        c_s, c_st, c_in, c_out, c_cost, c_total, c_dur = get_stats(results_classic)
-        e_s, e_st, e_in, e_out, e_cost, e_total, e_dur = get_stats(results_elemm)
-        
-        def add_row(name, c_val, e_val, unit="", invert=False):
-            diff = e_val - c_val
-            diff_pct = (diff / c_val * 100) if c_val != 0 else (100.0 if diff > 0 else 0.0)
-            # Higher is better for Success Rate, lower is better for everything else
-            is_better = (diff > 0 if not invert else diff < 0)
-            mark = "✅" if is_better else "❌"
-            if abs(diff_pct) < 1: mark = "➖"
-            
-            table_lines.append(f"║ {name:<20} ║ {c_val:>10.2f}{unit:<4} ║ {e_val:>11.2f}{unit:<4} ║ {mark} {diff_pct:>+6.1f}% ║")
-
-        add_row("Success Rate", c_s, e_s, "%", invert=False)
-        add_row("Avg Steps", c_st, e_st, "", invert=True)
-        add_row("Avg Tokens In", c_in, e_in, "", invert=True)
-        add_row("Avg Tokens Out", c_out, e_out, "", invert=True)
-        add_row("Total Tokens", c_total, e_total, "", invert=True)
-        add_row("Avg Duration", c_dur, e_dur, "s", invert=True)
-        add_row("Est. Total Cost", c_cost, e_cost, "$", invert=True)
-        
-        table_lines.append("╚" + "═"*22 + "╩" + "═"*17 + "╩" + "═"*18 + "╩" + "═"*15 + "╝")
-        
-        # Add a "Winder" summary
-        gain = ((c_cost - e_cost) / c_cost * 100) if c_cost > 0 else 0
-        table_lines.append(f"\n 🔥 RESULT: ELEMM is {gain:.1f}% more cost-efficient than Classic MCP!\n")
-        
-        comp_str = "\n".join(table_lines)
-        print(comp_str)
-        if log_file:
-            log_file.write(comp_str + "\n")
-    else:
-        print_summary(args.mode, results_elemm if results_elemm else results_classic)
-
-    if log_file:
-        log_file.close()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+" "Tasks:
+" "1. Identify the compromised server node and the malicious actor's identity.
+" "2. Locate the actor's corporate credentials and audit their last financial transaction.
+" "3. Remediation: Quarantine the account, restart the infrastructure node, and secure the risk capital.
+" "4. Completion: Submit the final report using the required incident ID." ) results_elemm = [] results_classic = [] modes_to_run = ["classic", "elemm"] if args.mode == "compare" else [args.mode] for i in range(args.n): for current_mode in modes_to_run: is_classic = (current_mode == "classic") script = "mcp_classic.py" if is_classic else "api_elemm_v2.py" run_header = f"
+🚀 STARTING RUN {i+1}/{args.n} | MODE: {current_mode.upper()}..." if not is_quiet: print(run_header) if log_file: log_file.write(run_header + "
+") m = await run_agent(prompt, script, is_classic, model_name=args.model, provider=args.provider, quiet=is_quiet, num_ctx=args.ctx, log_file=log_file) # Capture report output import io from contextlib import redirect_stdout f = io.StringIO() with redirect_stdout(f): m.render_report() report_str = f.getvalue() if not is_quiet: print(report_str) if log_file: log_file.write(report_str + "
+") if current_mode == "elemm": results_elemm.append(m) else: results_classic.append(m) # Print Final Aggregate Summary def print_summary(mode_name, results): if not results: return summary_lines = [] summary_lines.append("
+" + "#"*80) summary_lines.append(f" AGGREGATED SUMMARY | {len(results)} RUNS | MODE: {mode_name.upper()}") summary_lines.append("#"*80) success_count = sum(1 for r in results if r.success) total_in = sum(r.tokens_in for r in results) total_out = sum(r.tokens_out for r in results) avg_steps = sum(r.steps for r in results) / len(results) avg_nudges = sum(r.nudges for r in results) / len(results) avg_in = total_in / len(results) avg_out = total_out / len(results) avg_peak = sum(r.total_context_tokens for r in results) / len(results) avg_dur = sum(r.end_time - r.start_time for r in results) / len(results) # Calculate Total Cost (Reference: Gemini 3.1 Pro prices) total_cost_pro = (total_in / 1_000_000 CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 2.00) + (total_out / 1_000_000 CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 12.00) summary_lines.append(f"Success Rate | {success_count}/{len(results)} ({success_count/len(results)*100:.1f}%)") summary_lines.append(f"Avg Steps | {avg_steps:.2f}") summary_lines.append(f"Avg Nudges | {avg_nudges:.2f}") summary_lines.append(f"Avg Tokens In | {avg_in:.1f}") summary_lines.append(f"Avg Tokens Out | {avg_out:.1f}") summary_lines.append(f"Avg Peak Context | {avg_peak:.1f}") summary_lines.append(f"Avg Duration (s) | {avg_dur:.2f}") summary_lines.append("#"*80) summary_lines.append("
+" + "-"*40) summary_lines.append(f" 💰 AGGREGATED COST ANALYSIS ({len(results)} RUNS)") summary_lines.append("-"*40) summary_lines.append(f"Total Tokens In | {total_in}") summary_lines.append(f"Total Tokens Out | {total_out}") summary_lines.append("-" CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 40) summary_lines.append(f"{'Model':<25} | {'Total Cost':<10}") summary_lines.append("-" CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 40) prices = { "Gemini 3.1 Flash-Lite": (0.25, 1.50), "Gemini 3.1 Pro": (2.00, 12.00), "GPT-5.4 mini": (0.75, 4.50), "GPT-5.5 / Claude Opus": (5.00, 30.00), } for model, (p_in, p_out) in prices.items(): cost = (total_in / 1_000_000 CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv p_in) + (total_out / 1_000_000 CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv p_out) summary_lines.append(f"{model:<25} | ${cost:.6f}") summary_lines.append("-" CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 40 + "
+") summary_str = "
+".join(summary_lines) print(summary_str) if log_file: log_file.write(summary_str + "
+") if args.mode == "compare": # Final head-to-head table (Premium UI) table_lines = [] table_lines.append("
+" + "╔" + "═"*76 + "╗") table_lines.append("║" + " ELEMM vs. CLASSIC MCP - HEAD-TO-HEAD PERFORMANCE ".center(76) + "║") table_lines.append("╠" + "═"*22 + "╦" + "═"*17 + "╦" + "═"*18 + "╦" + "═"*15 + "╣") table_lines.append(f"║ {'Metric':<20} ║ {'CLASSIC MCP':<15} ║ {'ELEMM PROTOCOL':<16} ║ {'DIFF':<13} ║") table_lines.append("╠" + "═"*22 + "╬" + "═"*17 + "╬" + "═"*18 + "╬" + "═"*15 + "╣") def get_stats(results): s_rate = sum(1 for r in results if r.success) / len(results) CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 100 a_steps = sum(r.steps for r in results) / len(results) a_in = sum(r.tokens_in for r in results) / len(results) a_out = sum(r.tokens_out for r in results) / len(results) t_in = sum(r.tokens_in for r in results) t_out = sum(r.tokens_out for r in results) total_tokens = t_in + t_out avg_dur = sum(r.end_time - r.start_time for r in results) / len(results) cost = (t_in / 1_000_000 CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 2.00) + (t_out / 1_000_000 CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 12.00) return s_rate, a_steps, a_in, a_out, cost, total_tokens, avg_dur c_s, c_st, c_in, c_out, c_cost, c_total, c_dur = get_stats(results_classic) e_s, e_st, e_in, e_out, e_cost, e_total, e_dur = get_stats(results_elemm) def add_row(name, c_val, e_val, unit="", invert=False): diff = e_val - c_val diff_pct = (diff / c_val CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 100) if c_val != 0 else (100.0 if diff > 0 else 0.0) # Higher is better for Success Rate, lower is better for everything else is_better = (diff > 0 if not invert else diff < 0) mark = "✅" if is_better else "❌" if abs(diff_pct) < 1: mark = "➖" table_lines.append(f"║ {name:<20} ║ {c_val:>10.2f}{unit:<4} ║ {e_val:>11.2f}{unit:<4} ║ {mark} {diff_pct:>+6.1f}% ║") add_row("Success Rate", c_s, e_s, "%", invert=False) add_row("Avg Steps", c_st, e_st, "", invert=True) add_row("Avg Tokens In", c_in, e_in, "", invert=True) add_row("Avg Tokens Out", c_out, e_out, "", invert=True) add_row("Total Tokens", c_total, e_total, "", invert=True) add_row("Avg Duration", c_dur, e_dur, "s", invert=True) add_row("Est. Total Cost", c_cost, e_cost, "$", invert=True) table_lines.append("╚" + "═"*22 + "╩" + "═"*17 + "╩" + "═"*18 + "╩" + "═"*15 + "╝") # Add a "Winder" summary gain = ((c_cost - e_cost) / c_cost CHANGELOG.md CODE_OF_CONDUCT.md CONTRIBUTING.md LICENSE README.md SECURITY.md TODO.md USE_CASES.md autonomous.log benchmark.log benchmark_classic.log benchmark_elemm.log benchmarks docs examples gateway.log gauntlet.log gauntlet_compact.log gauntlet_full_view.log poc pyproject.toml result.json scratch smarthome_repair_test.json smarthome_test_result.json src tests venv 100) if c_cost > 0 else 0 table_lines.append(f"
+ 🔥 RESULT: ELEMM is {gain:.1f}% more cost-efficient than Classic MCP!
+") comp_str = "
+".join(table_lines) print(comp_str) if log_file: log_file.write(comp_str + "
+") else: print_summary(args.mode, results_elemm if results_elemm else results_classic) if log_file: log_file.close() if __name__ == "__main__": asyncio.run(main())"
