@@ -17,6 +17,7 @@ from elemm_gateway.openapi_bridge import OpenAPIBridge
 from elemm_gateway.graphql_bridge import GraphQLBridge
 from elemm_gateway.components import (
     VaultManager, 
+    ConfigManager,
     OpenAPIExecutor, 
     GraphQLExecutor,
     ResponseSquisher, 
@@ -41,10 +42,15 @@ class ElemmGateway:
         self.manifest_loaded = False
 
         # Modular Components
+        self.config_manager = ConfigManager(os.path.expanduser("~/.elemm/config.json"))
         self.vault_manager = VaultManager(os.path.expanduser("~/.elemm/vault.json"))
         self.openapi_executor = OpenAPIExecutor(self.vault_manager)
         self.graphql_executor = GraphQLExecutor(self.vault_manager)
         self.sequence_engine = SequenceEngine(self)
+        
+        # Configurable Truncation Limits (Anti-Bomb)
+        self.limit_standard = self.config_manager.get("limit_standard", 5000)
+        self.limit_inspect = self.config_manager.get("limit_inspect", 20000)
 
         self.server = Server(server_name)
         self._setup_handlers()
@@ -95,7 +101,8 @@ class ElemmGateway:
                                     "properties": {
                                         "action": {"type": "string"},
                                         "alias": {"type": "string"},
-                                        "parameters": {"type": "object"}
+                                        "parameters": {"type": "object"},
+                                        "on_error": {"type": "string", "enum": ["stop", "continue"], "default": "stop"}
                                     },
                                     "required": ["action"]
                                 }
@@ -108,11 +115,23 @@ class ElemmGateway:
                                     "properties": {
                                         "action": {"type": "string"},
                                         "alias": {"type": "string"},
-                                        "parameters": {"type": "object"}
+                                        "parameters": {"type": "object"},
+                                        "on_error": {"type": "string", "enum": ["stop", "continue"], "default": "stop"}
                                     },
                                     "required": ["action"]
                                 }
-                            }
+                            },
+                            "session_id": {"type": "string", "description": "Optional session ID for memory isolation.", "default": "default"}
+                        }
+                    }
+                ),
+                types.Tool(
+                    name="clear_session",
+                    description="Clears the memory bank for a specific session ID (Privacy).",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "session_id": {"type": "string", "description": "The session ID to clear.", "default": "default"}
                         }
                     }
                 )
@@ -138,61 +157,87 @@ class ElemmGateway:
             arguments = arguments or {}
             logger.info(f"Gateway: Dispatching tool '{name}'")
 
-            if name == "connect_to_site":
-                return await self._connect(arguments.get("url", ""))
-            
-            if name == "execute_sequence":
-                return await self.sequence_engine.execute(**arguments)
+            return await self._handle_call_tool(name, arguments)
 
-            # Core Tool Proxying
-            if name in ["get_manifest", "get_landmarks", "inspect_landmark", "list_aliases"]:
-                return await self._proxy_core_tool(name, arguments)
-
-            # Action Execution
-            if name == "call_action":
-                res = await self._execute_single(arguments.get("action", ""), arguments.get("parameters", {}))
-                return self._format_result(res)
-
-            # Direct Call (for site-specific tools)
-            res = await self._execute_single(name, arguments)
-            return self._format_result(res)
-
-    async def _handle_execute_sequence(self, actions: List[Dict]) -> List[types.TextContent]:
+    async def _handle_execute_sequence(self, actions: List[Dict], session_id: str = "default") -> List[types.TextContent]:
         """Backward compatibility shim for tests."""
-        return await self.sequence_engine.execute(actions)
+        return await self.sequence_engine.execute(actions, session_id=session_id)
 
     async def _handle_call_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
         """Backward compatibility shim for tests."""
         if name == "execute_sequence":
-            return await self._handle_execute_sequence(arguments.get("actions", []))
+            return await self._handle_execute_sequence(
+                arguments.get("actions", []) or arguments.get("steps", []),
+                session_id=arguments.get("session_id", "default")
+            )
         
         # Check core tools
-        if name in ["connect_to_site", "get_manifest", "get_landmarks", "inspect_landmark", "list_aliases"]:
+        sid = arguments.get("session_id", "default")
+        if name in ["connect_to_site", "get_manifest", "get_landmarks", "inspect_landmark", "list_aliases", "clear_session"]:
             if name == "connect_to_site":
                 return await self._connect(arguments.get("url", ""))
+            
+            if name == "clear_session":
+                self.sequence_engine.clear_session(sid)
+                return [types.TextContent(type="text", text=f"Session memory cleared for: {sid}")]
+
             if name == "list_aliases":
-                aliases = self.sequence_engine.list_aliases()
-                res = "### MEMORY BANK (Current Aliases)\n"
+                aliases = self.sequence_engine.get_session_aliases(sid)
+                res = f"### MEMORY BANK (Session: {sid})\n"
                 if not aliases:
-                    res += "- No findings stored yet."
+                    res += "- No findings stored yet in this session."
                 else:
                     for a, v in sorted(aliases.items()):
-                        res += f"- **${a}**: {v}\n"
+                        # Truncate values for privacy and token economy
+                        v_str = str(v)
+                        if len(v_str) > 200: v_str = v_str[:197] + "..."
+                        res += f"- **${a}**: {v_str}\n"
                 return [types.TextContent(type="text", text=res)]
-            return await self._proxy_core_tool(name, arguments)
-        if name == "call_action":
-            res = await self._execute_single(arguments.get("action", ""), arguments.get("parameters", {}))
-            return self._format_result(res)
             
-        res = await self._execute_single(name, arguments)
-        return self._format_result(res)
+            return await self._proxy_core_tool(name, arguments, session_id=sid)
+        if name == "call_action":
+            action_name = arguments.get("action", "")
+            res = await self._execute_single(action_name, arguments.get("parameters", {}), session_id=sid)
+            return self._format_result(res, name=action_name)
+            
+        res = await self._execute_single(name, arguments, session_id=sid)
+        return self._format_result(res, name=name)
 
-    def _format_result(self, text_val: Any) -> List[types.TextContent]:
+    def _format_result(self, text_val: Any, name: str = None) -> List[types.TextContent]:
+        res_str = str(text_val)
+        # Higher limit for inspection tools as they are critical for agent discovery
+        limit = self.limit_inspect if name and "inspect" in name else self.limit_standard
+        
+        if len(res_str) > limit:
+            res_str = res_str[:limit-3] + "...\n\n(Note: Result truncated to prevent context overflow. Use '_select' or '_limit' for better hygiene.)"
+        
         warning = "\n\n(HINT: Use 'execute_sequence' for better performance and token efficiency!)"
-        return [types.TextContent(type="text", text=str(text_val) + warning)]
+        return [types.TextContent(type="text", text=res_str + warning)]
 
-    async def _proxy_core_tool(self, name: str, arguments: Dict) -> List[types.TextContent]:
+    async def _proxy_core_tool(self, name: str, arguments: Dict, session_id: str = "default") -> List[types.TextContent]:
         """Proxies core tools to the remote site or serves them from cache for OpenAPI/GraphQL."""
+        
+        # 1. Handle tools that don't need a connection
+        if name == "clear_session":
+            sid = arguments.get("session_id", session_id)
+            self.sequence_engine.clear_session(sid)
+            return [types.TextContent(type="text", text=f"Session memory cleared for: {sid}")]
+
+        if name == "list_aliases":
+            sid = arguments.get("session_id", session_id)
+            aliases = self.sequence_engine.get_session_aliases(sid)
+            res = f"### MEMORY BANK (Session: {sid})\n"
+            if not aliases:
+                res += "- No findings stored yet in this session."
+            else:
+                for a, v in sorted(aliases.items()):
+                    # Truncate values for privacy and token economy
+                    v_str = str(v)
+                    if len(v_str) > 200: v_str = v_str[:197] + "..."
+                    res += f"- **${a}**: {v_str}\n"
+            return [types.TextContent(type="text", text=res)]
+
+        # 2. Tools that DO need a connection
         url = self.active_site_url
         if not url:
             return [types.TextContent(type="text", text="Error: Not connected to any site.")]
@@ -293,7 +338,8 @@ class ElemmGateway:
                 return [types.TextContent(type="text", text=self._inject_global_landmark(content))]
             
             if name == "list_aliases":
-                aliases = self.sequence_engine.list_aliases()
+                sid = arguments.get("session_id", "default")
+                aliases = self.sequence_engine.get_session_aliases(sid)
                 res = "### MEMORY BANK (Current Aliases)\n"
                 if not aliases:
                     res += "- No findings stored yet."
@@ -307,7 +353,7 @@ class ElemmGateway:
 
         return [types.TextContent(type="text", text=f"Error: Core tool '{name}' not supported by gateway.")]
 
-    async def _execute_single(self, tool_name: str, arguments: Dict) -> str:
+    async def _execute_single(self, tool_name: str, arguments: Dict, session_id: str = "default") -> str:
         """UNIVERSAL PROXY: Sends the call to the remote site's execution endpoint or directly via HTTP for OpenAPI/GraphQL."""
         if not self.active_site_url and tool_name not in ["connect_to_site"] and not tool_name.startswith("elemm:"):
             return "Error: Gateway not connected to a remote site."
@@ -324,7 +370,7 @@ class ElemmGateway:
         if tool_name.startswith("elemm:"):
             internal_name = tool_name.split(":", 1)[1]
             # Use proxy logic but return stringified result
-            res = await self._proxy_core_tool(internal_name, arguments)
+            res = await self._proxy_core_tool(internal_name, arguments, session_id=session_id)
             return res[0].text if res else "No result"
 
         site_data = self.connected_sites.get(self.active_site_url)

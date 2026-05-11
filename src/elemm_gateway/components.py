@@ -13,29 +13,37 @@ class ManifestBuilder:
     """Single Source of Truth for Elemm Manifest generation and styling."""
     
     PROTOCOL_RULES = (
-        "### 📜 PROTOCOL RULES\n"
-        "1. **DISCOVERY**: Use `call_action(action='elemm:get_landmarks')` to see available areas.\n"
-        "2. **INSPECTION**: Use `call_action(action='elemm:inspect_landmark', parameters={landmark_id: '...'})` for technical signatures BEFORE execution.\n"
-        "3. **HYGIENE (CRITICAL)**: Use `_select` (comma-separated fields), `_filter` (key=val), and `_limit` (number) in EVERY tool call to prevent context overflow.\n"
-        "4. **SEQUENCING**: Use the native tool `execute_sequence` for ALL multi-step tasks. It supports piping and aliasing.\n"
-        "5. **PIPING**: Use '$alias.field' to pass results between sequence steps. Support deep paths (e.g. `$step0.items[0].id`).\n"
+        "### 📜 RECOMMENDED WORKFLOW\n"
+        "1. **CONNECT**: Use `elemm-gateway:connect_to_site(url='...')` to establish a context.\n"
+        "2. **DISCOVER**: Use `elemm:get_landmarks` to see high-level functional areas.\n"
+        "3. **INSPECT (CRITICAL)**: Use `elemm:inspect_landmark(landmark_id='...')` BEFORE execution to see technical TypeScript signatures, required params, and injection points. This prevents `VALIDATION_FAILED` errors.\n"
+        "4. **EXECUTE**: Use `execute_sequence` for multi-step tasks or `call_action` for single ones.\n"
+        "\n### 🛠️ OPERATIONAL RULES\n"
+        "1. **HYGIENE**: Use `_select`, `_filter`, and `_limit` in EVERY tool call to prevent context overflow.\n"
+        "2. **CASCADE PROTECTION**: Sequences halt on failure by default (`on_error: 'stop'`).\n"
+        "3. **TRACING**: Every result includes `duration_ms` for performance monitoring.\n"
     )
 
     MEMORY_BANK = (
-        "### 🧠 MEMORY BANK (Live Memory)\n"
-        "- Use `call_action(action='elemm:list_aliases')` to see stored findings ($step0, $step1, etc.)\n"
-        "- PIPING: Chain results via '$alias.path.to.field' (e.g. `$step0.items[0].id`).\n"
-        "- ALIASING: Steps auto-alias as '$step0', '$step1'. Use custom 'alias' for clarity.\n"
+        "### 🧠 MEMORY BANK (Session Governance)\n"
+        "- **ISOLATION**: Use `session_id` to isolate data between different tasks or users.\n"
+        "- **PIPING**: Chain results via '$alias.path.to.field' (e.g. `$step0.items[0].id`).\n"
+        "- **ALIASING**: Steps auto-alias as '$step0', '$step1'. Use custom 'alias' for clarity.\n"
+        "- **CLEANUP**: Call `elemm:clear_session(session_id)` after task completion for privacy.\n"
     )
 
     GLOBAL_LANDMARKS = (
         "### 🌐 GATEWAY GLOBALS (Virtual Landmarks)\n"
         "> [!NOTE]\n"
-        "> These tools are provided by the gateway and are available on ALL sites via `call_action`.\n\n"
-        "- **`elemm`**: Global system operations and discovery.\n"
+        "> These tools are provided by the gateway and are available on ALL sites.\n\n"
+        "- **`execute_sequence`**: (Batching) Execute multiple actions in one turn with data piping.\n"
+        "  - Params: `actions` (Array of {action, parameters, alias, on_error})\n"
+        "  - Example: `[{action: 'search', alias: 'results'}, {action: 'get', parameters: {id: '$results.id'}}]` \n"
+        "- **`elemm`**: Global system operations and discovery (via `call_action`).\n"
         "  - Tool: `elemm:get_landmarks` -> Returns: Summary of available landmarks\n"
-        "  - Tool: `elemm:inspect_landmark` (Params: `landmark_id`) -> Returns: Technical signatures\n"
-        "  - Tool: `elemm:list_aliases` -> Returns: Current pipeline state (memory bank)\n"
+        "  - Tool: `elemm:inspect_landmark` (Params: `landmark_id`) -> Returns: Technical signatures (accepts single ID or array of IDs)\n"
+        "  - Tool: `elemm:list_aliases` (Params: `session_id`) -> Returns: Current session pipeline state\n"
+        "  - Tool: `elemm:clear_session` (Params: `session_id`) -> Clears session memory (Privacy)\n"
     )
 
     @classmethod
@@ -60,6 +68,54 @@ class ManifestBuilder:
         return manifest + "\n" + cls.GLOBAL_LANDMARKS
 
 logger = logging.getLogger("elemm-gateway")
+
+class ConfigManager:
+    """Handles gateway configuration with persistence and sensible defaults."""
+    def __init__(self, config_path: str):
+        self.config_path = config_path
+        self.config = self.load()
+
+    def load(self) -> Dict[str, Any]:
+        defaults = {
+            "limit_standard": 5000,
+            "limit_inspect": 20000,
+            "timeout_seconds": 30,
+            "retry_attempts": 3,
+            "retry_delay_ms": 1000
+        }
+        
+        config_dir = os.path.dirname(self.config_path)
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir, exist_ok=True)
+
+        if not os.path.exists(self.config_path):
+            try:
+                with open(self.config_path, "w") as f:
+                    json.dump(defaults, f, indent=2)
+                logger.info(f"Config: Created default configuration at {self.config_path}")
+            except Exception as e:
+                logger.warning(f"Config: Could not create default config: {e}")
+            return defaults
+            
+        try:
+            with open(self.config_path, "r") as f:
+                data = json.load(f)
+                # Ensure all default keys are present (migration support)
+                updated = False
+                for k, v in defaults.items():
+                    if k not in data:
+                        data[k] = v
+                        updated = True
+                if updated:
+                    with open(self.config_path, "w") as f:
+                        json.dump(data, f, indent=2)
+                return data
+        except Exception as e:
+            logger.error(f"Config: Failed to load from {self.config_path}: {e}")
+            return defaults
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.config.get(key, default)
 
 class VaultManager:
     """Handles API key management and injection."""
@@ -124,22 +180,33 @@ class VaultManager:
 class ResponseSquisher:
     """Handles context hygiene by filtering JSON responses."""
     @staticmethod
-    def squish(data: Any, select: Optional[str] = None, filter_str: Optional[str] = None) -> Any:
+    def squish(data: Any, select: Optional[Any] = None, filter_str: Optional[Any] = None) -> Any:
         if not data:
             return data
             
-        # 1. Filter by key=val
-        if filter_str and "=" in filter_str and isinstance(data, list):
-            k, v = filter_str.split("=", 1)
-            data = [item for item in data if str(item.get(k)) == v]
+        # 1. Filter by key=val (or dict)
+        if filter_str and isinstance(data, list):
+            if isinstance(filter_str, str) and "=" in filter_str:
+                k, v = filter_str.split("=", 1)
+                data = [item for item in data if str(item.get(k)) == v]
+            elif isinstance(filter_str, dict):
+                for k, v in filter_str.items():
+                    data = [item for item in data if str(item.get(k)) == str(v)]
         
         # 2. Select fields (nested)
         if select:
-            fields = [f.strip() for f in select.split(",")]
-            if isinstance(data, list):
-                data = [ResponseSquisher._pick_fields(item, fields) for item in data]
+            if isinstance(select, str):
+                fields = [f.strip() for f in select.split(",")]
+            elif isinstance(select, list):
+                fields = [str(f).strip() for f in select]
             else:
-                data = ResponseSquisher._pick_fields(data, fields)
+                fields = []
+                
+            if fields:
+                if isinstance(data, list):
+                    data = [ResponseSquisher._pick_fields(item, fields) for item in data]
+                else:
+                    data = ResponseSquisher._pick_fields(data, fields)
                 
         return data
 
@@ -436,82 +503,163 @@ class OpenAPIExecutor:
             }, indent=2)
 
 class SequenceEngine:
-    """Orchestrates multi-step tool executions with piping and aliasing."""
+    """Orchestrates multi-step tool calls with data piping and session isolation."""
     def __init__(self, gateway: Any):
         self.gateway = gateway
-        self.aliases = {}
+        self.sessions: Dict[str, Dict[str, Any]] = {}
 
-    def list_aliases(self) -> Dict[str, Any]:
-        """Returns all currently stored aliases."""
-        return self.aliases
+    def get_session_aliases(self, session_id: str) -> Dict[str, Any]:
+        if session_id not in self.sessions:
+            self.sessions[session_id] = {}
+        return self.sessions[session_id]
 
-    async def execute(self, actions: List[Dict[str, Any]] = None, **kwargs) -> List[types.TextContent]:
+    def clear_session(self, session_id: str):
+        if session_id in self.sessions:
+            del self.sessions[session_id]
+
+    async def execute(self, actions: List[Dict[str, Any]] = None, session_id: str = "default", **kwargs) -> List[types.TextContent]:
+        import time
+        from elemm.core.repair import SmartRepairEngine
+        
         # Support both 'actions' (protocol) and 'steps' (LLM intuition)
         actions = actions or kwargs.get("steps", [])
         if not actions:
             return [types.TextContent(type="text", text="Error: No actions or steps provided in sequence.")]
             
+        aliases = self.get_session_aliases(session_id)
         results = []
+        
         for i, step in enumerate(actions):
             action_id = step.get("action")
             params = step.get("parameters", {})
             alias = step.get("alias")
+            on_error = step.get("on_error", "stop") # stop, continue
+            
+            start_time = time.perf_counter()
 
             # 1. Resolve Piping ($alias.field)
-            resolved_params = self._resolve_piping(params)
-
-            # 2. Execute Action
-            if action_id.startswith("elemm:"):
-                result_val = await self.gateway._execute_single(action_id, resolved_params)
-            elif action_id in ["get_manifest", "get_landmarks", "inspect_landmark"]:
-                tool_results = await self.gateway._proxy_core_tool(action_id, resolved_params)
-                result_val = tool_results[0].text
-            else:
-                result_val = await self.gateway._execute_single(action_id, resolved_params)
-
-            # 3. Store Alias (Explicit & Automatic)
             try:
-                final_res = json.loads(result_val)
-            except:
-                final_res = result_val
+                resolved_params = self._resolve_piping(params, aliases)
+            except Exception as e:
+                # Piping failure is a fatal error for this step
+                error_res = {
+                    "status": "error",
+                    "_PROTOCOL_ERROR": "PIPING_FAILED",
+                    "message": f"Data piping failed: {str(e)}",
+                    "remedy": "Check if the alias exists and the path is correct using 'elemm:list_aliases'."
+                }
+                results.append({
+                    "step": i,
+                    "action": action_id,
+                    "alias": alias or f"step{i}",
+                    "result": error_res
+                })
+                # Store error in aliases for transparency
+                aliases[f"step{i}"] = error_res
+                if alias: aliases[alias] = error_res
+                
+                if on_error == "stop": break
+                continue
 
-            self.aliases[f"step{i}"] = final_res
+            # 2. Execute Action (with Smart Retry)
+            retries = step.get("retry", 0)
+            retry_on = step.get("retryOn", [])
+            attempt = 0
+            
+            while attempt <= retries:
+                attempt_start = time.perf_counter()
+                try:
+                    if action_id.startswith("elemm:"):
+                        result_val = await self.gateway._execute_single(action_id, resolved_params, session_id=session_id)
+                    elif action_id in ["get_manifest", "get_landmarks", "inspect_landmark"]:
+                        tool_results = await self.gateway._proxy_core_tool(action_id, resolved_params, session_id=session_id)
+                        result_val = tool_results[0].text
+                    else:
+                        result_val = await self.gateway._execute_single(action_id, resolved_params, session_id=session_id)
+                except Exception as e:
+                    result_val = json.dumps({
+                        "status": "error",
+                        "message": f"Internal Execution Error: {str(e)}"
+                    })
+
+                duration_ms = int((time.perf_counter() - attempt_start) * 1000)
+                
+                # Parse for analysis
+                try:
+                    final_res = json.loads(result_val)
+                except:
+                    final_res = result_val
+                
+                # Check for retry conditions
+                if isinstance(final_res, dict) and (final_res.get("status") == "error" or "_PROTOCOL_ERROR" in final_res):
+                    proto_err = final_res.get("_PROTOCOL_ERROR")
+                    if proto_err in retry_on and attempt < retries:
+                        attempt += 1
+                        logger.warning(f"SequenceEngine: Retrying {action_id} (Attempt {attempt}/{retries}) due to {proto_err}")
+                        await asyncio.sleep(1) # Basic backoff
+                        continue
+                
+                break # Success or no more retries
+
+            # 3. Process & Store Result
+            # Store FULL result for piping
+            aliases[f"step{i}"] = final_res
             if alias:
-                self.aliases[alias] = final_res
+                aliases[alias] = final_res
+
+            # Truncate result for response to prevent context blowup
+            res_str = json.dumps(final_res, indent=2) if not isinstance(final_res, str) else final_res
+            is_truncated = False
+            if len(res_str) > 5000:
+                res_str = res_str[:4997] + "..."
+                is_truncated = True
 
             results.append({
                 "step": i,
                 "action": action_id,
                 "alias": alias or f"step{i}",
-                "result": final_res
+                "duration_ms": duration_ms,
+                "result": json.loads(res_str) if not isinstance(final_res, str) and not is_truncated else res_str,
+                "_truncated": is_truncated
             })
+
+            # 4. Cascade Failure Protection
+            is_error = False
+            if isinstance(final_res, dict) and (final_res.get("status") == "error" or "_PROTOCOL_ERROR" in final_res):
+                is_error = True
+            
+            if is_error and on_error == "stop":
+                logger.info(f"SequenceEngine: Halting sequence due to error in step {i}")
+                break
 
         return [types.TextContent(type="text", text=json.dumps(results, indent=2))]
 
-    def _resolve_piping(self, params: Any) -> Any:
+    def _resolve_piping(self, params: Any, aliases: Dict[str, Any]) -> Any:
         if isinstance(params, str) and params.startswith("$"):
             import re
             # Extract alias and path: $alias.field.subfield or $alias[0].field
             match = re.match(r"\$([\w\d]+)(.*)", params)
             if match:
                 alias_name, path = match.groups()
-                if alias_name in self.aliases:
-                    val = self.aliases[alias_name]
+                if alias_name in aliases:
+                    val = aliases[alias_name]
                     if not path:
                         return val
                     # Deep navigation
-                    return self._navigate(val, path)
+                    return self._navigate(val, path, aliases)
+                else:
+                    raise KeyError(f"Alias '{alias_name}' not found in current session memory.")
             return params
         
         if isinstance(params, dict):
-            return {k: self._resolve_piping(v) for k, v in params.items()}
+            return {k: self._resolve_piping(v, aliases) for k, v in params.items()}
         
         if isinstance(params, list):
-            return [self._resolve_piping(item) for item in params]
+            return [self._resolve_piping(item, aliases) for item in params]
             
         return params
 
-    def _navigate(self, data: Any, path: str) -> Any:
+    def _navigate(self, data: Any, path: str, aliases: Dict[str, Any]) -> Any:
         import re
         from elemm.core.repair import SmartRepairEngine
         
@@ -526,13 +674,8 @@ class SequenceEngine:
                     curr = curr[idx]
                 else:
                     curr = curr[p]
-            except Exception:
-                # Use SmartRepair for better error messages
-                available_keys = list(curr.keys()) if isinstance(curr, dict) else []
-                repair = SmartRepairEngine.handle_piping_failure(
-                    alias="current", # Could be improved to track actual alias
-                    field=p,
-                    available_keys=available_keys[:10] # Limit to 10 for tokens
-                )
-                return f"{{{{PROTOCOL_ERROR: {repair.message} REMEDY: {repair.remedy}}}}}"
+            except (KeyError, IndexError, TypeError):
+                available = list(curr.keys()) if isinstance(curr, dict) else "N/A"
+                raise ValueError(f"Path component '{p}' failed. Available at this level: {available}")
+        
         return curr

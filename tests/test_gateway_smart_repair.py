@@ -107,11 +107,8 @@ async def test_malformed_piping_syntax():
     engine.aliases = {"step0": {"user": {"name": "Rick"}}}
     
     # Non-existent field
-    res = engine._navigate(engine.aliases["step0"], "user.status")
-    assert "PROTOCOL_ERROR" in res
-    assert "REMEDY" in res
-    assert "name" in res # Available keys should be listed
+    with pytest.raises(ValueError) as excinfo:
+        engine._navigate(engine.aliases["step0"], "user.status", engine.aliases)
+    assert "Path component 'status' failed" in str(excinfo.value)
+    assert "name" in str(excinfo.value)
 
-    assert "PROTOCOL_ERROR" in res
-    assert "REMEDY" in res
-    assert "name" in res # Available keys should be listed
