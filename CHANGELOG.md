@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.3] - 2026-05-11
+
+### Added
+- **Developer Experience**: Significantly improved onboarding documentation with platform-specific MCP configurations (Windows, WSL, Linux, macOS) and virtual environment best practices.
+- **Reference Examples**: Added ready-to-use Claude Desktop JSON templates in `examples/mcp_configs/`.
+
+### Fixed
+- **Documentation**: Corrected Petstore API reference URL and updated agent one-liner prompts.
+- **Protocol Consistency**: Removed redundant `PYTHONPATH` requirements from example configurations to favor standard `pip install` workflows.
+
 ## [1.1.2] - 2026-05-11
 
 ### Fixed
