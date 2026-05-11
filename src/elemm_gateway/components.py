@@ -12,52 +12,68 @@ from elemm.core.repair import SmartRepairEngine
 class ManifestBuilder:
     """Single Source of Truth for Elemm Manifest generation and styling."""
     
-    PROTOCOL_RULES = (
-        "### 📜 RECOMMENDED WORKFLOW\n"
-        "1. **CONNECT**: Use `elemm-gateway:connect_to_site(url='...')` to establish a context.\n"
-        "2. **DISCOVER**: Use `elemm:get_landmarks` to see high-level functional areas.\n"
-        "3. **INSPECT (CRITICAL)**: Use `elemm:inspect_landmark(landmark_id='...')` BEFORE execution to see technical TypeScript signatures, required params, and injection points. This prevents `VALIDATION_FAILED` errors.\n"
-        "4. **EXECUTE**: Use `execute_sequence` for multi-step tasks or `call_action` for single ones.\n"
-        "\n### 🛠️ OPERATIONAL RULES\n"
-        "1. **HYGIENE**: Use `_select`, `_filter`, and `_limit` in EVERY tool call to prevent context overflow.\n"
-        "2. **CASCADE PROTECTION**: Sequences halt on failure by default (`on_error: 'stop'`).\n"
-        "3. **TRACING**: Every result includes `duration_ms` for performance monitoring.\n"
+    PROTOCOL_LAZY = (
+        "### MANDATORY DISCOVERY SEQUENCE - NO EXCEPTIONS\n"
+        "1. CONNECT: Establish context via 'connect_to_site'.\n"
+        "2. GET MANIFEST: Call 'get_manifest' to retrieve these instructions.\n"
+        "3. DISCOVER: Call 'get_landmarks' to see high-level functional areas.\n"
+        "4. INSPECT: Call 'inspect_landmark' for relevant areas to get technical signatures.\n"
+        "5. EXECUTE: Only after inspection, use 'execute_sequence' or 'call_action'.\n\n"
+        "### CRITICAL PROTOCOL RULES\n"
+        "- ANTI-PATTERN: NEVER guess action names or parameter schemas from memory.\n"
+        "- COST OPTIMIZATION: Discovery saves tokens by preventing retry loops.\n"
+        "- FIDELITY: Signatures vary per spec version. Only 'inspect_landmark' is ground truth.\n"
     )
 
+    PROTOCOL_FULL = (
+        "### DIRECT EXECUTION RULES\n"
+        "1. CONNECT: Establish context via 'connect_to_site'.\n"
+        "2. EXECUTE: Technical signatures are already included in this manifest.\n"
+        "3. OPTIMIZE: Use 'execute_sequence' for multi-step tasks to save tokens.\n\n"
+        "### OPERATIONAL HYGIENE\n"
+        "- HYGIENE: Use '_select', '_filter', and '_limit' in EVERY call to prevent context overflow.\n"
+        "- PIPING: Chain results via '$alias.path.to.field'.\n"
+    )
+
+    PROTOCOL_RULES = PROTOCOL_LAZY
+
     MEMORY_BANK = (
-        "### 🧠 MEMORY BANK (Session Governance)\n"
-        "- **ISOLATION**: Use `session_id` to isolate data between different tasks or users.\n"
-        "- **PIPING**: Chain results via '$alias.path.to.field' (e.g. `$step0.items[0].id`).\n"
-        "- **ALIASING**: Steps auto-alias as '$step0', '$step1'. Use custom 'alias' for clarity.\n"
-        "- **CLEANUP**: Call `elemm:clear_session(session_id)` after task completion for privacy.\n"
+        "### SESSION GOVERNANCE AND MEMORY\n"
+        "- ISOLATION: Use 'session_id' to isolate data between different tasks.\n"
+        "- PIPING: Chain results via '$alias.path.to.field' (e.g. '$step0.items[0].id').\n"
+        "- ALIASING: Steps auto-alias as '$step0', '$step1'. Use custom 'alias' for clarity.\n"
+        "- CLEANUP: Call 'clear_session(session_id)' after task completion for privacy.\n"
     )
 
     GLOBAL_LANDMARKS = (
-        "### 🌐 GATEWAY GLOBALS (Virtual Landmarks)\n"
-        "> [!NOTE]\n"
-        "> These tools are provided by the gateway and are available on ALL sites.\n\n"
-        "- **`execute_sequence`**: (Batching) Execute multiple actions in one turn with data piping.\n"
-        "  - Params: `actions` (Array of {action, parameters, alias, on_error})\n"
-        "  - Example: `[{action: 'search', alias: 'results'}, {action: 'get', parameters: {id: '$results.id'}}]` \n"
-        "- **`elemm`**: Global system operations and discovery (via `call_action`).\n"
-        "  - Tool: `elemm:get_landmarks` -> Returns: Summary of available landmarks\n"
-        "  - Tool: `elemm:inspect_landmark` (Params: `landmark_id`) -> Returns: Technical signatures (accepts single ID or array of IDs)\n"
-        "  - Tool: `elemm:list_aliases` (Params: `session_id`) -> Returns: Current session pipeline state\n"
-        "  - Tool: `elemm:clear_session` (Params: `session_id`) -> Clears session memory (Privacy)\n"
+        "### GATEWAY GLOBALS (Core Tools)\n"
+        "Note: These tools are provided natively by the gateway and are available on ALL sites.\n\n"
+        "- get_landmarks: Returns summary of available functional areas.\n"
+        "- inspect_landmark: (Params: landmark_id) -> Returns technical signatures.\n"
+        "- execute_sequence: (Batching) Execute multiple actions with data piping.\n"
+        "- list_aliases: (Params: session_id) -> Returns current session pipeline state.\n"
+        "- clear_session: (Params: session_id) -> Clears session memory (Privacy).\n"
     )
 
     @classmethod
-    def build_header(cls, title: str, version: str) -> str:
-        return f"# 🚀 ELEMM v2 INTERFACE: {title} (v{version})\n\n{cls.PROTOCOL_RULES}\n{cls.MEMORY_BANK}\n{cls.GLOBAL_LANDMARKS}"
+    def build_header(cls, title: str, version: str, full: bool = False) -> str:
+        rules = cls.PROTOCOL_FULL if full else cls.PROTOCOL_LAZY
+        return f"# ELEMM v2 INTERFACE: {title} (v{version})\n\n{rules}\n{cls.MEMORY_BANK}\n{cls.GLOBAL_LANDMARKS}"
 
     @classmethod
-    def inject_globals(cls, manifest: str) -> str:
-        """Injects gateway globals and updates legacy hints in an existing manifest."""
+    def inject_globals(cls, manifest: str, full: bool = False) -> str:
+        """Injects gateway globals and appropriate protocol rules."""
         # Cleanup legacy hints
         manifest = manifest.replace("inspect_landmark(id)", "call_action(action='elemm:inspect_landmark', parameters={'landmark_id': '...'})")
         manifest = manifest.replace("'inspect_landmarks'", "'elemm:inspect_landmark'")
         
-        # Avoid double injection
+        rules = cls.PROTOCOL_FULL if full else cls.PROTOCOL_LAZY
+        
+        # Inject Protocol Rules if missing
+        if "PROTOCOL RULES" not in manifest and "DISCOVERY SEQUENCE" not in manifest and "DIRECT EXECUTION" not in manifest:
+            manifest = rules + "\n" + manifest
+
+        # Avoid double injection of globals
         if "GATEWAY GLOBALS" in manifest:
             return manifest
             
@@ -65,6 +81,7 @@ class ManifestBuilder:
             return manifest.replace("### LANDMARK TOPOLOGY", cls.GLOBAL_LANDMARKS + "\n### LANDMARK TOPOLOGY")
         if "### TECHNICAL SIGNATURES" in manifest:
             return manifest.replace("### TECHNICAL SIGNATURES", cls.GLOBAL_LANDMARKS + "\n### TECHNICAL SIGNATURES")
+        
         return manifest + "\n" + cls.GLOBAL_LANDMARKS
 
 logger = logging.getLogger("elemm-gateway")

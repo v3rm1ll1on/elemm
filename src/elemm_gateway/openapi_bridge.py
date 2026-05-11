@@ -197,9 +197,9 @@ class OpenAPIBridge:
         
         lines = [
             ManifestBuilder.build_header(title, version),
-            "### 🗺️ LANDMARK TOPOLOGY",
+            "### LANDMARK TOPOLOGY",
             "> [!IMPORTANT]",
-            "> Use 'call_action(action=\"elemm:inspect_landmark\", parameters={\"landmark_id\": \"...\"})' to get the required TypeScript signatures BEFORE execution.",
+            "> Use 'inspect_landmark(landmark_id=\"...\")' to get the required TypeScript signatures BEFORE execution.",
             ""
         ]
 

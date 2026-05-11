@@ -134,6 +134,37 @@ class ElemmGateway:
                             "session_id": {"type": "string", "description": "The session ID to clear.", "default": "default"}
                         }
                     }
+                ),
+                types.Tool(
+                    name="get_landmarks",
+                    description="Returns a high-level summary of available landmarks/functional areas on the active site.",
+                    inputSchema={"type": "object", "properties": {}}
+                ),
+                types.Tool(
+                    name="inspect_landmark",
+                    description="Returns technical TypeScript signatures for one or more landmarks. Use this BEFORE calling an action to see required parameters.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "landmark_id": {
+                                "oneOf": [
+                                    {"type": "string", "description": "A single landmark ID (e.g. 'repos')"},
+                                    {"type": "array", "items": {"type": "string"}, "description": "A list of landmark IDs"}
+                                ]
+                            }
+                        },
+                        "required": ["landmark_id"]
+                    }
+                ),
+                types.Tool(
+                    name="list_aliases",
+                    description="Lists all currently stored findings (aliases) in the memory bank for a session.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "session_id": {"type": "string", "description": "The session ID to inspect.", "default": "default"}
+                        }
+                    }
                 )
             ]
 
@@ -251,7 +282,21 @@ class ElemmGateway:
         if site_data:
             logger.info(f"Gateway: Serving '{name}' locally from cache for {url}")
             if name == "get_manifest":
-                return [types.TextContent(type="text", text=site_data["manifest"])]
+                is_full = arguments.get("full", False)
+                if is_full and site_data.get("type") == "native":
+                    # Lazy Load the full technical manifest for native sites
+                    try:
+                        async with httpx.AsyncClient() as client:
+                            manifest_url = f"{url}/.well-known/elemm-manifest.md?technical=true"
+                            resp = await client.get(manifest_url, follow_redirects=True, timeout=15.0)
+                            if resp.status_code == 200:
+                                return [types.TextContent(type="text", text=self._inject_global_landmark(resp.text, full=True))]
+                    except Exception as e:
+                        logger.warning(f"Gateway: Failed to load full manifest: {e}")
+                
+                # For OpenAPI, the manifest is already stored (and usually full or summary depending on construction)
+                # We apply injection again to ensure correct protocol rules based on current request
+                return [types.TextContent(type="text", text=self._inject_global_landmark(site_data["manifest"], full=is_full))]
             if name == "get_landmarks":
                 if site_data.get("type") == "native":
                     # For native sites, extract topology from the manifest text
@@ -467,7 +512,7 @@ class ElemmGateway:
                                     "type": "graphql"
                                 }
                                 self.active_site_url = url
-                                return [types.TextContent(type="text", text=f"Connected to GraphQL API: {url}\n\nManifest generated dynamically via Introspection.")]
+                                return [types.TextContent(type="text", text=f"CONNECTED to GraphQL API: {url}\n\nNEXT REQUIRED STEP: Call 'get_manifest' before any other tool.")]
                             else:
                                 return [types.TextContent(type="text", text=f"GraphQL Probing at {url} returned 200 but no 'data'. Body: {resp.text}")]
                         else:
@@ -508,13 +553,13 @@ class ElemmGateway:
                                 schemes = parsed.get("security_schemes", {})
                                 if schemes and host_key not in self.vault_manager.vault:
                                     auth_warning = (
-                                        "\n\n> [!WARNING]\n"
-                                        f"> **AUTHENTICATION REQUIRED**: This site requires {list(schemes.keys())[0]}.\n"
-                                        f"> **REMEDY**: Add an entry for '{host_key}' to your `~/.elemm/vault.json`.\n"
-                                        "> **INSTRUCTION**: Please inform the user that an API key is required for this service."
+                                        "\n\n[WARNING]\n"
+                                        f"AUTHENTICATION REQUIRED: This site requires {list(schemes.keys())[0]}.\n"
+                                        f"REMEDY: Add an entry for '{host_key}' to your `~/.elemm/vault.json`.\n"
+                                        "INSTRUCTION: Inform the user that an API key is required for this service."
                                     )
                                 
-                                return [types.TextContent(type="text", text=f"Connected to OpenAPI API: {url}\n\nManifest generated dynamically.{auth_warning}")]
+                                return [types.TextContent(type="text", text=f"CONNECTED to OpenAPI API: {url}\n\nNEXT REQUIRED STEP: Call 'get_manifest' before any other tool.{auth_warning}")]
                     except Exception as e:
                         logger.warning(f"Gateway: Failed to probe OpenAPI at {url}: {e}")
 
@@ -540,7 +585,7 @@ class ElemmGateway:
                         }
                         self.active_site_url = url
                         self.manifest_loaded = True
-                        return [types.TextContent(type="text", text=f"Connected to Elemm site: {url}\n\nManifest (Summary) loaded successfully.")]
+                        return [types.TextContent(type="text", text=f"CONNECTED to Elemm site: {url}\n\nNEXT REQUIRED STEP: Call 'get_manifest' before any other tool.")]
                 except Exception as e:
                     logger.warning(f"Gateway: Native manifest discovery failed for {url}: {e}")
 
@@ -550,10 +595,10 @@ class ElemmGateway:
             logger.exception("Gateway: Connection fatal error")
             return [types.TextContent(type="text", text=f"Gateway Connection Error: {str(e)}")]
 
-    def _inject_global_landmark(self, manifest: str) -> str:
+    def _inject_global_landmark(self, manifest: str, full: bool = False) -> str:
         """Injects the virtual 'elemm' landmark and updates discovery hints."""
         from elemm_gateway.components import ManifestBuilder
-        return ManifestBuilder.inject_globals(manifest)
+        return ManifestBuilder.inject_globals(manifest, full=full)
 
     def _parse_manifest_to_tools(self, md_content: str) -> List[Dict[str, Any]]:
         """Parses technical tools from the json-elemm block in the manifest."""
