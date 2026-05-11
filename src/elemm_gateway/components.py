@@ -1,3 +1,18 @@
+# Copyright (C) 2026 Marc Stöcker
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import os
 import json
 import httpx
@@ -98,7 +113,13 @@ class ConfigManager:
             "limit_inspect": 20000,
             "timeout_seconds": 30,
             "retry_attempts": 3,
-            "retry_delay_ms": 1000
+            "retry_delay_ms": 1000,
+            "security": {
+                "disallowed_patterns": ["delete", "remove", "purge", "destroy"],
+                "allowed_methods": ["GET", "POST", "PUT", "PATCH", "DELETE"], # Default to all, user can restrict
+                "disallowed_landmarks": [],
+                "disallowed_actions": []
+            }
         }
         
         config_dir = os.path.dirname(self.config_path)
