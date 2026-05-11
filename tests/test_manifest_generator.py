@@ -20,10 +20,10 @@ def test_manifest_builder_structure():
     """Tests if the central ManifestBuilder generates all required sections."""
     header = ManifestBuilder.build_header("Test API", "1.2.3")
     
-    assert "# 🚀 ELEMM v2 INTERFACE: Test API (v1.2.3)" in header
-    assert "### 📜 PROTOCOL RULES" in header
-    assert "### 🧠 MEMORY BANK" in header
-    assert "### 🌐 GATEWAY GLOBALS" in header
+    assert "# ELEMM v2 INTERFACE: Test API (v1.2.3)" in header
+    assert "### CRITICAL PROTOCOL RULES" in header
+    assert "### SESSION GOVERNANCE AND MEMORY" in header
+    assert "### GATEWAY GLOBALS" in header
     assert "$step0.items[0].id" in header # Check for the improved piping explanation
 
 def test_manifest_no_double_injection():

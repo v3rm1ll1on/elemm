@@ -33,6 +33,7 @@ from elemm_gateway.graphql_bridge import GraphQLBridge
 from elemm_gateway.components import (
     VaultManager, 
     ConfigManager,
+    SecurityPolicy,
     OpenAPIExecutor, 
     GraphQLExecutor,
     ResponseSquisher, 
@@ -58,6 +59,7 @@ class ElemmGateway:
 
         # Modular Components
         self.config_manager = ConfigManager(os.path.expanduser("~/.elemm/config.json"))
+        self.security_policy = SecurityPolicy(self.config_manager.config)
         self.vault_manager = VaultManager(os.path.expanduser("~/.elemm/vault.json"))
         self.openapi_executor = OpenAPIExecutor(self.vault_manager)
         self.graphql_executor = GraphQLExecutor(self.vault_manager)
@@ -183,18 +185,6 @@ class ElemmGateway:
                 )
             ]
 
-            if self.active_site_url and self.active_site_url in self.connected_sites:
-                site_tools = self.connected_sites[self.active_site_url].get("tools", [])
-                # Convert site tools to MCP format if they aren't already
-                mcp_site_tools = []
-                for t in site_tools:
-                    mcp_site_tools.append(types.Tool(
-                        name=t["name"],
-                        description=t["description"],
-                        inputSchema=t["inputSchema"]
-                    ))
-                return core_tools + mcp_site_tools
-            
             return core_tools
 
         @self.server.call_tool()
@@ -298,19 +288,9 @@ class ElemmGateway:
             logger.info(f"Gateway: Serving '{name}' locally from cache for {url}")
             if name == "get_manifest":
                 is_full = arguments.get("full", False)
-                if is_full and site_data.get("type") == "native":
-                    # Lazy Load the full technical manifest for native sites
-                    try:
-                        async with httpx.AsyncClient() as client:
-                            manifest_url = f"{url}/.well-known/elemm-manifest.md?technical=true"
-                            resp = await client.get(manifest_url, follow_redirects=True, timeout=15.0)
-                            if resp.status_code == 200:
-                                return [types.TextContent(type="text", text=self._inject_global_landmark(resp.text, full=True))]
-                    except Exception as e:
-                        logger.warning(f"Gateway: Failed to load full manifest: {e}")
-                
-                # For OpenAPI, the manifest is already stored (and usually full or summary depending on construction)
-                # We apply injection again to ensure correct protocol rules based on current request
+                # For OpenAPI, the manifest is already stored
+                # We apply injection again to ensure correct protocol rules
+                self.manifest_loaded = True
                 return [types.TextContent(type="text", text=self._inject_global_landmark(site_data["manifest"], full=is_full))]
             if name == "get_landmarks":
                 if site_data.get("type") == "native":
@@ -321,6 +301,9 @@ class ElemmGateway:
                     matches = re.findall(r"- \*\*`(.*?)`\*\*: (.*?)\n", manifest)
                     for lid, desc in matches:
                         if lid == "elemm": continue
+                        # Filter by security policy
+                        if not self.security_policy.is_action_allowed(f"{lid}_dummy")["allowed"]:
+                            continue
                         landmarks[lid] = desc
                     
                     res = "### LANDMARK TOPOLOGY\n"
@@ -332,6 +315,9 @@ class ElemmGateway:
                 tools = site_data.get("tools", [])
                 landmarks = {}
                 for t in tools:
+                    # Filter by security policy
+                    if not self.security_policy.is_action_allowed(t["name"])["allowed"]:
+                        continue
                     lm = t["name"].split(":")[0] if ":" in t["name"] else t["name"].split("_", 1)[0]
                     landmarks[lm] = landmarks.get(lm, 0) + 1
                 
@@ -343,6 +329,18 @@ class ElemmGateway:
             if name == "inspect_landmark":
                 lm_id = arguments.get("landmark_id")
                 ids = [lm_id] if isinstance(lm_id, str) else lm_id
+                
+                # Filter requested IDs by policy
+                allowed_ids = []
+                for tid in ids:
+                    check = self.security_policy.is_action_allowed(f"{tid}_inspect")
+                    if check["allowed"]:
+                        allowed_ids.append(tid)
+                
+                if not allowed_ids:
+                    return [types.TextContent(type="text", text="Error: Access to the requested landmark(s) is restricted by security policy.")]
+                
+                ids = allowed_ids # Proceed with only allowed IDs
                 
                 if site_data.get("type") == "native":
                     # Lazy Load from remote site
@@ -415,6 +413,27 @@ class ElemmGateway:
 
     async def _execute_single(self, tool_name: str, arguments: Dict, session_id: str = "default") -> str:
         """UNIVERSAL PROXY: Sends the call to the remote site's execution endpoint or directly via HTTP for OpenAPI/GraphQL."""
+        # 0. Security Policy Enforcement
+        check = self.security_policy.is_action_allowed(tool_name)
+        if not check["allowed"]:
+            logger.warning(f"Gateway: Security Violation - Attempted action '{tool_name}' blocked.")
+            return json.dumps({
+                "status": "error",
+                "_PROTOCOL_ERROR": "ACCESS_DENIED",
+                "message": check["reason"],
+                "remedy": check["remedy"]
+            }, indent=2)
+
+        # 1. Protocol Enforcement (Handshake Check)
+        if not self.manifest_loaded and tool_name not in ["connect_to_site", "get_manifest", "clear_session"] and not tool_name.startswith("elemm:"):
+            logger.warning(f"Gateway: Protocol Violation - Action '{tool_name}' attempted before 'get_manifest'.")
+            return json.dumps({
+                "status": "error",
+                "_PROTOCOL_ERROR": "PROTOCOL_VIOLATION",
+                "message": "Protocol violation: You MUST call 'get_manifest' to receive system instructions before executing any actions.",
+                "remedy": "Call 'get_manifest' immediately to authorize the session."
+            }, indent=2)
+
         if not self.active_site_url and tool_name not in ["connect_to_site"] and not tool_name.startswith("elemm:"):
             return "Error: Gateway not connected to a remote site."
 
@@ -478,6 +497,18 @@ class ElemmGateway:
             repair = SmartRepairEngine.handle_missing_action(name, available_ids)
             return json.dumps(repair.model_dump(), indent=2)
         
+        # Double check policy with method if available
+        method = tool_data.get("meta", {}).get("method", "POST")
+        check = self.security_policy.is_action_allowed(name, method=method)
+        if not check["allowed"]:
+            logger.warning(f"Gateway: Security Block - Action '{name}' ({method}) denied.")
+            return json.dumps({
+                "status": "error",
+                "_PROTOCOL_ERROR": "ACCESS_DENIED",
+                "message": check["reason"],
+                "remedy": check["remedy"]
+            }, indent=2)
+        
         try:
             if site_data.get("type") == "graphql":
                 return await self.graphql_executor.execute(tool_data, arguments)
@@ -495,6 +526,8 @@ class ElemmGateway:
         from elemm_gateway.components import ManifestBuilder
         url = url.strip().rstrip("/")
         logger.info(f"Gateway: Connecting to URL: '{url}'")
+        # Reset Protocol Handshake
+        self.manifest_loaded = False
         try:
             async with httpx.AsyncClient() as client:
                 # Reload vault on each connect to avoid restarts
@@ -599,7 +632,6 @@ class ElemmGateway:
                             "type": "native"
                         }
                         self.active_site_url = url
-                        self.manifest_loaded = True
                         return [types.TextContent(type="text", text=f"CONNECTED to Elemm site: {url}\n\nNEXT REQUIRED STEP: Call 'get_manifest' before any other tool.")]
                 except Exception as e:
                     logger.warning(f"Gateway: Native manifest discovery failed for {url}: {e}")

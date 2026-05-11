@@ -35,6 +35,7 @@ def gateway():
     gw = ElemmGateway()
     gw.vault_manager.load = lambda: mock_vault # Direct override on component
     gw.vault_manager.vault = mock_vault
+    gw.manifest_loaded = True # Authorize for tests
     return gw
 
 @pytest.mark.asyncio
@@ -66,6 +67,7 @@ async def test_vault_key_injection(gateway):
         
         # Connect
         res = await gateway._connect(target_url)
+        gateway.manifest_loaded = True # Authorize for tests
         print(f"Connect result: {res[0].text}")
         assert gateway.active_site_url == target_url, f"Failed to connect to {target_url}. Result: {res[0].text}"
         
@@ -100,6 +102,7 @@ async def test_hygiene_squishing_nested(gateway):
             "paths": {"/data": {"get": {"operationId": "getData"}}}
         })
         await gateway._connect(target_url)
+        gateway.manifest_loaded = True # Authorize for tests
         
         # Mock response
         respx.get("https://api.test.com/data").respond(
@@ -130,6 +133,7 @@ async def test_auth_remedy_standard(gateway):
             "paths": {"/secret": {"get": {"operationId": "getSecret"}}}
         })
         await gateway._connect(target_url)
+        gateway.manifest_loaded = True # Authorize for tests
         
         # Mock 401 Unauthorized
         respx.get("https://api.locked.com/secret").respond(status_code=401, text="Unauthorized")
@@ -157,6 +161,7 @@ async def test_landmark_discovery_grouping(gateway):
             }
         })
         res = await gateway._connect(target_url)
+        gateway.manifest_loaded = True # Authorize for tests
         print(f"Grouped Connect result: {res[0].text}")
         assert gateway.active_site_url == target_url
         

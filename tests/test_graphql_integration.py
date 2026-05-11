@@ -53,7 +53,7 @@ async def test_gateway_graphql_connect():
     results = await gateway._connect(MOCK_GQL_URL)
     
     # Verify results
-    assert any("Connected to GraphQL API" in content.text for content in results)
+    assert any("CONNECTED to GraphQL API" in content.text for content in results)
     assert gateway.active_site_url == MOCK_GQL_URL
     assert MOCK_GQL_URL in gateway.connected_sites
     
@@ -61,7 +61,7 @@ async def test_gateway_graphql_connect():
     assert site_data["type"] == "graphql"
     assert len(site_data["tools"]) > 0
     assert "Query_test" in [t["name"] for t in site_data["tools"]]
-    assert "# 🚀 ELEMM v2 INTERFACE" in site_data["manifest"]
+    assert "# ELEMM v2 INTERFACE" in site_data["manifest"]
 
 @pytest.mark.asyncio
 @respx.mock
@@ -72,6 +72,9 @@ async def test_gateway_graphql_execution():
     # 1. Setup connected state
     respx.post(MOCK_GQL_URL).mock(return_value=httpx.Response(200, json=MOCK_INTRO_DATA))
     await gateway._connect(MOCK_GQL_URL)
+    gateway.manifest_loaded = True # Authorize for execution test
+    from elemm_gateway.components import SecurityPolicy
+    gateway.security_policy = SecurityPolicy({"security": {"allowed_methods": ["GET", "POST"]}}) # Allow POST for GraphQL
     
     # 2. Mock the actual tool execution call
     respx.post(MOCK_GQL_URL).mock(return_value=httpx.Response(200, json={"data": {"test": "hello world"}}))

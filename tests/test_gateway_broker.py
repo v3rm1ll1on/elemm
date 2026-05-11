@@ -43,7 +43,7 @@ async def test_gateway_broker_connect_and_proxy():
 
         # 1. Test Connect
         res = await gateway._handle_call_tool("connect_to_site", {"url": target_url})
-        assert "Connected to" in res[0].text and target_url in res[0].text
+        assert "CONNECTED to" in res[0].text and target_url in res[0].text
         assert gateway.active_site_url == target_url
 
         # 2. Test Get Manifest (Proxied)

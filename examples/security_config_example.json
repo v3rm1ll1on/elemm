@@ -1,0 +1,25 @@
+{
+  "_comment": "Example Guardian Security Configuration for Elemm Gateway v2",
+  "security": {
+    "disallowed_patterns": [
+      "delete",
+      "remove",
+      "destroy",
+      "purge"
+    ],
+    "disallowed_landmarks": [
+      "admin",
+      "billing",
+      "secrets"
+    ],
+    "allowed_methods": [
+      "GET",
+      "POST"
+    ]
+  },
+  "limit_standard": 5000,
+  "limit_inspect": 20000,
+  "timeout_seconds": 30,
+  "retry_attempts": 3,
+  "retry_delay_ms": 1000
+}
