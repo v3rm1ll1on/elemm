@@ -41,7 +41,6 @@ The Gateway is built on three fundamental principles:
 
 - Python 3.10+
 - The `elemm` core package
-- The `elemm-gateway` package (this repository)
 
 ### Install
 
@@ -58,7 +57,8 @@ Example for Claude Desktop (`claude_desktop_config.json`):
 {
   "mcpServers": {
     "elemm-gateway": {
-      "command": "elemm-gateway"
+      "command": "/absolute/path/to/project/.venv/bin/python3",
+      "args": ["-m", "elemm_gateway.cli"]
     }
   }
 }
@@ -69,7 +69,7 @@ Example for Claude Desktop (`claude_desktop_config.json`):
 ### Run (SSE — For Web Clients)
 
 ```bash
-PYTHONPATH=src python3 -m elemm_gateway.cli --transport sse --port 8000
+python3 -m elemm_gateway.cli --transport sse --port 8000
 ```
 
 ### CLI Options
@@ -93,28 +93,15 @@ PYTHONPATH=src python3 -m elemm_gateway.cli --transport sse --port 8000
 {
   "mcpServers": {
     "elemm-gateway": {
-      "command": "python3",
-      "args": ["-m", "elemm_gateway.cli"],
-      "env": {
-        "PYTHONPATH": "/path/to/ai_landmarks_pkg/src"
-      }
+      "command": "/path/to/project/.venv/bin/python3",
+      "args": ["-m", "elemm_gateway.cli"]
     }
   }
 }
 ```
 
-### Anything LLM / Cursor (WSL Example)
-
-```
-Command:  wsl.exe
-Args:     -u <user> -d Ubuntu bash -c "cd /path/to/ai_landmarks_pkg && PYTHONPATH=src ./venv/bin/python3 -m elemm_gateway.cli"
-```
-
 After configuring your client, you will see exactly **8 tools** registered:
 `connect_to_site`, `get_manifest`, `call_action`, `execute_sequence`, `get_landmarks`, `inspect_landmark`, `list_aliases`, `clear_session`.
-
-> [!IMPORTANT]
-> If you see more than 8 tools (e.g., hundreds of API-specific tools), you are running an outdated version of the gateway. The gateway **never** exposes domain-specific tools to the MCP client. All actions are routed through `call_action` and `execute_sequence`.
 
 ---
 
@@ -450,9 +437,19 @@ The gateway manages API keys and tokens via a local vault file at `~/.elemm/vaul
     "in": "query",
     "value": "your_api_key_here"
   },
-  "internal.corp.com": {
+  "api.stripe.com": {
+    "type": "bearer",
+    "value": "sk_test_51Mz..."
+  },
+  "custom.internal.api": {
+    "type": "apiKey",
+    "name": "X-Auth-Token",
+    "in": "header",
+    "value": "secret-123"
+  },
+  "legacy-service.com": {
     "type": "basic",
-    "value": "base64_encoded_user:password"
+    "value": "dXNlcjpwYXNzd29yZA=="
   }
 }
 ```
@@ -496,9 +493,9 @@ The gateway is configured via `~/.elemm/config.json`. The file is auto-created w
 {
   "security": {
     "disallowed_patterns": ["delete", "remove", "purge", "destroy"],
-    "disallowed_landmarks": [],
-    "disallowed_actions": [],
-    "allowed_methods": ["GET", "POST", "PUT", "PATCH", "DELETE"]
+    "disallowed_landmarks": ["admin", "billing", "internal"],
+    "disallowed_actions": ["users_delete_account"],
+    "allowed_methods": ["GET", "POST"]
   },
   "limit_standard": 5000,
   "limit_inspect": 20000,
@@ -507,6 +504,13 @@ The gateway is configured via `~/.elemm/config.json`. The file is auto-created w
   "retry_delay_ms": 1000
 }
 ```
+
+#### Filtering Examples (Security Policy)
+
+- **Strict Read-Only**: Set `allowed_methods` to `["GET"]`.
+- **Block Destructive Patterns**: Add `"delete"`, `"drop"`, `"truncate"` to `disallowed_patterns`.
+- **Isolate Departments**: Add `"finance"` or `"hr"` to `disallowed_landmarks` to hide those functional areas from the agent entirely.
+- **Granular Action Block**: Use `disallowed_actions` for specific high-risk tools like `repos_repos_delete`.
 
 ### Key Reference
 

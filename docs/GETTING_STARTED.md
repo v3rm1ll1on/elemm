@@ -12,6 +12,34 @@ Install Elemm directly from PyPI:
 pip install elemm
 ```
 
+### 1.1 Virtual Environment & Path Management (Recommended)
+
+To keep your system clean and avoid dependency conflicts, use a virtual environment:
+
+```bash
+# 1. Create a virtual environment
+python3 -m venv .venv
+
+# 2. Activate it
+# Linux/macOS/WSL:
+source .venv/bin/activate
+# Windows:
+.venv\Scripts\activate
+
+# 3. Install the package
+pip install elemm
+```
+
+#### Locating the Executable
+AI agents often require absolute paths to the `elemm-gateway` executable. You can find it by running:
+- **Linux/macOS/WSL**: `which elemm-gateway`
+- **Windows**: `where elemm-gateway`
+
+Typical paths:
+- **Linux/macOS**: `/home/user/.local/bin/elemm-gateway` or inside your venv: `/path/to/project/.venv/bin/elemm-gateway`
+- **WSL**: `/home/user/project/.venv/bin/elemm-gateway`
+- **Windows**: `C:\Users\User\AppData\Local\Programs\Python\Python310\Scripts\elemm-gateway.exe`
+
 ---
 
 ## 2. Option A: Use the Gateway (Fastest)
@@ -20,23 +48,59 @@ The **Elemm Gateway** is a universal MCP server that connects to any OpenAPI, Gr
 
 Because it uses the STDIO transport by default, **you do not run it directly in your terminal**. Instead, you configure your MCP client to start it.
 
-### Connecting to Claude Desktop
+### Platform-Specific MCP Configuration
 
-Add the following to your `claude_desktop_config.json`:
+AI agents like Claude Desktop or Cursor require a JSON configuration to start the gateway via STDIO. Use the example that matches your operating system.
 
+#### Windows (Native)
+File: `%APPDATA%\Claude\claude_desktop_config.json`
 ```json
 {
   "mcpServers": {
     "elemm-gateway": {
-      "command": "elemm-gateway"
+      "command": "C:\\Users\\<USER>\\project\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "elemm_gateway.cli"]
     }
   }
 }
 ```
 
-*(Note: Use the absolute path to `elemm-gateway` if it is not in your system PATH).*
+#### WSL (Ubuntu/Debian)
+If your project lives in WSL but you run the AI agent on Windows:
+File: `%APPDATA%\Claude\claude_desktop_config.json`
+```json
+{
+  "mcpServers": {
+    "elemm-gateway": {
+      "command": "wsl.exe",
+      "args": [
+        "-d", "Ubuntu",
+        "-u", "<USER>",
+        "bash", "-c",
+        "cd /home/<USER>/project && ./.venv/bin/python3 -m elemm_gateway.cli"
+      ]
+    }
+  }
+}
+```
 
-Then start Claude and tell your agent: *"Connect to https://petstore3.swagger.io/api/v3/openapi.json and list all available pets."*
+#### Linux / macOS
+File: `~/.config/Claude/claude_desktop_config.json` (Linux) or `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
+```json
+{
+  "mcpServers": {
+    "elemm-gateway": {
+      "command": "/path/to/project/.venv/bin/python3",
+      "args": ["-m", "elemm_gateway.cli"]
+    }
+  }
+}
+```
+
+*(Note: Always prefer absolute paths to both the python executable and the project directory).*
+
+Then start Claude and tell your agent: 
+> *"Use Elemm to connect to https://petstore.swagger.io/v2/swagger.json and list all available pets."*
 
 > [!TIP]
 > See the [Gateway Reference](GATEWAY.md) for the complete documentation on security policies, authentication vault, sequence engine, and more.

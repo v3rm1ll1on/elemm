@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "elemm-gateway": {
+      "command": "/absolute/path/to/project/.venv/bin/python3",
+      "args": [
+        "-m",
+        "elemm_gateway.cli"
+      ]
+    }
+  }
+}

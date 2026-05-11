@@ -44,6 +44,15 @@ The simplest starting point to understand the `@gateway.action` decorator and th
 
 ---
 
+## [MCP Configurations](./mcp_configs)
+**Ready-to-use Agent Configs**
+Copy-pasteable JSON templates for connecting your AI agent (e.g., Claude Desktop) to the Elemm Gateway:
+- **[Windows (Native)](./mcp_configs/claude_desktop_windows.json)**
+- **[WSL (Ubuntu/Debian)](./mcp_configs/claude_desktop_wsl.json)**
+- **[Linux / macOS](./mcp_configs/claude_desktop_linux_mac.json)**
+
+---
+
 ## Elemm Gateway (mcp_bridge.py)
 **Connecting to Agents**
 The `mcp_bridge.py` script acts as a broker between the Landmark Manifest Protocol and standard MCP-compatible agents like Claude Desktop.
@@ -51,7 +60,8 @@ The `mcp_bridge.py` script acts as a broker between the Landmark Manifest Protoc
 **Quick Start:**
 1. Start an example server (e.g., `python examples/smart_home/server.py`).
 2. Point your agent to the bridge (see root README for configuration details).
-3. Experience the performance and cost advantages of manifest-driven discovery.
+3. Use the templates in `examples/mcp_configs/` for a quick setup.
+4. Experience the performance and cost advantages of manifest-driven discovery.
 
 ---
 *Maintained by Marc Stöcker.*

@@ -86,7 +86,7 @@ The fastest way to use Elemm is via the built-in **Gateway**. It acts as a unive
 ### 3. Start Discovering
 
 Once connected, tell your agent:
-> *"Connect to https://api.apis.guru/v2/specs/github.com/api.github.com/1.1.4/openapi.json and show me the latest issues."*
+> *"Use Elemm to connect to https://petstore.swagger.io/v2/swagger.json and list all available pets."*
 
 The Gateway provides exactly **8 core tools** to the agent. All domain-specific actions are discovered on-the-fly via the Elemm protocol.
 
