@@ -3,9 +3,60 @@ import json
 import httpx
 import logging
 import asyncio
+import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 import mcp.types as types
+
+class ManifestBuilder:
+    """Single Source of Truth for Elemm Manifest generation and styling."""
+    
+    PROTOCOL_RULES = (
+        "### 📜 PROTOCOL RULES\n"
+        "1. **DISCOVERY**: Use `call_action(action='elemm:get_landmarks')` to see available areas.\n"
+        "2. **INSPECTION**: Use `call_action(action='elemm:inspect_landmark', parameters={landmark_id: '...'})` for technical signatures BEFORE execution.\n"
+        "3. **HYGIENE (CRITICAL)**: Use `_select` (comma-separated fields), `_filter` (key=val), and `_limit` (number) in EVERY tool call to prevent context overflow.\n"
+        "4. **SEQUENCING**: Use 'execute_sequence' for ALL multi-step tasks.\n"
+        "5. **PIPING**: Use '$alias.field' to pass results between sequence steps. Support deep paths (e.g. `$step0.items[0].id`).\n"
+    )
+
+    MEMORY_BANK = (
+        "### 🧠 MEMORY BANK (Live Memory)\n"
+        "- Use `call_action(action='elemm:list_aliases')` to see stored findings ($step0, $step1, etc.)\n"
+        "- PIPING: Chain results via '$alias.path.to.field' (e.g. `$step0.items[0].id`).\n"
+        "- ALIASING: Steps auto-alias as '$step0', '$step1'. Use custom 'alias' for clarity.\n"
+    )
+
+    GLOBAL_LANDMARKS = (
+        "### 🌐 GATEWAY GLOBALS (Virtual Landmarks)\n"
+        "> [!NOTE]\n"
+        "> These tools are provided by the gateway and are available on ALL sites via `call_action`.\n\n"
+        "- **`elemm`**: Global system operations and discovery.\n"
+        "  - Tool: `elemm:get_landmarks` -> Returns: Summary of available landmarks\n"
+        "  - Tool: `elemm:inspect_landmark` (Params: `landmark_id`) -> Returns: Technical signatures\n"
+        "  - Tool: `elemm:list_aliases` -> Returns: Current pipeline state (memory bank)\n"
+    )
+
+    @classmethod
+    def build_header(cls, title: str, version: str) -> str:
+        return f"# 🚀 ELEMM v2 INTERFACE: {title} (v{version})\n\n{cls.PROTOCOL_RULES}\n{cls.MEMORY_BANK}\n{cls.GLOBAL_LANDMARKS}"
+
+    @classmethod
+    def inject_globals(cls, manifest: str) -> str:
+        """Injects gateway globals and updates legacy hints in an existing manifest."""
+        # Cleanup legacy hints
+        manifest = manifest.replace("inspect_landmark(id)", "call_action(action='elemm:inspect_landmark', parameters={'landmark_id': '...'})")
+        manifest = manifest.replace("'inspect_landmarks'", "'elemm:inspect_landmark'")
+        
+        # Avoid double injection
+        if "GATEWAY GLOBALS" in manifest:
+            return manifest
+            
+        if "### LANDMARK TOPOLOGY" in manifest:
+            return manifest.replace("### LANDMARK TOPOLOGY", cls.GLOBAL_LANDMARKS + "\n### LANDMARK TOPOLOGY")
+        if "### TECHNICAL SIGNATURES" in manifest:
+            return manifest.replace("### TECHNICAL SIGNATURES", cls.GLOBAL_LANDMARKS + "\n### TECHNICAL SIGNATURES")
+        return manifest + "\n" + cls.GLOBAL_LANDMARKS
 
 logger = logging.getLogger("elemm-gateway")
 
@@ -103,6 +154,121 @@ class ResponseSquisher:
                 res[f] = obj[f]
         return res
 
+class GraphQLExecutor:
+    """Handles generation and execution of GraphQL queries."""
+    def __init__(self, vault_manager: VaultManager):
+        self.vault = vault_manager
+
+    async def execute(self, tool_meta: Dict[str, Any], arguments: Dict[str, Any]) -> str:
+        base_url = tool_meta.get("base_url", "")
+        operation_type = tool_meta.get("operation_type", "query")
+        field_name = tool_meta.get("field_name", "")
+        
+        # Extract hygiene params
+        select = arguments.pop("_select", "id") # Default to 'id' if nothing selected
+        
+        # Construct GQL Query
+        # We wrap arguments into GQL variables
+        var_defs = []
+        var_values = {}
+        arg_calls = []
+        
+        for k, v in arguments.items():
+            var_name = f"var_{k}"
+            # Use original GQL type if available in metadata, else guess
+            prop_meta = tool_meta.get("inputSchema", {}).get("properties", {}).get(k, {})
+            g_type = prop_meta.get("gql_type")
+            
+            
+            if not g_type:
+                if isinstance(v, bool): g_type = "Boolean!"
+                elif isinstance(v, int): g_type = "Int!"
+                elif isinstance(v, float): g_type = "Float!"
+                else: g_type = "String!"
+            
+            var_defs.append(f"${var_name}: {g_type}")
+            var_values[var_name] = v
+            arg_calls.append(f"{k}: ${var_name}")
+
+        arg_str = f"({', '.join(arg_calls)})" if arg_calls else ""
+        var_def_str = f"({', '.join(var_defs)})" if var_defs else ""
+        
+        # Build selection set from _select (supporting nested fields like 'name, info.id')
+        selection_set = self._build_selection_set(select)
+        
+        query = f"{operation_type} ElemmQuery{var_def_str} {{ {field_name}{arg_str} {selection_set} }}"
+        
+        # Prepare Request
+        headers = {"User-Agent": "Elemm-Gateway/2.0", "Content-Type": "application/json"}
+        params = {}
+        host_key = urlparse(base_url).netloc
+        self.vault.apply_auth(host_key, params, headers)
+
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    base_url,
+                    json={"query": query, "variables": var_values},
+                    headers=headers,
+                    params=params,
+                    timeout=30.0
+                )
+                
+                res_json = {}
+                try:
+                    res_json = resp.json()
+                except:
+                    pass
+
+                if "errors" in res_json or resp.status_code != 200:
+                    # SmartRepair: Translate common GQL errors
+                    errors = res_json.get("errors", [])
+                    error_msg = errors[0].get("message", "") if errors else resp.text
+                    remedy = "Check technical signatures with 'elemm:inspect_landmark'."
+                    
+                    if "must have a selection of subfields" in error_msg:
+                        field_match = re.search(r'Field "(.*?)"', error_msg)
+                        target = field_match.group(1) if field_match else "the field"
+                        remedy = f"Field '{target}' is an object/interface. You MUST specify sub-fields in '_select' using dot-notation (e.g. '{target}.id' or '{target}.name')."
+                    elif "Variable" in error_msg and "expecting type" in error_msg:
+                        remedy = "Type mismatch in variables. Ensure IDs are strings and follow the technical signature exactly."
+
+                    return json.dumps({
+                        "status": "error",
+                        "message": error_msg,
+                        "remedy": remedy,
+                        "http_code": resp.status_code,
+                        "raw_errors": errors
+                    }, indent=2)
+                
+                # Unbox GQL 'data' field
+                data = res_json.get("data", {}).get(field_name, res_json.get("data"))
+                return json.dumps(data, indent=2)
+
+        except Exception as e:
+            return f"Error executing GraphQL call: {str(e)}"
+
+    def _build_selection_set(self, select: str) -> str:
+        """Converts comma-separated fields to a GQL selection set."""
+        fields = [f.strip() for f in select.split(",")]
+        root = {}
+        for f in fields:
+            parts = f.split(".")
+            curr = root
+            for p in parts:
+                if p not in curr: curr[p] = {}
+                curr = curr[p]
+        
+        return self._dict_to_gql(root)
+
+    def _dict_to_gql(self, d: Dict) -> str:
+        if not d: return ""
+        inner = []
+        for k, v in d.items():
+            sub = self._dict_to_gql(v)
+            inner.append(f"{k} {sub}" if sub else k)
+        return f"{{ {', '.join(inner)} }}"
+
 class OpenAPIExecutor:
     """Handles the heavy lifting of executing OpenAPI requests."""
     def __init__(self, vault_manager: VaultManager):
@@ -155,6 +321,16 @@ class OpenAPIExecutor:
                     timeout=30.0
                 )
                 
+                if resp.status_code == 429:
+                    retry_after = resp.headers.get("Retry-After", "a few")
+                    return json.dumps({
+                        "status": "error",
+                        "_PROTOCOL_ERROR": "RATE_LIMIT_REACHED",
+                        "message": f"Rate limit reached for {host_key}.",
+                        "remedy": f"Wait {retry_after} seconds before retrying this operation.",
+                        "instruction": "The remote service is throttling requests. Please pause execution."
+                    }, indent=2)
+
                 if resp.status_code in [401, 403]:
                     return json.dumps({
                         "status": "error",
@@ -165,7 +341,18 @@ class OpenAPIExecutor:
                     }, indent=2)
                 
                 if resp.status_code != 200:
-                    return f"Error: Remote API returned HTTP {resp.status_code}\n{resp.text}"
+                    # Try to extract a useful message from the API error response
+                    error_data = {}
+                    try: error_data = resp.json()
+                    except: pass
+                    
+                    error_msg = error_data.get("error", {}).get("message") or error_data.get("message") or resp.text
+                    return json.dumps({
+                        "status": "error",
+                        "message": f"Remote API returned HTTP {resp.status_code}",
+                        "details": error_msg,
+                        "remedy": "Verify technical signatures with 'elemm:inspect_landmark' and check your parameters."
+                    }, indent=2)
 
                 data = resp.json()
                 
@@ -173,17 +360,33 @@ class OpenAPIExecutor:
                 data = ResponseSquisher.squish(data, select, filter_str)
                 if limit and isinstance(data, list):
                     data = data[:int(limit)]
+                
+                # Empty Result Guiding
+                if not data or (isinstance(data, list) and len(data) == 0):
+                    return json.dumps({
+                        "status": "success",
+                        "data": data,
+                        "_INFO": "The call was successful but returned no results. Broaden your search/filter if this was unexpected."
+                    }, indent=2)
                     
                 return json.dumps(data, indent=2)
 
         except Exception as e:
-            return f"Error executing OpenAPI call: {str(e)}"
+            return json.dumps({
+                "status": "error",
+                "message": f"Execution failed: {str(e)}",
+                "remedy": "Check your connection and the technical signature of the landmark."
+            }, indent=2)
 
 class SequenceEngine:
     """Orchestrates multi-step tool executions with piping and aliasing."""
     def __init__(self, gateway: Any):
         self.gateway = gateway
         self.aliases = {}
+
+    def list_aliases(self) -> Dict[str, Any]:
+        """Returns all currently stored aliases."""
+        return self.aliases
 
     async def execute(self, actions: List[Dict[str, Any]]) -> List[types.TextContent]:
         results = []
@@ -196,32 +399,28 @@ class SequenceEngine:
             resolved_params = self._resolve_piping(params)
 
             # 2. Execute Action
-            # Core tools vs OpenAPI tools
-            if action_id in ["get_manifest", "get_landmarks", "inspect_landmark"]:
-                # Core tools are proxied via the gateway instance
+            if action_id.startswith("elemm:"):
+                result_val = await self.gateway._execute_single(action_id, resolved_params)
+            elif action_id in ["get_manifest", "get_landmarks", "inspect_landmark"]:
                 tool_results = await self.gateway._proxy_core_tool(action_id, resolved_params)
                 result_val = tool_results[0].text
             else:
-                # API actions
-                result_val = await self.gateway._execute_openapi(action_id, resolved_params)
+                result_val = await self.gateway._execute_single(action_id, resolved_params)
 
-            # 3. Store Alias
-            if alias:
-                try:
-                    self.aliases[alias] = json.loads(result_val)
-                except:
-                    self.aliases[alias] = result_val
-
-            # 4. Append Result (try to parse as JSON for cleaner output)
+            # 3. Store Alias (Explicit & Automatic)
             try:
                 final_res = json.loads(result_val)
             except:
                 final_res = result_val
 
+            self.aliases[f"step{i}"] = final_res
+            if alias:
+                self.aliases[alias] = final_res
+
             results.append({
                 "step": i,
                 "action": action_id,
-                "alias": alias,
+                "alias": alias or f"step{i}",
                 "result": final_res
             })
 
@@ -229,13 +428,17 @@ class SequenceEngine:
 
     def _resolve_piping(self, params: Any) -> Any:
         if isinstance(params, str) and params.startswith("$"):
-            parts = params[1:].split(".", 1)
-            alias_name = parts[0]
-            if alias_name in self.aliases:
-                val = self.aliases[alias_name]
-                if len(parts) > 1 and isinstance(val, dict):
-                    return val.get(parts[1], params)
-                return val
+            import re
+            # Extract alias and path: $alias.field.subfield or $alias[0].field
+            match = re.match(r"\$([\w\d]+)(.*)", params)
+            if match:
+                alias_name, path = match.groups()
+                if alias_name in self.aliases:
+                    val = self.aliases[alias_name]
+                    if not path:
+                        return val
+                    # Deep navigation
+                    return self._navigate(val, path)
             return params
         
         if isinstance(params, dict):
@@ -245,3 +448,29 @@ class SequenceEngine:
             return [self._resolve_piping(item) for item in params]
             
         return params
+
+    def _navigate(self, data: Any, path: str) -> Any:
+        import re
+        from elemm.core.repair import SmartRepairEngine
+        
+        # Path might start with . or [
+        parts = re.split(r"\.|(?=\[)", path)
+        curr = data
+        for p in parts:
+            if not p: continue
+            try:
+                if p.startswith("["):
+                    idx = int(p[1:-1])
+                    curr = curr[idx]
+                else:
+                    curr = curr[p]
+            except Exception:
+                # Use SmartRepair for better error messages
+                available_keys = list(curr.keys()) if isinstance(curr, dict) else []
+                repair = SmartRepairEngine.handle_piping_failure(
+                    alias="current", # Could be improved to track actual alias
+                    field=p,
+                    available_keys=available_keys[:10] # Limit to 10 for tokens
+                )
+                return f"{{{{PROTOCOL_ERROR: {repair.message} REMEDY: {repair.remedy}}}}}"
+        return curr

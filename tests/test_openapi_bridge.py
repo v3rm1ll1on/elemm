@@ -7,10 +7,12 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
 from elemm_gateway.server import ElemmGateway
+import pytest
 import logging
 
 logging.basicConfig(level=logging.INFO)
 
+@pytest.mark.asyncio
 async def test_apod_connection():
     gateway = ElemmGateway()
     url = "https://api.apis.guru/v2/specs/nasa.gov/apod/1.0.0/openapi.json"

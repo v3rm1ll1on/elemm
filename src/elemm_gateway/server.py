@@ -1,401 +1,393 @@
-# Copyright (C) 2026 Marc Stöcker
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 import os
-import httpx
+import json
 import logging
 import asyncio
-import json
 import re
+import httpx
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
-from typing import List, Dict, Any, Optional
-from mcp.server import Server
+
+import mcp.server.stdio
 import mcp.types as types
-import yaml
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
-from .openapi_bridge import OpenAPIBridge
-from .components import VaultManager, OpenAPIExecutor, SequenceEngine, ResponseSquisher
+import yaml
+from elemm_gateway.openapi_bridge import OpenAPIBridge
+from elemm_gateway.graphql_bridge import GraphQLBridge
+from elemm_gateway.components import (
+    VaultManager, 
+    OpenAPIExecutor, 
+    GraphQLExecutor,
+    ResponseSquisher, 
+    SequenceEngine
+)
 
 logger = logging.getLogger("elemm-gateway")
 
 class ElemmGateway:
     """
-    The Specialized Elemm Gateway.
-    Acts as a universal broker for any Elemm-compliant site.
-    Provides: connect_to_site + Core Protocol Tools (proxied).
+    Elemm Gateway v2: A component-based gateway for autonomous tool discovery
+    and hygienic execution across Native, OpenAPI, and GraphQL interfaces.
     """
     
-    # Pre-compiled regex for manifest sections
-    SECTION_PATTERN = re.compile(r"### (?:AGENT )?DIRECTIVE\s*\n(.*?)(?=\n###|\n##|---|$)", re.DOTALL)
+    SECTION_PATTERN = re.compile(r"### PROTOCOL RULES\n(.*?)\n###", re.DOTALL)
     JSON_BLOCK_PATTERN = re.compile(r"```json-elemm\n(.*?)\n```", re.DOTALL)
-    CLEAN_MD_PATTERN = re.compile(r"\n---\n### Technical Discovery.*```json-elemm.*?```", re.DOTALL)
 
     def __init__(self, server_name: str = "elemm-gateway"):
+        # Connected sites storage: {url: {manifest, tools, directive, type}}
+        self.connected_sites: Dict[str, Dict[str, Any]] = {}
+        self.active_site_url: Optional[str] = None
+        self.manifest_loaded = False
+
         # Modular Components
         self.vault_manager = VaultManager(os.path.expanduser("~/.elemm/vault.json"))
         self.openapi_executor = OpenAPIExecutor(self.vault_manager)
+        self.graphql_executor = GraphQLExecutor(self.vault_manager)
         self.sequence_engine = SequenceEngine(self)
 
         self.server = Server(server_name)
-        self.active_site_url = None
-        self.connected_sites = {} # site_url -> {manifest, tools, type, spec}
-        self.manifest_loaded = False
+        self._setup_handlers()
 
-        # Explicitly register the connect tool and overrides
+    def _setup_handlers(self):
         @self.server.list_tools()
         async def handle_list_tools() -> List[types.Tool]:
-            return await self._handle_list_tools()
+            """Lists core gateway tools and tools from the active remote site."""
+            core_tools = [
+                types.Tool(
+                    name="connect_to_site",
+                    description="Connect to an Elemm-compliant website, OpenAPI, or GraphQL API via its URL.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string", "description": "The URL to connect to (e.g., https://api.example.com/openapi.json)"}
+                        },
+                        "required": ["url"]
+                    }
+                ),
+                types.Tool(
+                    name="get_manifest",
+                    description="CRITICAL: Get system instructions and command topology from the active site.",
+                    inputSchema={"type": "object", "properties": {}}
+                ),
+                types.Tool(
+                    name="call_action",
+                    description="Execute a single action on the remote site. Supports hygiene (_select, _filter, _limit).",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string", "description": "The Action ID to execute."},
+                            "parameters": {"type": "object", "description": "Parameters for the action."}
+                        },
+                        "required": ["action"]
+                    }
+                ),
+                types.Tool(
+                    name="execute_sequence",
+                    description="NATIVE PIPELINE: Batch tools in one turn. Every step creates an automatic alias ($step0, $step1...). Access nested data via $alias.path (e.g., $weather.current.temp).",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "actions": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "action": {"type": "string"},
+                                        "alias": {"type": "string", "description": "Optional custom alias for this step."},
+                                        "parameters": {"type": "object"}
+                                    },
+                                    "required": ["action"]
+                                }
+                            }
+                        },
+                        "required": ["actions"]
+                    }
+                )
+            ]
+
+            if self.active_site_url and self.active_site_url in self.connected_sites:
+                site_tools = self.connected_sites[self.active_site_url].get("tools", [])
+                # Convert site tools to MCP format if they aren't already
+                mcp_site_tools = []
+                for t in site_tools:
+                    mcp_site_tools.append(types.Tool(
+                        name=t["name"],
+                        description=t["description"],
+                        inputSchema=t["inputSchema"]
+                    ))
+                return core_tools + mcp_site_tools
+            
+            return core_tools
 
         @self.server.call_tool()
-        async def handle_call_tool(name: str, arguments: dict | None) -> List[types.TextContent]:
-            return await self._handle_call_tool(name, arguments or {})
+        async def handle_call_tool(name: str, arguments: Dict | None) -> List[types.TextContent]:
+            """Main dispatcher for tool calls."""
+            arguments = arguments or {}
+            logger.info(f"Gateway: Dispatching tool '{name}'")
 
-    async def _handle_list_tools(self) -> List[types.Tool]:
-        """Tools: connect_to_site + Core Elemm Tools + Remote Discovery."""
-        tools = [
-            types.Tool(
-                name="connect_to_site",
-                description="Connect to an Elemm-compliant website via its base URL. Call this FIRST if the user provides a URL or asks for site-specific actions (like booking, searching, etc.).",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "url": {"type": "string", "description": "Base URL (e.g., http://localhost:8001)"}
-                    },
-                    "required": ["url"]
-                }
-            ),
-            types.Tool(
-                name="get_landmarks",
-                description="High-level discovery. Shows namespaces and available categories (landmarks) on the remote site. Use this to understand the system structure.",
-                inputSchema={"type": "object", "properties": {}}
-            ),
-            types.Tool(
-                name="get_manifest",
-                description="CRITICAL: CALL THIS FIRST. Get the system instructions, protocol rules, and the complete command topology from the remote site.",
-                inputSchema={"type": "object", "properties": {}}
-            ),
-            types.Tool(
-                name="inspect_landmark",
-                description="Detailed technical discovery. Get tool signatures and schemas for one or more specific landmarks.",
-                inputSchema={
-                    "type": "object", 
-                    "properties": {
-                        "landmark_id": {
-                            "oneOf": [
-                                {"type": "string"},
-                                {"type": "array", "items": {"type": "string"}}
-                            ],
-                            "description": "The ID or list of IDs for the landmarks to inspect."
-                        }
-                    },
-                    "required": ["landmark_id"]
-                }
-            ),
-            types.Tool(
-                name="execute_sequence",
-                description=(
-                    "NATIVE PIPELINE: Execute a high-performance chain of tools in one turn. MANDATORY for multi-step tasks.\n"
-                    "HYGIENE: You MUST use '_select' (fields), '_filter' (key=val), and '_limit' (count) in 'parameters' of each step to prevent context overflow.\n"
-                    "PIPING: Use $alias.field (e.g., $res[0].id) to pass data between steps.\n"
-                    "EXAMPLE: {actions: [\n"
-                    "  {action: 'get_data', alias: 'res', parameters: {id: '123', _select: 'id,name'}},\n"
-                    "  {action: 'update_item', parameters: {id: '$res.id'}}\n"
-                    "]}"
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "actions": {
-                            "type": "array", 
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "action": {"type": "string"},
-                                    "alias": {"type": "string", "description": "Optional name for result piping."},
-                                    "parameters": {"type": "object"}
-                                },
-                                "required": ["action"]
-                            }
-                        }
-                    },
-                    "required": ["actions"]
-                }
-            ),
-            types.Tool(
-                name="call_action",
-                description="Execute a single action. NOTE: Use execute_sequence instead for batch operations. Supports hygiene parameters (_select, _filter, _limit) in parameters.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "action": {"type": "string", "description": "The Action ID to execute."},
-                        "parameters": {"type": "object", "description": "Parameters for the action."}
-                    },
-                    "required": ["action"]
-                }
-            )
-        ]
+            if name == "connect_to_site":
+                return await self._connect(arguments.get("url", ""))
+            
+            if name == "execute_sequence":
+                return await self.sequence_engine.execute(arguments.get("actions", []))
 
-        return tools
+            # Core Tool Proxying
+            if name in ["get_manifest"]:
+                return await self._proxy_core_tool(name, arguments)
+
+            # Action Execution
+            if name == "call_action":
+                res = await self._execute_single(arguments.get("action", ""), arguments.get("parameters", {}))
+                return self._format_result(res)
+
+            # Direct Call (for site-specific tools)
+            res = await self._execute_single(name, arguments)
+            return self._format_result(res)
+
+    async def _handle_execute_sequence(self, actions: List[Dict]) -> List[types.TextContent]:
+        """Backward compatibility shim for tests."""
+        return await self.sequence_engine.execute(actions)
 
     async def _handle_call_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
-        """Dispatches calls to 'connect' or core tools."""
-        # 0. Safety Lock
-        if not getattr(self, "manifest_loaded", False) and name not in ["connect_to_site", "get_manifest", "get_landmarks", "execute_sequence"]:
-             return [types.TextContent(type="text", text=f"CRITICAL PROTOCOL VIOLATION: You are operating blindly. You MUST call 'get_manifest' first to initialize the site-specific command registry before calling '{name}'.")]
-
-        if name in ["get_manifest", "get_landmarks"]:
-            self.manifest_loaded = True
-
-        # Robustly strip any server-side prefixes (e.g. 'elemm-gateway-list_offices' -> 'list_offices')
-        tool_id = name
-        if "-" in tool_id:
-            # Check if it starts with the server name or common gateway patterns
-            for prefix in [getattr(self, "server_name", "elemm-gateway"), "elemm-gateway", "gateway"]:
-                if tool_id.startswith(f"{prefix}-"):
-                    tool_id = tool_id[len(prefix)+1:]
-                    break
+        """Backward compatibility shim for tests."""
+        if name == "execute_sequence":
+            return await self._handle_execute_sequence(arguments.get("actions", []))
         
-        # Preserve namespaces for v2!
-        tool_id = tool_id.strip()
-
-        # 1. Gateway-Level Tools (Always handled locally)
-        if tool_id == "connect_to_site":
-            return await self._connect(arguments.get("url", ""))
-        
-        if tool_id == "execute_sequence":
-            actions = arguments.get("actions", [])
-            return await self._handle_execute_sequence(actions)
-
-        if tool_id == "call_action":
-            aid = arguments.get("action", "")
-            params = arguments.get("parameters", {})
-            return self._format_result(aid, await self._execute_single(aid, params))
-
-        # 2. Protocol Discovery Tools (Proxied)
-        if tool_id in ["get_manifest", "get_landmarks", "inspect_landmark"]:
-            if not self.active_site_url:
-                return [types.TextContent(type="text", text="Error: Not connected. Call 'connect_to_site' first.")]
-            return await self._proxy_core_tool(tool_id, arguments)
-
-        # 3. Dynamic Mirrored Actions (Proxied)
-        if not self.active_site_url:
-            return [types.TextContent(type="text", text=f"Error: Tool '{tool_id}' requires an active connection. Call 'connect_to_site' first.")]
-
-        # Validate against discovered tools to prevent hallucinations
-        site_data = self.connected_sites.get(self.active_site_url, {})
-        discovered_tools = site_data.get("tools", [])
-        valid_ids = [t.get("name") for t in discovered_tools]
-        
-        if tool_id not in valid_ids:
-            msg = f"Error: Tool '{tool_id}' is unknown at '{self.active_site_url}'. Call 'get_manifest' to see the registry of {len(valid_ids)} available tools."
-            return [types.TextContent(type="text", text=msg)]
-
-        res_text = await self._execute_single(tool_id, arguments)
-        return self._format_result(tool_id, res_text)
-
-    def _format_result(self, tool_id: str, res_text: Any) -> List[types.TextContent]:
-        """Unwraps and formats results from remote sites."""
-        # Ensure we are working with a string for JSON parsing
-        text_val = res_text if isinstance(res_text, str) else json.dumps(res_text)
-        
-        try:
-            res_json = json.loads(text_val)
-            # 1. Handle MCP-like list of content
-            if isinstance(res_json, list) and len(res_json) > 0 and isinstance(res_json[0], dict) and "type" in res_json[0]:
-                return [types.TextContent(**c) for c in res_json]
+        # Check core tools
+        if name in ["connect_to_site", "get_manifest", "get_landmarks", "inspect_landmark", "list_aliases"]:
+            if name == "connect_to_site":
+                return await self._connect(arguments.get("url", ""))
+            if name == "list_aliases":
+                aliases = self.sequence_engine.list_aliases()
+                res = "### MEMORY BANK (Current Aliases)\n"
+                if not aliases:
+                    res += "- No findings stored yet."
+                else:
+                    for a, v in sorted(aliases.items()):
+                        res += f"- **${a}**: {v}\n"
+                return [types.TextContent(type="text", text=res)]
+            return await self._proxy_core_tool(name, arguments)
+        if name == "call_action":
+            res = await self._execute_single(arguments.get("action", ""), arguments.get("parameters", {}))
+            return self._format_result(res)
             
-            # 2. Handle structured data (dict/list)
-            if isinstance(res_json, (dict, list)):
-                return [types.TextContent(type="text", text=json.dumps(res_json, indent=2))]
-        except:
-            pass
+        res = await self._execute_single(name, arguments)
+        return self._format_result(res)
 
-        # 3. Fallback to plain text with efficiency nag
+    def _format_result(self, text_val: Any) -> List[types.TextContent]:
         warning = "\n\n(HINT: Use 'execute_sequence' for better performance and token efficiency!)"
         return [types.TextContent(type="text", text=str(text_val) + warning)]
 
-    async def _handle_execute_sequence(self, actions: List[Dict]) -> List[types.TextContent]:
-        """Override to handle 'connect_to_site' inside a sequence and local execution for OpenAPI."""
-        logger.info(f"Gateway: Executing sequence with {len(actions)} actions.")
-        if not actions: return []
-        
-        # 1. Extract first action info
-        first_action = actions[0]
-    async def _handle_execute_sequence(self, actions: List[Dict[str, Any]]) -> List[types.TextContent]:
-        """High-performance chain execution with result piping."""
-        return await self.sequence_engine.execute(actions)
-
-    async def _proxy_core_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
-        """Proxies core protocol discovery tools to the remote site or serves locally for OpenAPI."""
+    async def _proxy_core_tool(self, name: str, arguments: Dict) -> List[types.TextContent]:
+        """Proxies core tools to the remote site or serves them from cache for OpenAPI/GraphQL."""
         url = self.active_site_url
+        if not url:
+            return [types.TextContent(type="text", text="Error: Not connected to any site.")]
+
         site_data = self.connected_sites.get(url)
-        
-        # Robust check: try with/without trailing slash
         if not site_data:
+            # Try fuzzy match if url has/lacks trailing slash
             alt_url = url.rstrip("/") if url.endswith("/") else f"{url}/"
             site_data = self.connected_sites.get(alt_url)
         
-        if site_data and site_data.get("type") == "openapi":
-            logger.info(f"Gateway: Serving '{name}' locally from OpenAPI cache for {url}")
-            if name in ["get_manifest", "get_landmarks"]:
-                self.manifest_loaded = True
-                
+        if site_data:
+            logger.info(f"Gateway: Serving '{name}' locally from cache for {url}")
             if name == "get_manifest":
-                return [types.TextContent(type="text", text=site_data.get("manifest", ""))]
+                return [types.TextContent(type="text", text=site_data["manifest"])]
             if name == "get_landmarks":
+                if site_data.get("type") == "native":
+                    # For native sites, extract topology from the manifest text
+                    manifest = site_data.get("manifest", "")
+                    landmarks = {}
+                    # Simple regex to find "- **`id`**: ..."
+                    matches = re.findall(r"- \*\*`(.*?)`\*\*: (.*?)\n", manifest)
+                    for lid, desc in matches:
+                        if lid == "elemm": continue
+                        landmarks[lid] = desc
+                    
+                    res = "### LANDMARK TOPOLOGY\n"
+                    for lid, desc in sorted(landmarks.items()):
+                        res += f"- **{lid}**: {desc}\n"
+                    return [types.TextContent(type="text", text=res)]
+                
+                # Fallback for OpenAPI/GraphQL
                 tools = site_data.get("tools", [])
                 landmarks = {}
                 for t in tools:
-                    tag = t["name"].split("_", 1)[0] if "_" in t["name"] else "General"
-                    if tag not in landmarks: landmarks[tag] = []
-                    landmarks[tag].append(t)
+                    lm = t["name"].split(":")[0] if ":" in t["name"] else t["name"].split("_", 1)[0]
+                    landmarks[lm] = landmarks.get(lm, 0) + 1
                 
-                summary = "# Discovered API Landmarks\n\n"
-                for tag, tag_tools in landmarks.items():
-                    summary += f"- **{tag}**: ({len(tag_tools)} tools) Use 'inspect_landmark(\"{tag}\")' to see details.\n"
-                return [types.TextContent(type="text", text=summary)]
-            if name in ["inspect_landmark", "inspect_landmarks"]:
+                res = "### LANDMARK TOPOLOGY\n"
+                for lm, count in sorted(landmarks.items()):
+                    res += f"- **{lm}**: ({count} tools)\n"
+                return [types.TextContent(type="text", text=res)]
+
+            if name == "inspect_landmark":
                 lm_id = arguments.get("landmark_id")
-                tools = site_data.get("tools", [])
+                ids = [lm_id] if isinstance(lm_id, str) else lm_id
                 
-                # Render as TypeScript Signatures (Elemm v2 Style)
-                output = ["### 🛠️ TECHNICAL SIGNATURES", "```typescript"]
-                
-                target_ids = [lm_id] if isinstance(lm_id, str) else lm_id
-                selected = []
-                for t in tools:
-                    t_name = t["name"]
-                    # Match exact name OR landmark prefix (e.g. 'Weather' matches 'Weather_getCurrentWeather')
-                    t_landmark = t_name.split("_", 1)[0] if "_" in t_name else "General"
-                    if t_name in target_ids or t_landmark in target_ids:
-                        selected.append(t)
-                
-                if not selected:
-                    return [types.TextContent(type="text", text=f"Landmark or Tool '{lm_id}' not found.")]
+                if site_data.get("type") == "native":
+                    # Lazy Load from remote site
+                    signatures = []
+                    async with httpx.AsyncClient() as client:
+                        for tid in ids:
+                            inspect_url = f"{self.active_site_url}/.well-known/elemm-manifest.md"
+                            resp = await client.get(inspect_url, params={"landmark_id": tid, "technical": "true"}, follow_redirects=True)
+                            if resp.status_code == 200:
+                                content = resp.text
+                                # CLEANUP: Strip technical JSON block from inspection too
+                                if "---" in content:
+                                    content = content.split("---")[0].strip()
+                                signatures.append(content)
+                    
+                    final_md = "\n\n".join(signatures)
+                    return [types.TextContent(type="text", text=final_md)]
 
-                for t in selected:
-                    # JSDoc
-                    output.append("/**")
-                    output.append(f" * Tool: {t['name']}")
-                    if t.get("description"):
-                        output.append(f" * Description: {t['description']}")
-                    output.append(" */")
-                    
-                    # Params
-                    schema = t.get("inputSchema", {})
-                    props = schema.get("properties", {})
-                    req_fields = schema.get("required", [])
-                    
-                    param_lines = []
-                    for p_name, p_details in props.items():
-                        ts_type = p_details.get("type", "any")
-                        if ts_type == "integer": ts_type = "number"
-                        
-                        is_req = "" if p_name in req_fields else "?"
-                        p_desc = p_details.get("description", "")
-                        
-                        line = f"    {p_name}{is_req}: {ts_type};"
-                        if p_desc:
-                            line += f" // {p_desc}"
-                        param_lines.append(line)
-                    
-                    params_str = "{\n" + "\n".join(param_lines) + "\n  }" if param_lines else "{}"
-                    output.append(f"function call_action(action: \"{t['name']}\", parameters: {params_str}): any;\n")
+                # Fallback for OpenAPI/GraphQL (already parsed)
+                signatures = []
+                for tid in ids:
+                    relevant_tools = [t for t in site_data["tools"] if t["name"].startswith(f"{tid}:") or t["name"].startswith(f"{tid}_")]
+                    for t in relevant_tools:
+                        sig = f"/**\n * Tool: {t['name']}\n * Description: {t['description']}\n */\n"
+                        sig += f"function call_action(action: '{t['name']}', parameters: {json.dumps(t['inputSchema'].get('properties', {}), indent=4)}): any;\n"
+                        signatures.append(sig)
                 
-                output.append("```")
-                return [types.TextContent(type="text", text="\n".join(output))]
-        
-        logger.debug(f"Gateway: Proxying '{name}' to {url} (Local cache miss. Keys: {list(self.connected_sites.keys())})")
+                content = "### TECHNICAL SIGNATURES\n```typescript\n" + "\n".join(signatures) + "\n```"
+                return [types.TextContent(type="text", text=self._inject_global_landmark(content))]
+            
+            if name == "list_aliases":
+                aliases = self.sequence_engine.list_aliases()
+                res = "### MEMORY BANK (Current Aliases)\n"
+                if not aliases:
+                    res += "- No findings stored yet."
+                else:
+                    for a, v in sorted(aliases.items()):
+                        res += f"- **${a}**: {v}\n"
+                return [types.TextContent(type="text", text=res)]
 
-        try:
-            async with httpx.AsyncClient() as client:
-                if name == "get_manifest":
-                    # Fetch fresh technical manifest
-                    resp = await client.get(f"{self.active_site_url}/.well-known/elemm-manifest.md", params={"technical": "true"})
-                    return [types.TextContent(type="text", text=resp.text)]
-                
-                resp = await client.get(f"{self.active_site_url}/.well-known/elemm-inspect.md", params=arguments)
-                return [types.TextContent(type="text", text=resp.text)]
-        except Exception as e:
-            return [types.TextContent(type="text", text=f"Proxy Error ({name}): {e}")]
+        return [types.TextContent(type="text", text=f"Error: Core tool '{name}' not supported by gateway.")]
 
     async def _execute_single(self, tool_name: str, arguments: Dict) -> str:
-        """UNIVERSAL PROXY: Sends the call to the remote site's execution endpoint or directly via HTTP for OpenAPI."""
+        """UNIVERSAL PROXY: Sends the call to the remote site's execution endpoint or directly via HTTP for OpenAPI/GraphQL."""
         if not self.active_site_url:
             return "Error: Gateway not connected to a remote site."
 
-        site_data = self.connected_sites.get(self.active_site_url, {})
-        if site_data.get("type") == "openapi":
+        # Handle Internal Meta Tools (Token Efficiency Optimization)
+        if tool_name.startswith("elemm:"):
+            internal_name = tool_name.split(":", 1)[1]
+            # Use proxy logic but return stringified result
+            res = await self._proxy_core_tool(internal_name, arguments)
+            return res[0].text if res else "No result"
+
+        site_data = self.connected_sites.get(self.active_site_url)
+        if site_data.get("type") in ["openapi", "graphql"]:
             return await self._execute_openapi(tool_name, arguments)
 
         try:
-            host_key = urlparse(self.active_site_url).netloc
-            # Using vault_manager for headers
-            headers = self.vault_manager.get_headers(host_key)
-
             async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    f"{self.active_site_url}/.well-known/elemm/execute",
-                    json={"action_id": tool_name, "parameters": arguments},
-                    headers=headers,
-                    timeout=30.0
-                )
+                # Use v2 execution endpoint
+                exec_url = f"{self.active_site_url}/.well-known/elemm/execute"
+                payload = {"action": tool_name, "parameters": arguments}
+                logger.info(f"Gateway: Executing native call to {exec_url}")
                 
+                resp = await client.post(exec_url, json=payload, timeout=60.0)
                 if resp.status_code != 200:
-                    return f"Remote Error ({resp.status_code}): {resp.text}"
-                
-                res_data = resp.json()
-
-                # Auto-Capture Auth Tokens
-                if isinstance(res_data, dict) and "access_token" in res_data:
-                    self.vault_manager.set_token(host_key, res_data['access_token'])
-                    logger.info(f"Gateway: Captured token for {host_key}")
-
-                return json.dumps(res_data)
+                    return f"Remote Execution Error: HTTP {resp.status_code}\n{resp.text}"
+                return json.dumps(resp.json(), indent=2)
         except Exception as e:
             return f"Gateway Connection Error: {str(e)}"
 
     async def _execute_openapi(self, name: str, arguments: Dict[str, Any]) -> str:
-        """Proxies a tool call to the remote OpenAPI endpoint."""
+        """Proxies a tool call to the remote OpenAPI or GraphQL endpoint."""
+        from elemm.core.repair import SmartRepairEngine
+        
         url = self.active_site_url
         site_data = self.connected_sites.get(url)
         if not site_data:
-            return "Error: Site metadata missing."
+            return json.dumps({
+                "status": "error",
+                "message": "Gateway not connected to any site.",
+                "remedy": "Use 'connect_to_site' first."
+            })
         
         # Find tool meta
         tool_meta = next((t["meta"] for t in site_data["tools"] if t["name"] == name), None)
         if not tool_meta:
-            return f"Error: Tool '{name}' not found in current site."
+            # Check if it's a Landmark Namespace (Grouping)
+            landmarks = set(t["name"].split("_", 1)[0] for t in site_data["tools"] if "_" in t["name"])
+            if name in landmarks:
+                repair = SmartRepairEngine.handle_namespace_execution_attempt(name)
+                return json.dumps(repair.model_dump(), indent=2)
 
-        return await self.openapi_executor.execute(tool_meta, arguments)
+            # SmartRepair: Find close matches
+            available_ids = [t["name"] for t in site_data["tools"]]
+            repair = SmartRepairEngine.handle_missing_action(name, available_ids)
+            return json.dumps(repair.model_dump(), indent=2)
+        
+        try:
+            if tool_meta.get("type") == "graphql":
+                return await self.graphql_executor.execute(tool_meta, arguments)
+            else:
+                return await self.openapi_executor.execute(tool_meta, arguments)
+        except Exception as e:
+            return json.dumps({
+                "status": "error",
+                "message": f"Execution failed: {str(e)}",
+                "remedy": "Verify technical signatures with 'elemm:inspect_landmark'."
+            }, indent=2)
 
     async def _connect(self, url: str) -> List[types.TextContent]:
         """Fetches the .md manifest and establishes the session."""
-        url = url.rstrip("/")
+        from elemm_gateway.components import ManifestBuilder
+        url = url.strip().rstrip("/")
+        logger.info(f"Gateway: Connecting to URL: '{url}'")
         try:
             async with httpx.AsyncClient() as client:
                 # Reload vault on each connect to avoid restarts
                 self.vault_manager.vault = self.vault_manager.load()
                 
-                # 1. Check if it's an OpenAPI JSON/YAML URL
+                # 1. Check for GraphQL (Introspection Probing)
+                if "graphql" in url.lower():
+                    logger.info(f"Gateway: GraphQL keyword detected in {url}. Probing...")
+                    try:
+                        resp = await client.post(
+                            url,
+                            json={"query": GraphQLBridge.INTROSPECTION_QUERY},
+                            headers={
+                                "Content-Type": "application/json",
+                                "User-Agent": "Elemm-Gateway/2.0"
+                            },
+                            follow_redirects=True,
+                            timeout=15.0
+                        )
+                        if resp.status_code == 200:
+                            schema_data = resp.json().get("data")
+                            if schema_data:
+                                logger.info(f"Gateway: Detected GraphQL API at {url}")
+                                parsed = GraphQLBridge.parse_schema(schema_data, url)
+                                md_content = OpenAPIBridge.generate_virtual_manifest(parsed)
+                                
+                                self.connected_sites[url] = {
+                                    "manifest": md_content,
+                                    "tools": parsed["tools"],
+                                    "type": "graphql"
+                                }
+                                self.active_site_url = url
+                                return [types.TextContent(type="text", text=f"Connected to GraphQL API: {url}\n\nManifest generated dynamically via Introspection.")]
+                            else:
+                                return [types.TextContent(type="text", text=f"GraphQL Probing at {url} returned 200 but no 'data'. Body: {resp.text}")]
+                        else:
+                            return [types.TextContent(type="text", text=f"GraphQL Probing at {url} failed with HTTP {resp.status_code}. Body: {resp.text}")]
+                    except Exception as e:
+                        logger.warning(f"Gateway: GraphQL probing failed for {url}: {e}")
+                        return [types.TextContent(type="text", text=f"GraphQL Probing Error: {str(e)}")]
+
+                # 2. Check if it's an OpenAPI JSON/YAML URL
                 if any(url.endswith(ext) for ext in [".json", ".yaml", ".yml"]) or "/openapi" in url:
-                    resp = await client.get(url, follow_redirects=True)
-                    if resp.status_code == 200:
-                        try:
+                    try:
+                        resp = await client.get(url, follow_redirects=True, timeout=10.0)
+                        if resp.status_code == 200:
                             # Try JSON first, then YAML
                             try:
                                 spec = resp.json()
@@ -430,59 +422,75 @@ class ElemmGateway:
                                     )
                                 
                                 return [types.TextContent(type="text", text=f"Connected to OpenAPI API: {url}\n\nManifest generated dynamically.{auth_warning}")]
-                        except Exception as e:
-                            logger.exception(f"Gateway: Failed to parse OpenAPI spec from {url}")
-
-                # 2. Standard Elemm Manifest discovery
-                manifest_url = f"{url}/.well-known/elemm-manifest.md"
-                resp = await client.get(manifest_url, params={"technical": "true"})
-                if resp.status_code != 200:
-                    return [types.TextContent(type="text", text=f"Failed to find Elemm manifest at {manifest_url}. Status: {resp.status_code}")]
-
-                md_content = resp.text
-                
-                # Extract AGENT DIRECTIVE
-                match = self.SECTION_PATTERN.search(md_content)
-                default_directive = (
-                    "STRATEGY: Use 'execute_sequence' for ALL multi-step tasks.\n"
-                    "HYGIENE: Use '_select', '_filter', and '_limit' in every call to keep context clean.\n"
-                    "PIPING: Use '$alias.field' to pass data between steps.\n"
-                    "EFFICIENCY: Do NOT perform one tool call at a time. Batch related actions together."
-                )
-                directive = match.group(1).strip() if match else default_directive
-
-                # Extract Technical Tools from json-elemm block
-                mcp_tools = []
-                json_match = self.JSON_BLOCK_PATTERN.search(md_content)
-                if json_match:
-                    try:
-                        mcp_tools = json.loads(json_match.group(1))
-                        logger.info(f"Gateway: Discovered {len(mcp_tools)} technical tools via json-elemm.")
                     except Exception as e:
-                        logger.warning(f"Gateway: Failed to parse json-elemm block: {e}")
+                        logger.warning(f"Gateway: Failed to probe OpenAPI at {url}: {e}")
 
-                self.connected_sites[url] = {
-                    "manifest": md_content,
-                    "tools": mcp_tools
-                }
-                self.active_site_url = url
-                
-                welcome_msg = (
-                    f"Connected to {url} successfully.\n\n"
-                    f"Instructions: {directive}\n\n"
-                    f"Discovered {len(mcp_tools)} tools. Use get_manifest or navigation tools to explore the site."
-                )
-                return [types.TextContent(type="text", text=welcome_msg)]
+                # 3. Standard Elemm Manifest discovery (Lazy Loading Pattern)
+                manifest_url = f"{url}/.well-known/elemm-manifest.md"
+                try:
+                    # Only fetch the summary manifest initially (No technical=true here!)
+                    resp = await client.get(manifest_url, follow_redirects=True, timeout=10.0)
+                    if resp.status_code == 200:
+                        md_content = self._inject_global_landmark(resp.text)
+                        
+                        # Extract AGENT DIRECTIVE
+                        match = self.SECTION_PATTERN.search(md_content)
+                        directive = match.group(1).strip() if match else ManifestBuilder.PROTOCOL_RULES
+                        
+                        # In Lazy Loading, we don't parse tools yet. 
+                        # We just store the manifest for topology discovery.
+                        self.connected_sites[url] = {
+                            "manifest": md_content,
+                            "tools": [], # Will be filled on-demand or used via proxy
+                            "directive": directive,
+                            "type": "native"
+                        }
+                        self.active_site_url = url
+                        self.manifest_loaded = True
+                        return [types.TextContent(type="text", text=f"Connected to Elemm site: {url}\n\nManifest (Summary) loaded successfully.")]
+                except Exception as e:
+                    logger.warning(f"Gateway: Native manifest discovery failed for {url}: {e}")
+
+                return [types.TextContent(type="text", text=f"Failed to find a supported interface at {url}. (Checked GraphQL, OpenAPI, and Native Elemm)")]
+
         except Exception as e:
-            return [types.TextContent(type="text", text=f"Connection Error: {e}")]
+            logger.exception("Gateway: Connection fatal error")
+            return [types.TextContent(type="text", text=f"Gateway Connection Error: {str(e)}")]
 
-    # --- Vault Management ---
-    def _load_vault(self):
-        return self.vault_manager.load()
+    def _inject_global_landmark(self, manifest: str) -> str:
+        """Injects the virtual 'elemm' landmark and updates discovery hints."""
+        from elemm_gateway.components import ManifestBuilder
+        return ManifestBuilder.inject_globals(manifest)
 
-    def run_stdio(self):
-        """Runs the Gateway over STDIO."""
-        # Standard implementation would be here
-        pass
- 
- 
+    def _parse_manifest_to_tools(self, md_content: str) -> List[Dict[str, Any]]:
+        """Parses technical tools from the json-elemm block in the manifest."""
+        mcp_tools = []
+        json_match = self.JSON_BLOCK_PATTERN.search(md_content)
+        if json_match:
+            try:
+                mcp_tools = json.loads(json_match.group(1))
+                logger.info(f"Gateway: Discovered {len(mcp_tools)} technical tools via json-elemm.")
+            except Exception as e:
+                logger.warning(f"Gateway: Failed to parse json-elemm block: {e}")
+        return mcp_tools
+
+    async def run(self):
+        """Runs the MCP server."""
+        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+            await self.server.run(
+                read_stream,
+                write_stream,
+                InitializationOptions(
+                    server_name="elemm-gateway",
+                    server_version="2.0.0",
+                    capabilities=self.server.get_capabilities(
+                        notification_options=NotificationOptions(),
+                        experimental_capabilities={},
+                    ),
+                ),
+            )
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    gateway = ElemmGateway("elemm-gateway")
+    asyncio.run(gateway.run())

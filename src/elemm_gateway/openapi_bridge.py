@@ -127,7 +127,7 @@ class OpenAPIBridge:
                 # Inject Universal Parameters into Schema
                 properties["_select"] = {
                     "type": "string",
-                    "description": "[universal] Comma-separated list of fields to return"
+                    "description": "[universal] Fields to return (comma-separated). Use dot-notation for nested objects (e.g. 'author.name')."
                 }
                 properties["_filter"] = {
                     "type": "string",
@@ -193,23 +193,13 @@ class OpenAPIBridge:
                 landmarks[tag] = []
             landmarks[tag].append(t)
 
+        from elemm_gateway.components import ManifestBuilder
+        
         lines = [
-            f"# 🚀 ELEMM v2 INTERFACE: {title} (v{version})",
-            "",
-            "### 📜 PROTOCOL RULES",
-            "1. **DISCOVERY**: Use 'get_landmarks' to see available areas.",
-            "2. **INSPECTION**: Use 'inspect_landmark(id)' for technical TypeScript signatures BEFORE execution.",
-            "3. **HYGIENE (CRITICAL)**: Use `_select` (comma-separated fields), `_filter` (key=val), and `_limit` (number) in EVERY tool call to prevent context overflow. Only request what you actually need.",
-            "4. **SEQUENCING**: Use 'execute_sequence' for ALL multi-step tasks. You can use hygiene parameters in each sequence step.",
-            "5. **PIPING**: Use '$alias.field' to pass results between sequence steps.",
-            "",
-            "### 🧠 MEMORY BANK (Live Memory)",
-            "- Use 'list_aliases' to see stored findings ($step0, $step1, etc.)",
-            "- PIPING: Use '$alias.field' (e.g. '$step0.id') to access results directly.",
-            "",
+            ManifestBuilder.build_header(title, version),
             "### 🗺️ LANDMARK TOPOLOGY",
             "> [!IMPORTANT]",
-            "> Use 'inspect_landmark(id)' to get the required TypeScript signatures BEFORE execution.",
+            "> Use 'call_action(action=\"elemm:inspect_landmark\", parameters={\"landmark_id\": \"...\"})' to get the required TypeScript signatures BEFORE execution.",
             ""
         ]
 
@@ -219,7 +209,15 @@ class OpenAPIBridge:
             
             # OPTIMIZATION: Only list tool names to save tokens. 
             # AI is encouraged to use 'inspect_landmark' for details.
-            tool_names = [f"`{t['name']}`" for t in tag_tools[:20]]
+            # ADDITION: Add required parameters as a small hint
+            tool_names = []
+            for t in tag_tools[:20]:
+                req_params = t.get("inputSchema", {}).get("required", [])
+                # Filter out internal/universal params from the hint
+                display_params = [p for p in req_params if not p.startswith("_")]
+                hint = f" ({', '.join(display_params)})" if display_params else ""
+                tool_names.append(f"`{t['name']}`{hint}")
+                
             lines.append(f"  - Tools: {', '.join(tool_names)}")
             
             if len(tag_tools) > 20:

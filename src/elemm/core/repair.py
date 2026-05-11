@@ -95,7 +95,7 @@ class SmartRepairEngine:
     def handle_piping_failure(alias: str, field: str, available_keys: List[str]) -> RepairResult:
         return RepairResult(
             message=f"Piping failed: Field '{field}' not found in alias '{alias}'.",
-            remedy=f"Available keys in this alias are: {available_keys}. Use 'list_aliases' to verify state.",
+            remedy=f"Available keys in this alias are: {available_keys}. Use call_action(action='elemm:list_aliases') to verify state.",
             example=f"${alias}.{available_keys[0]}" if available_keys else None
         )
 
@@ -103,7 +103,7 @@ class SmartRepairEngine:
     def handle_namespace_execution_attempt(namespace_id: str) -> RepairResult:
         return RepairResult(
             message=f"STRUCTURAL ERROR: '{namespace_id}' is a Landmark Namespace, not an executable function.",
-            remedy=f"You MUST use 'inspect_landmarks' with landmark_id=[\"{namespace_id}\"] to discover the actual tool IDs (e.g. '{namespace_id}:some_action') before attempting execution via 'call_action'."
+            remedy=f"You MUST use call_action(action='elemm:inspect_landmark', parameters={{'landmark_id': '{namespace_id}'}}) to discover the actual tool IDs before execution."
         )
 
     @staticmethod

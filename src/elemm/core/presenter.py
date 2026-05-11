@@ -38,19 +38,19 @@ class ManifestPresenter:
         lines = [f"# {welcome_message}", ""]
         
         if instructions:
-            lines.append("### 📜 PROTOCOL RULES")
+            lines.append("### PROTOCOL RULES")
             lines.append(instructions)
             lines.append("")
 
-        lines.append("### 🧠 MEMORY BANK (Live Memory)")
-        lines.append("- Use 'list_aliases' to see stored findings ($step0, $step1, etc.)")
+        lines.append("### MEMORY BANK (Live Memory)")
+        lines.append("- Use `call_action(action='elemm:list_aliases')` to see stored findings ($step0, $step1, etc.)")
         lines.append("- PIPING: Use '$alias.field' (e.g. '$step0.hostname') to access results directly.")
         lines.append("")
 
         if hide_json:
-            lines.append("### 🗺️ LANDMARK TOPOLOGY")
+            lines.append("### LANDMARK TOPOLOGY")
             lines.append("> [!IMPORTANT]")
-            lines.append("> Use 'inspect_landmark(id)' to get the required TypeScript signatures BEFORE execution.")
+            lines.append("> Use 'inspect_landmark(id)' to get technical signatures for a landmark BEFORE execution.")
             lines.append("")
             
             for lm in landmarks:
@@ -62,10 +62,18 @@ class ManifestPresenter:
                         returns = f" -> Returns: {t.returns}" if hasattr(t, 'returns') and t.returns else ""
                         lines.append(f"  - Tool: `{t.id}`{p_str}{returns}")
             
+            # Technical JSON Block (Discovery) - Also allowed in summary if technical=True
+            if kwargs.get("technical", False):
+                lines.append("\n---")
+                lines.append("### Technical Discovery")
+                lines.append("```json-elemm")
+                lines.append(json.dumps(self._get_mcp_tools(landmarks), indent=2))
+                lines.append("```")
+                
             return "\n".join(lines)
             
         # Inspection Mode: TS Signatures
-        lines.append("### 🛠️ TECHNICAL SIGNATURES")
+        lines.append("### TECHNICAL SIGNATURES")
         lines.append("```typescript")
         
         for lm in landmarks:
