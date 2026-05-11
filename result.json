@@ -1,4 +1,0 @@
-  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
-                                 Dload  Upload   Total   Spent    Left  Speed
-  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0100   526  100   231  100   295  99397   123k --:--:-- --:--:-- --:--:--  256k
-[{"step":0,"alias":"heat","result":{"id":"heat-2","name":"Bedroom Radiator","type":"heating","status":"off","temperature":22.0,"power_usage":0.0}},{"step":1,"alias":"step1","result":{"status":"success","message":"Updated heat-2"}}]
