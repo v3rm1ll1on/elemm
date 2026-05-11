@@ -1,4 +1,4 @@
-# Elemm Gateway v2 — Complete Reference
+# Elemm Gateway — Complete Reference
 
 The Elemm Gateway is an autonomous MCP server that acts as a **protocol-aware broker** between AI agents and remote APIs. It enables any MCP-compatible client (Claude Desktop, Cursor, Anything LLM, etc.) to interact with **any OpenAPI, GraphQL, or native Elemm API** through a single, unified interface of just 8 core tools.
 
@@ -567,7 +567,7 @@ All errors returned by the gateway follow a standardized format with a `_PROTOCO
                              │  8 Core Tools (MCP Protocol)
                              ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                       ELEMM GATEWAY v2                               │
+│                       ELEMM GATEWAY v1.1                             │
 │                                                                      │
 │  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────────┐  │
 │  │ SecurityPolicy│  │ManifestBuilder│  │   ConfigManager          │  │

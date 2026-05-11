@@ -10,7 +10,7 @@ The protocol organizes capabilities into **Landmarks** (logical namespaces). Eac
 
 ### Landmark Metadata
 A landmark definition must provide:
-- **ID**: A unique namespace identifier (e.g., `Security`, `IT_Ops`).
+- **ID**: A unique namespace identifier (e.g., `security`, `repos`, `git`).
 - **Description**: A high-level explanation of the landmark's purpose.
 - **Actions**: A list of tools available within this namespace.
 
@@ -18,58 +18,107 @@ A landmark definition must provide:
 
 ## 2. Standard Protocol Tools
 
-Every Elemm-compliant gateway must expose the following core tools:
+Every Elemm-compliant gateway must expose the following 8 core tools:
 
-### `get_manifest(full: boolean = false)`
-- **Purpose**: Initial discovery.
-- **Returns**: A list of available Landmarks and their high-level descriptions.
-- **Enforcement**: Gateways should enforce that this is the first tool called by the agent.
+### `connect_to_site(url: string)`
+- **Purpose**: Establish a connection to a remote API.
+- **Detection**: Auto-detects the interface type (OpenAPI, GraphQL, or native Elemm).
+- **Side Effect**: Resets the session handshake state.
 
-### `inspect_landmarks(landmark_id: string | string[])`
+### `get_manifest()`
+- **Purpose**: Initial discovery and session authorization.
+- **Returns**: Protocol rules, landmark topology, and gateway globals.
+- **Enforcement**: This call authorizes the session. Actions are blocked until it is called.
+
+### `get_landmarks()`
+- **Purpose**: High-level topology discovery.
+- **Returns**: A summary of available functional areas and tool counts per landmark.
+- **Security**: Landmarks restricted by the Security Policy are excluded from the response.
+
+### `inspect_landmark(landmark_id: string | string[])`
 - **Purpose**: Technical discovery for specific landmarks.
-- **Returns**: Full technical signatures (JSON/TypeScript) for all actions in the specified namespaces.
+- **Returns**: Full TypeScript-style technical signatures for all actions in the specified namespaces.
 - **Implementation Note**: Accepts either a single string ID or an array of IDs.
 
-### `call_action(action: string, parameters: object, alias?: string)`
+### `call_action(action: string, parameters: object)`
 - **Purpose**: Single action execution.
-- **Validation**: Strict schema validation and landmark-existence checks.
-- **State Persistence**: If an `alias` is provided, the result is stored in the session context for future reference.
+- **Validation**: Security policy enforcement and schema validation.
+- **Hygiene**: Supports `_select`, `_filter`, and `_limit` parameters.
 
-### `execute_sequence(actions: object[])`
+### `execute_sequence(actions: object[], session_id?: string)`
 - **Purpose**: Batch execution with dependency management.
 - **Piping**: Supports the `$alias.field` syntax for passing data between steps.
 - **State Persistence**: Each step's result is stored under its `alias` (or default `stepN`) in the session context.
-- **Conditions**: Actions can be conditionally executed based on previous results.
+- **Error Handling**: Per-step `on_error: "stop" | "continue"` controls pipeline behavior.
+- **Smart Retry**: Steps can define `retry` count and `retryOn` error codes.
 - **Resolution**: All variables are resolved server-side before execution.
+
+### `list_aliases(session_id?: string)`
+- **Purpose**: Inspect the current session memory bank.
+- **Returns**: All stored aliases (results from previous sequence steps).
+
+### `clear_session(session_id?: string)`
+- **Purpose**: Privacy and memory hygiene.
+- **Effect**: Clears all stored aliases for the specified session.
 
 ---
 
 ## 3. Variable Piping Syntax
 
 Elemm enables dynamic data flow via a standardized syntax:
-- **Direct Access**: `$step0.id`
+- **Direct Access**: `$step0`
+- **Field Access**: `$step0.id`
 - **Nested Objects**: `$step0.user.profile.email`
-- **Array Indexing**: `$step1.items[0].status`
+- **Array Indexing**: `$step1[0].status`
+- **Combined**: `$step1[0].items[2].name`
 
 The execution engine resolves these placeholders in real-time, ensuring that the agent does not need to manually manage intermediate state in its prompt.
 
 ---
 
-## 4. SmartRepair Mechanism
+## 4. Response Hygiene
 
-When a protocol violation or execution error occurs, Elemm returns a structured `RepairResult` instead of a standard stack trace:
+Every action supports three universal parameters for context control:
 
-- **Message**: A clear explanation of the error.
-- **Remedy**: Actionable instructions for the agent (e.g., "Use 'NOC:resolve_ip' first to get a valid hostname").
-- **Expected Schema**: A hint of the correct parameter structure.
+| Parameter | Type | Description |
+|---|---|---|
+| `_select` | `string` | Comma-separated list of fields to return. Supports dot-notation. |
+| `_filter` | `string` or `object` | Equality filter for array responses (e.g., `"state=open"`). |
+| `_limit` | `integer` | Maximum number of items to return. |
 
-### Fuzzy Matching
-The engine attempts to correct common AI errors, such as case-sensitivity issues in action IDs or minor typos in enum values, before returning a repair hint.
+Additionally, responses are automatically truncated to configurable limits to prevent context overflow.
 
 ---
 
-## 5. Protocol Constraints
+## 5. SmartRepair Mechanism
 
-1.  **Namespace Enforcement**: All actions must be prefixed with their landmark ID (e.g., `Security:quarantine`).
-2.  **Handshake Requirement**: Agents must perform a manifest discovery before executing actions. Direct calls to underlying tools are blocked.
+When a protocol violation or execution error occurs, Elemm returns a structured error response instead of a standard stack trace:
+
+- **`_PROTOCOL_ERROR`**: A machine-readable error code (e.g., `ACCESS_DENIED`, `PIPING_FAILED`).
+- **`message`**: A clear explanation of the error.
+- **`remedy`**: Actionable instructions for the agent (e.g., "Use 'inspect_landmark' to discover available actions.").
+- **`_DEBUG_ECHO`**: A forensic payload showing the exact request that was sent.
+
+### Fuzzy Matching
+The engine attempts to correct common AI errors, such as calling a landmark namespace directly instead of a specific action, and returns the closest matching action IDs.
+
+---
+
+## 6. Security Policy
+
+The gateway enforces a multi-layer security policy:
+
+1. **HTTP Method Restriction**: Whitelist of allowed methods (empty list = all allowed).
+2. **Action Blacklist**: Explicit action IDs to block.
+3. **Landmark Blacklist**: Entire namespaces to hide and block.
+4. **Pattern Matching**: Substrings in action names that trigger blocking (e.g., `delete`, `purge`).
+
+Core tools are always exempt from security checks.
+
+---
+
+## 7. Protocol Constraints
+
+1.  **Handshake Requirement**: Agents must call `get_manifest()` before any execution. Direct action calls are blocked with `PROTOCOL_VIOLATION`.
+2.  **Broker Isolation**: The gateway only exposes 8 core tools to the MCP client. Domain-specific tools are never leaked.
 3.  **Parameter Filtering**: The engine strictly filters tool arguments, passing only those defined in the underlying function signature to prevent AI "hallucination noise".

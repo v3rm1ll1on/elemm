@@ -503,7 +503,7 @@ class OpenAPIExecutor:
         # Prepare request
         full_url = f"{base_url}{path}"
         params = {}
-        headers = {"User-Agent": "Elemm-Gateway/2.0"}
+        headers = {"User-Agent": "Elemm-Gateway/1.1"}
         json_body = None
 
         # Map arguments to path/query/body

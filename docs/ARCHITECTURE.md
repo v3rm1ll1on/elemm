@@ -26,11 +26,13 @@ Elemm solves this through a tiered discovery system called **Landmarks**:
 
 ## The Discovery Cycle
 
-The protocol follows a three-stage handshake:
+The protocol follows a five-stage handshake:
 
-1.  **Manifest Discovery**: The agent calls `get_manifest()` to receive a summary of available landmarks and their purpose. No tool signatures are provided at this stage.
-2.  **Landmark Inspection**: Based on the task, the agent selects relevant landmarks and calls `inspect_landmarks(ids)` to retrieve full technical schemas.
-3.  **Execution**: The agent proceeds with tool execution once it has the required signatures.
+1.  **Connect**: The agent calls `connect_to_site(url)` to establish a connection to a remote API.
+2.  **Manifest Discovery**: The agent calls `get_manifest()` to receive the protocol rules and authorize the session. No tool signatures are provided at this stage.
+3.  **Landmark Discovery**: The agent calls `get_landmarks()` to see available functional areas.
+4.  **Landmark Inspection**: Based on the task, the agent selects relevant landmarks and calls `inspect_landmark(id)` to retrieve full technical signatures.
+5.  **Execution**: The agent proceeds with `call_action()` or `execute_sequence()` once it has the required signatures.
 
 ---
 
@@ -45,7 +47,32 @@ Standard request-response cycles for independent tasks via `call_action`.
 The `execute_sequence` command allows chaining multiple actions into a single LLM turn:
 - **Native Piping**: Use results from previous steps (e.g., `$step0.id`) directly in subsequent commands.
 - **Server-Side Execution**: The entire chain is resolved on the server, eliminating the need for multiple roundtrips to the LLM.
-- **Conditional Logic**: Supports conditional execution based on the success or failure of previous steps.
+- **Error Handling**: `on_error: stop|continue` controls whether a failed step halts the pipeline or is skipped.
+- **Smart Retry**: Steps can be configured to retry on specific error types (e.g., `RATE_LIMIT_EXCEEDED`).
+
+---
+
+## The Gateway: Broker Architecture
+
+The **Elemm Gateway** is a universal MCP server that acts as a protocol-aware broker between AI agents and remote APIs.
+
+### Multi-Protocol Support
+The Gateway seamlessly bridges three API paradigms:
+- **OpenAPI / Swagger**: REST APIs are automatically parsed into Elemm landmarks.
+- **GraphQL**: Endpoints are introspected and mapped to landmarks.
+- **Native Elemm**: Servers exposing `/.well-known/elemm-manifest.md` are natively supported.
+
+### Tool Isolation (8 Core Tools)
+The Gateway never exposes raw API endpoints to the MCP client. It provides exactly **8 generic core tools** (`connect_to_site`, `get_manifest`, `get_landmarks`, `inspect_landmark`, `call_action`, `execute_sequence`, `list_aliases`, `clear_session`). All domain-specific actions are accessed through `call_action` and `execute_sequence`.
+
+### Security Policy (Guardian)
+A built-in policy engine enforces restrictions before any request reaches the target API:
+- **Pattern Blacklists**: Block actions containing destructive keywords (e.g., `delete`, `remove`).
+- **Landmark Restrictions**: Hide and block entire functional areas (e.g., `admin`, `billing`).
+- **HTTP Method Filtering**: Whitelist allowed methods (e.g., `GET`, `POST` only).
+- **Discovery Filtering**: Blocked landmarks are invisible in `get_landmarks` output.
+
+See [Gateway Reference](GATEWAY.md) for complete details.
 
 ---
 

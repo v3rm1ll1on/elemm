@@ -47,7 +47,7 @@ async def async_main():
         # Friendly greeting on stderr
         banner = f"""
 ╔════════════════════════════════════════════════════════════════════╗
-║  🚀 ELEMM GATEWAY v2.0 - Active & Ready                            ║
+║  🚀 ELEMM GATEWAY v1.1 - Active & Ready                            ║
 ║  Connect ANY website or OpenAPI spec to your AI Agent.             ║
 ╚════════════════════════════════════════════════════════════════════╝
 """

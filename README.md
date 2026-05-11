@@ -15,7 +15,7 @@ In the Agentic Web, every API is a "Landmark". Agents no longer need massive, ha
 
 - **Unified Discovery**: Every Elemm-compliant server exposes its structure at `/.well-known/elemm-manifest.md`.
 - **Zero System Prompt**: By providing rich semantic landmarks and manifest-driven discovery, you can eliminate thousands of tokens from your system prompts. The protocol *is* the documentation.
-- **One MCP Server, Infinite APIs**: Build a single **Dynamic Gateway** (MCP server) that connects to dozens of independent Elemm-powered microservices. The gateway discovers and loads landmarks on-the-fly, allowing you to scale your agent's capabilities without ever restarting your main infrastructure or modifying the agent's core configuration.
+- **One MCP Server, Infinite APIs**: The built-in **Elemm Gateway** connects to any OpenAPI, GraphQL, or native Elemm service. A single `pip install` gives you a universal MCP server that discovers and loads landmarks on-the-fly, allowing you to scale your agent's capabilities without ever restarting your infrastructure.
 
 ---
 
@@ -40,6 +40,8 @@ Standard protocols like MCP often struggle with large-scale toolsets. Elemm prov
 
 - **Efficient Discovery**: Agents only see a high-level manifest, loading detailed tool schemas only when needed (on-demand inspection).
 - **Atomic Sequencing**: Execute multiple tool calls in a single LLM turn with native variable piping (`$step0.id`).
+- **Multi-Protocol Gateway**: Connect to any **OpenAPI**, **GraphQL**, or **native Elemm** service through a single MCP server.
+- **Security Policy Engine**: Built-in Guardian mode with pattern blacklists, landmark restrictions, and HTTP method filtering.
 - **SmartRepair Engine**: Built-in error handling that provides agents with actionable remedies instead of cryptic stack traces.
 - **Token Economy**: Reduces input tokens by up to 90% in complex forensic and administrative scenarios.
 
@@ -47,10 +49,10 @@ Standard protocols like MCP often struggle with large-scale toolsets. Elemm prov
 
 ## Documentation
 
-*   **[Getting Started](docs/GETTING_STARTED.md)**: Install and run your first landmark server.
-*   **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Build your own tools with decorators and Pydantic.
+*   **[Getting Started](docs/GETTING_STARTED.md)**: Install and run your first Elemm setup.
+*   **[Gateway Reference](docs/GATEWAY.md)**: Complete reference for the Elemm Gateway (OpenAPI, GraphQL, Security, Vault).
+*   **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Build your own landmark servers with decorators and Pydantic.
 *   **[Architecture Overview](docs/ARCHITECTURE.md)**: Deep dive into the Elemm philosophy.
-*   **[Migration Guide](docs/MIGRATION_GUIDE.md)**: Upgrading from v1.0.0 to v1.0.1.
 *   **[Protocol Specification](docs/PROTOCOL_SPEC.md)**: Technical details for implementers.
 *   **[Benchmarking Results](docs/BENCHMARKING.md)**: Performance analysis vs. standard MCP.
 
@@ -60,47 +62,55 @@ Standard protocols like MCP often struggle with large-scale toolsets. Elemm prov
 
 ### 1. Install
 ```bash
-pip install elemm[fastapi]  # Includes web server support
+pip install elemm
 ```
 
-### 2. Create a Landmark Server
-Elemm uses a decorator-based approach to turn standard Python functions into high-performance landmarks.
+### 2. Run the Gateway (Universal MCP Server)
+The fastest way to use Elemm is via the built-in **Gateway**. It turns any OpenAPI or GraphQL API into an MCP-compatible tool server:
+
+```bash
+elemm-gateway
+```
+
+Then tell your agent:
+> *"Connect to https://api.apis.guru/v2/specs/github.com/api.github.com/1.1.4/openapi.json and show me the latest issues."*
+
+The Gateway provides exactly **8 core tools** to the agent. All domain-specific actions are discovered on-the-fly via the Elemm protocol.
+
+### 3. Connecting to MCP Clients
+
+**Claude Desktop** (`claude_desktop_config.json`):
+```json
+{
+  "mcpServers": {
+    "elemm-gateway": {
+      "command": "elemm-gateway"
+    }
+  }
+}
+```
+
+### 4. Build Your Own Landmark Server (Optional)
+Elemm uses a decorator-based approach to turn standard Python functions into high-performance landmarks:
 
 ```python
-from elemm import ElemmGateway
-from pydantic import BaseModel
+from elemm import AIProtocolManager, MetadataRegistry
 
-gateway = ElemmGateway(name="SystemControl")
+registry = MetadataRegistry("landmarks.yaml")
+manager = AIProtocolManager(registry=registry)
 
-class SecurityRequest(BaseModel):
-    node_id: str
-    urgent: bool = False
-
-@gateway.action(landmark="Security")
-async def quarantine_node(request: SecurityRequest):
+@manager.landmark("security:quarantine_node")
+async def quarantine_node(node_id: str, urgent: bool = False):
     """Quarantines a compromised server node."""
-    return {"status": "success", "node": request.node_id}
-
-if __name__ == "__main__":
-    # Runs an Elemm-compliant API server
-    gateway.run(port=8000)
+    return {"status": "success", "node": node_id}
 ```
 
 ### Advanced Usage
 
 - **Pydantic Discovery**: Elemm automatically generates schemas from Pydantic models.
-- **Raw Integration**: Access the manifest as a dictionary via `gateway.manager.get_manifest_dict()` for custom LLM wrappers.
-- **Self-Healing**: The SmartRepair engine provides agents with actionable remedies (e.g., correct parameter names) when errors occur.
-
-### 3. Connect to an Agent
-Use the provided MCP bridge to connect your Elemm server to any MCP-compatible agent (e.g. Claude Desktop):
-
-```json
-"elemm": {
-  "command": "python3",
-  "args": ["-m", "elemm.integrations.mcp_bridge", "http://localhost:8000"]
-}
-```
+- **Response Hygiene**: Built-in `_select`, `_filter`, and `_limit` parameters prevent context overflow.
+- **Session Isolation**: Use `session_id` to run parallel tasks without cross-contamination.
+- **Self-Healing**: The SmartRepair engine provides agents with actionable remedies when errors occur.
 
 ---
 
