@@ -80,6 +80,8 @@ async def inspect_site(url: str, landmark_id: str = None, session_id: str = "def
         if result["status"] == "success":
             # Store it for the UI
             GLOBAL_STATE["manifests"][session_id] = result["manifest"]
+            if session_id in GLOBAL_STATE["sessions"]:
+                GLOBAL_STATE["sessions"][session_id]["site_type"] = result.get("type", "elemm")
             return result
         else:
             raise HTTPException(status_code=400, detail=result["message"])
@@ -108,6 +110,70 @@ async def inspect_landmark(landmark_id: str, url: str = None, session_id: str = 
         return result
     except Exception as e:
         logger.error(f"Landmark inspect failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/execute")
+async def execute_action(payload: dict):
+    """
+    Executes a specific action on the remote site.
+    """
+    url = payload.get("url")
+    action = payload.get("action")
+    parameters = payload.get("parameters", {})
+    
+    if not url or not action:
+        raise HTTPException(status_code=400, detail="Missing URL or action")
+        
+    try:
+        import httpx
+        
+        # Check if URL is OpenAPI spec
+        is_openapi = any(url.endswith(ext) for ext in [".json", ".yaml", ".yml"]) or "/openapi" in url
+        
+        if is_openapi:
+            from elemm_gateway.openapi_bridge import OpenAPIBridge
+            from elemm_gateway.components import OpenAPIExecutor
+            import yaml
+            import json
+            
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, follow_redirects=True, timeout=10.0)
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=resp.status_code, detail="Failed to fetch OpenAPI spec for execution")
+                
+                try:
+                    spec = resp.json()
+                except:
+                    spec = yaml.safe_load(resp.text)
+                
+                parsed = OpenAPIBridge.parse_spec(spec, url.rsplit("/", 1)[0])
+                tool_data = next((t for t in parsed.get("tools", []) if t["name"] == action), None)
+                
+                if not tool_data:
+                    raise HTTPException(status_code=404, detail=f"Tool '{action}' not found in OpenAPI spec")
+                
+                vault = VaultManager(VAULT_PATH)
+                executor = OpenAPIExecutor(vault)
+                
+                result_str = await executor.execute(tool_data, parameters)
+                
+                try:
+                    return json.loads(result_str)
+                except:
+                    return {"result": result_str}
+        
+        # Native Elemm Route
+        async with httpx.AsyncClient() as client:
+            exec_url = f"{url.rstrip('/')}/.well-known/elemm/execute"
+            exec_payload = {"action": action, "parameters": parameters}
+            
+            resp = await client.post(exec_url, json=exec_payload, timeout=30.0)
+            if resp.status_code != 200:
+                raise HTTPException(status_code=resp.status_code, detail=resp.text)
+                
+            return resp.json()
+    except Exception as e:
+        logger.error(f"Execution failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 app.add_middleware(

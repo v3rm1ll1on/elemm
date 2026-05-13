@@ -73,14 +73,13 @@ class OpenAPIBridge:
             for method, details in methods.items():
                 if method == "parameters" or not isinstance(details, dict):
                     continue
-                
-                # 1. Landmark ID: Cleaned for MCP compatibility (only alphanumeric, underscores, hyphens)
+                # 1. Landmark ID: Cleaned for MCP compatibility
                 tag = details.get("tags", ["General"])[0]
                 op_id = details.get("operationId", f"{method}_{path.strip('/')}")
                 
-                # Sanitize: replace anything not alphanumeric/hyphen with underscore
-                raw_id = f"{tag}_{op_id}"
-                landmark_id = re.sub(r'[^a-zA-Z0-9_-]', '_', raw_id).strip('_')
+                # Sanitize: replace anything not alphanumeric/hyphen/colon with underscore
+                raw_id = f"{tag}:{op_id}"
+                landmark_id = re.sub(r'[^a-zA-Z0-9_:-]', '_', raw_id).strip('_')
                 
                 # 2. Description
                 description = details.get("summary", details.get("description", "No description provided."))
@@ -238,4 +237,19 @@ class OpenAPIBridge:
             if len(tag_tools) > 20:
                 lines.append(f"  - ... and {len(tag_tools) - 20} more.")
 
+        return "\n".join(lines)
+
+    @staticmethod
+    def get_tool_signature(parsed_data: Dict[str, Any], landmark_id: str) -> str:
+        """Helper for deep inspection without bloating the main manifest."""
+        tools = parsed_data.get("tools", [])
+        selected = [t for t in tools if t["name"] == landmark_id or t["name"].startswith(landmark_id + "_")]
+        if not selected: return ""
+        
+        lines = ["### TECHNICAL SIGNATURES", "```typescript"]
+        for t in selected:
+            schema = t.get("inputSchema", {})
+            params = [f"{n}{'' if n in schema.get('required', []) else '?'}: {d.get('type', 'any')}" for n, d in schema.get("properties", {}).items()]
+            lines.append(f"/** {t.get('description', 'No desc')} */\nfunction call_action(action: '{t['name']}', parameters: {{ {', '.join(params)} }}): any;\n")
+        lines.append("```")
         return "\n".join(lines)

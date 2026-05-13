@@ -62,7 +62,13 @@ class ManifestService:
 
                         if isinstance(spec, dict) and ("openapi" in spec or "swagger" in spec):
                             parsed = OpenAPIBridge.parse_spec(spec, url.rsplit("/", 1)[0])
-                            manifest = OpenAPIBridge.generate_virtual_manifest(parsed)
+                            
+                            # Use summary for root, or signature for specific landmark
+                            if landmark_id:
+                                manifest = OpenAPIBridge.get_tool_signature(parsed, landmark_id)
+                            else:
+                                manifest = OpenAPIBridge.generate_virtual_manifest(parsed)
+                                
                             return {
                                 "type": "openapi",
                                 "manifest": manifest,
@@ -97,6 +103,22 @@ class ManifestService:
 
     @staticmethod
     async def inspect_landmark(url: str, landmark_id: str, vault_manager=None) -> Dict[str, Any]:
+        """
+        Fetches the technical signature/manifest for a specific landmark or tool.
+        Supports Native Elemm, OpenAPI, and GraphQL via unified detection.
+        """
+        # Re-use the inspection logic which already handles landmark-specific detailed manifests
+        res = await ManifestService.inspect_url(url, landmark_id=landmark_id, vault_manager=vault_manager)
+        
+        if res.get("status") == "success":
+            # Extract the manifest as the 'signature' for the debugger
+            return {
+                "status": "success", 
+                "signature": res.get("manifest"),
+                "type": res.get("type")
+            }
+            
+        return res
         """
         Fetches the technical signature for a specific landmark from a native Elemm site.
         """
