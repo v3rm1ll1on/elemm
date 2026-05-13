@@ -18,6 +18,7 @@ import json
 import logging
 import asyncio
 import re
+import uuid
 import httpx
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -30,6 +31,7 @@ from mcp.server.models import InitializationOptions
 import yaml
 from elemm_gateway.openapi_bridge import OpenAPIBridge
 from elemm_gateway.graphql_bridge import GraphQLBridge
+from elemm_gateway.monitor import get_monitor
 from elemm_gateway.components import (
     VaultManager, 
     ConfigManager,
@@ -52,6 +54,9 @@ class ElemmGateway:
     JSON_BLOCK_PATTERN = re.compile(r"```json-elemm\n(.*?)\n```", re.DOTALL)
 
     def __init__(self, server_name: str = "elemm-gateway"):
+        # Unique instance ID to differentiate clients in the dashboard
+        self.session_id = f"{server_name.lower()}-{uuid.uuid4().hex[:6]}"
+        
         # Connected sites storage: {url: {manifest, tools, directive, type}}
         self.connected_sites: Dict[str, Dict[str, Any]] = {}
         self.active_site_url: Optional[str] = None
@@ -66,11 +71,26 @@ class ElemmGateway:
         self.sequence_engine = SequenceEngine(self)
         
         # Configurable Truncation Limits (Anti-Bomb)
-        self.limit_standard = self.config_manager.get("limit_standard", 5000)
-        self.limit_inspect = self.config_manager.get("limit_inspect", 20000)
+        self.limit_standard = self.config_manager.get("limit_standard", 50000)
+        self.limit_inspect = self.config_manager.get("limit_inspect", 250000)
+        self.monitor = get_monitor()
 
         self.server = Server(server_name)
+        self.session_id = f"{server_name.lower()}-{uuid.uuid4().hex[:6]}"
         self._setup_handlers()
+        self.monitor.report_activity(
+            active_sites=0, 
+            last_action="Gateway Initialized",
+            session_id=self.session_id
+        )
+
+    def _calculate_total_tokens(self) -> int:
+        """Helper to estimate tokens for all connected sites."""
+        total = 0
+        for site in self.connected_sites.values():
+            manifest = site.get("manifest", "")
+            total += len(manifest) // 4
+        return total
 
     def _setup_handlers(self):
         @self.server.list_tools()
@@ -200,44 +220,92 @@ class ElemmGateway:
         return await self.sequence_engine.execute(actions, session_id=session_id)
 
     async def _handle_call_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
-        """Backward compatibility shim for tests."""
-        if name == "execute_sequence":
-            return await self._handle_execute_sequence(
-                arguments.get("actions", []) or arguments.get("steps", []),
-                session_id=arguments.get("session_id", "default")
-            )
-        
-        # Check core tools
-        sid = arguments.get("session_id", "default")
-        if name in ["connect_to_site", "get_manifest", "get_landmarks", "inspect_landmark", "list_aliases", "clear_session"]:
-            if name == "connect_to_site":
-                return await self._connect(arguments.get("url", ""))
+        """Main dispatcher with centralized monitoring and token tracking."""
+        try:
+            # 0. Basic safety
+            if arguments is None: arguments = {}
+            sid = arguments.get("session_id", "default")
+            request_id = str(uuid.uuid4())[:8] # Short unique ID for grouping
             
-            if name == "clear_session":
-                self.sequence_engine.clear_session(sid)
-                return [types.TextContent(type="text", text=f"Session memory cleared for: {sid}")]
+            # 1. Determine descriptive action name
+            display_name = name
+            if name == "call_action":
+                display_name = f"call_action({arguments.get('action', 'unknown')})"
+            elif name == "execute_sequence":
+                steps = arguments.get("actions", []) or arguments.get("steps", [])
+                display_name = f"execute_sequence({len(steps)} steps)"
 
-            if name == "list_aliases":
-                aliases = self.sequence_engine.get_session_aliases(sid)
-                res = f"### MEMORY BANK (Session: {sid})\n"
-                if not aliases:
-                    res += "- No findings stored yet in this session."
+            # 2. Centralized Reporting (The "Schleuse")
+            try:
+                self.monitor.report_activity(
+                    last_action=f"CALL: {display_name}",
+                    input_data=arguments,
+                    status="pending",
+                    session_id=sid,
+                    request_id=request_id
+                )
+            except Exception as monitor_err:
+                logger.warning(f"Gateway: Monitor reporting failed: {monitor_err}")
+
+            # 3. Execute the tool
+            import time
+            start_time = time.perf_counter()
+            try:
+                if name == "execute_sequence":
+                    res = await self.sequence_engine.execute(
+                        arguments.get("actions", []) or arguments.get("steps", []),
+                        session_id=sid,
+                        request_id=str(uuid.uuid4())[:8],
+                        parent_request_id=request_id
+                    )
+                    # For sequences, tokens are already reported per step
+                    output_text_for_tokens = str(res)
+                elif name == "call_action":
+                    action_name = arguments.get("action", "")
+                    raw_res = await self._execute_single(action_name, arguments.get("parameters", {}), session_id=sid)
+                    output_text_for_tokens = str(raw_res)
+                    res = self._format_result(raw_res, name=action_name)
+                elif name in ["connect_to_site", "get_manifest", "get_landmarks", "inspect_landmark", "list_aliases", "clear_session"]:
+                    tool_res = await self._proxy_core_tool(name, arguments, session_id=sid)
+                    output_text_for_tokens = tool_res[0].text if tool_res else ""
+                    res = tool_res
                 else:
-                    for a, v in sorted(aliases.items()):
-                        # Truncate values for privacy and token economy
-                        v_str = str(v)
-                        if len(v_str) > 200: v_str = v_str[:197] + "..."
-                        res += f"- **${a}**: {v_str}\n"
-                return [types.TextContent(type="text", text=res)]
+                    raw_res = await self._execute_single(name, arguments, session_id=sid)
+                    output_text_for_tokens = str(raw_res)
+                    res = self._format_result(raw_res, name=name)
+                
+                status = "success"
+            except Exception as e:
+                logger.exception(f"Gateway: Tool '{name}' failed")
+                res = [types.TextContent(type="text", text=f"Error: {str(e)}")]
+                output_text_for_tokens = str(e)
+                status = "error"
+
+            duration_ms = int((time.perf_counter() - start_time) * 1000)
+            # TRUE Token Count (on full data)
+            actual_tokens_out = len(output_text_for_tokens) // 4
+
+            # 4. Final Reporting
+            try:
+                output_text = res[0].text if (res and hasattr(res[0], 'text')) else str(res)
+                self.monitor.report_activity(
+                    last_action=f"RETURN: {display_name}",
+                    output_data=output_text,
+                    tokens_out=actual_tokens_out, # Send TRUE tokens
+                    status=status,
+                    session_id=sid,
+                    request_id=request_id,
+                    duration_ms=duration_ms,
+                    full_size=len(output_text_for_tokens)
+                )
+            except Exception as monitor_err:
+                logger.warning(f"Gateway: Final monitor reporting failed: {monitor_err}")
             
-            return await self._proxy_core_tool(name, arguments, session_id=sid)
-        if name == "call_action":
-            action_name = arguments.get("action", "")
-            res = await self._execute_single(action_name, arguments.get("parameters", {}), session_id=sid)
-            return self._format_result(res, name=action_name)
-            
-        res = await self._execute_single(name, arguments, session_id=sid)
-        return self._format_result(res, name=name)
+            return res
+        except Exception as fatal_err:
+            # Fatal safety net to prevent process exit
+            logger.critical(f"FATAL GATEWAY ERROR: {fatal_err}")
+            return [types.TextContent(type="text", text=f"Critical Gateway Error: {str(fatal_err)}")]
 
     def _format_result(self, text_val: Any, name: str = None) -> List[types.TextContent]:
         res_str = str(text_val)
@@ -252,15 +320,14 @@ class ElemmGateway:
 
     async def _proxy_core_tool(self, name: str, arguments: Dict, session_id: str = "default") -> List[types.TextContent]:
         """Proxies core tools to the remote site or serves them from cache for OpenAPI/GraphQL."""
+        sid = arguments.get("session_id", session_id)
         
         # 1. Handle tools that don't need a connection
         if name == "clear_session":
-            sid = arguments.get("session_id", session_id)
             self.sequence_engine.clear_session(sid)
             return [types.TextContent(type="text", text=f"Session memory cleared for: {sid}")]
 
         if name == "list_aliases":
-            sid = arguments.get("session_id", session_id)
             aliases = self.sequence_engine.get_session_aliases(sid)
             res = f"### MEMORY BANK (Session: {sid})\n"
             if not aliases:
@@ -273,7 +340,16 @@ class ElemmGateway:
                     res += f"- **${a}**: {v_str}\n"
             return [types.TextContent(type="text", text=res)]
 
-        # 2. Tools that DO need a connection
+        # 2. Tools that DO need a connection (or establish one)
+        if name == "connect_to_site":
+            url = arguments.get("url")
+            if not url:
+                return [types.TextContent(type="text", text="Error: URL is required.")]
+            
+            res = await self._connect(url, session_id=sid)
+            self.active_site_url = url
+            return res
+
         url = self.active_site_url
         if not url:
             return [types.TextContent(type="text", text="Error: Not connected to any site.")]
@@ -439,12 +515,12 @@ class ElemmGateway:
             return "Error: Gateway not connected to a remote site."
 
         if tool_name == "execute_sequence":
-            res = await self.sequence_engine.execute(arguments.get("actions", []))
+            res = await self.sequence_engine.execute(arguments.get("actions", []), session_id=session_id)
             return res[0].text if res else "No result"
 
         # Handle Internal Meta Tools (Token Efficiency Optimization)
         if tool_name == "connect_to_site":
-            res = await self._connect(arguments.get("url", ""))
+            res = await self._connect(arguments.get("url", ""), session_id=session_id)
             return res[0].text if res else "Connected"
 
         if tool_name.startswith("elemm:"):
@@ -522,7 +598,7 @@ class ElemmGateway:
                 "remedy": "Verify technical signatures with 'elemm:inspect_landmark'."
             }, indent=2)
 
-    async def _connect(self, url: str) -> List[types.TextContent]:
+    async def _connect(self, url: str, session_id: str = "default") -> List[types.TextContent]:
         """Fetches the .md manifest and establishes the session."""
         from elemm_gateway.components import ManifestBuilder
         url = url.strip().rstrip("/")
@@ -561,6 +637,13 @@ class ElemmGateway:
                                     "type": "graphql"
                                 }
                                 self.active_site_url = url
+                                self.monitor.report_activity(
+                                    active_sites=len(self.connected_sites),
+                                    total_tokens=self._calculate_total_tokens(),
+                                    last_action=f"Connected to {url}",
+                                    session_id=session_id,
+                                    status="success"
+                                )
                                 return [types.TextContent(type="text", text=f"CONNECTED to GraphQL API: {url}\n\nNEXT REQUIRED STEP: Call 'get_manifest' before any other tool.")]
                             else:
                                 return [types.TextContent(type="text", text=f"GraphQL Probing at {url} returned 200 but no 'data'. Body: {resp.text}")]
@@ -593,6 +676,13 @@ class ElemmGateway:
                                     "spec": spec
                                 }
                                 self.active_site_url = url
+                                self.monitor.report_activity(
+                                    active_sites=len(self.connected_sites),
+                                    total_tokens=self._calculate_total_tokens(),
+                                    last_action=f"Connected to OpenAPI: {url}",
+                                    session_id=session_id,
+                                    status="success"
+                                )
                                 
                                 # Check for Auth Requirements
                                 auth_warning = ""
@@ -633,6 +723,13 @@ class ElemmGateway:
                             "type": "native"
                         }
                         self.active_site_url = url
+                        self.monitor.report_activity(
+                            active_sites=len(self.connected_sites),
+                            total_tokens=self._calculate_total_tokens(),
+                            last_action=f"Connected to Native: {url}",
+                            session_id=session_id,
+                            status="success"
+                        )
                         return [types.TextContent(type="text", text=f"CONNECTED to Elemm site: {url}\n\nNEXT REQUIRED STEP: Call 'get_manifest' before any other tool.")]
                 except Exception as e:
                     logger.warning(f"Gateway: Native manifest discovery failed for {url}: {e}")
@@ -661,11 +758,80 @@ class ElemmGateway:
         return mcp_tools
 
     async def run(self):
-        """Runs the MCP server."""
-        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
+        """Runs the MCP server with passive stream monitoring."""
+        from mcp.server.stdio import stdio_server
+        
+        # We store pending request IDs to match response names in the UI
+        pending_request_names = {}
+
+        class MonitoredReadStream:
+            def __init__(self, stream, monitor, session_id):
+                self._stream = stream
+                self._monitor = monitor
+                self._session_id = session_id
+
+            async def receive(self):
+                message = await self._stream.receive()
+                try:
+                    # Support multiple JSON objects in one stream chunk
+                    chunks = message.strip().split("\n")
+                    for chunk in chunks:
+                        if not chunk.strip(): continue
+                        data = json.loads(chunk)
+                        method = data.get("method", "unknown")
+                        
+                        # Extract tool name for tools/call
+                        if method == "tools/call":
+                            tool_name = data.get("params", {}).get("name")
+                        else:
+                            tool_name = method
+
+                        msg_id = data.get("id")
+                        if msg_id is not None:
+                            pending_request_names[msg_id] = tool_name
+                        
+                        self._monitor.report_activity(
+                            last_action=f"WIRE IN: {tool_name}",
+                            input_data=data,
+                            tokens_in=len(chunk) // 4,
+                            status="pending",
+                            session_id=self._session_id
+                        )
+                except:
+                    pass
+                return message
+
+        class MonitoredWriteStream:
+            def __init__(self, stream, monitor, session_id):
+                self._stream = stream
+                self._monitor = monitor
+                self._session_id = session_id
+
+            async def send(self, message):
+                try:
+                    data = json.loads(message)
+                    msg_id = data.get("id")
+                    tool_name = pending_request_names.pop(msg_id, "result") if msg_id is not None else "event"
+                    
+                    self._monitor.report_activity(
+                        last_action=f"WIRE OUT: {tool_name}",
+                        output_data=data,
+                        tokens_out=len(message) // 4,
+                        status="success" if "error" not in data else "error",
+                        session_id=self._session_id
+                    )
+                except:
+                    pass
+                await self._stream.send(message)
+
+        async with stdio_server() as (read_stream, write_stream):
+            # Wrap for passive telemetry
+            monitored_read = MonitoredReadStream(read_stream, self.monitor, self.session_id)
+            monitored_write = MonitoredWriteStream(write_stream, self.monitor, self.session_id)
+            
             await self.server.run(
-                read_stream,
-                write_stream,
+                monitored_read,
+                monitored_write,
                 InitializationOptions(
                     server_name="elemm-gateway",
                     server_version="1.1.4",

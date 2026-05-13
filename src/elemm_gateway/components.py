@@ -616,6 +616,9 @@ class SequenceEngine:
     async def execute(self, actions: List[Dict[str, Any]] = None, session_id: str = "default", **kwargs) -> List[types.TextContent]:
         import time
         from elemm.core.repair import SmartRepairEngine
+        from elemm_gateway.monitor import get_monitor
+        
+        monitor = get_monitor()
         
         # Support both 'actions' (protocol) and 'steps' (LLM intuition)
         actions = actions or kwargs.get("steps", [])
@@ -654,6 +657,16 @@ class SequenceEngine:
                 aliases[f"step{i}"] = error_res
                 if alias: aliases[alias] = error_res
                 
+                # Report piping failure to monitor
+                monitor.report_activity(
+                    last_action=f"Sequence Step {i}: {action_id} (PIPING FAILED)",
+                    session_id=session_id,
+                    input_data={"action": action_id, "raw_parameters": params},
+                    output_data=error_res,
+                    status="error",
+                    request_id=kwargs.get("request_id")
+                )
+
                 if on_error == "stop": break
                 continue
 
@@ -718,6 +731,26 @@ class SequenceEngine:
                 "result": json.loads(res_str) if not isinstance(final_res, str) and not is_truncated else res_str,
                 "_truncated": is_truncated
             })
+
+            # Report individual step to monitor
+            import uuid
+            step_input = {"action": action_id, "parameters": resolved_params}
+            step_tokens_in = len(str(step_input)) // 4
+            step_tokens_out = len(str(final_res)) // 4
+            
+            monitor.report_activity(
+                last_action=f"Step {i}: {action_id}",
+                session_id=session_id,
+                input_data=step_input,
+                output_data=final_res,
+                status="error" if (isinstance(final_res, dict) and final_res.get("status") == "error") else "success",
+                request_id=str(uuid.uuid4())[:8],
+                parent_request_id=kwargs.get("request_id"),
+                duration_ms=duration_ms,
+                tokens_in=step_tokens_in,
+                tokens_out=step_tokens_out,
+                full_size=len(str(final_res))
+            )
 
             # 4. Cascade Failure Protection
             is_error = False
