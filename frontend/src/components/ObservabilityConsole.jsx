@@ -69,7 +69,7 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
 
   const duration = mainReturn?.duration_ms || group.reduce((max, ev) => Math.max(max, ev.duration_ms || 0), 0);
 
-  // Recursive Token Aggregation (Fixed)
+  // Recursive Token Aggregation
   const getAggregatedTokens = (node) => {
     const nodeGroup = node.group || [];
     const nodeChildren = node.children || [];
@@ -89,11 +89,34 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
     return { ownIn, ownOut, totalIn, totalOut };
   };
 
+  const getToolTheme = (name) => {
+    if (name.includes('execute_sequence')) return 'theme-sequence';
+    if (name.includes('call_action')) return 'theme-action';
+    if (name.includes('inspect') || name.includes('manifest')) return 'theme-discovery';
+    return 'theme-default';
+  };
+
+  const toolTheme = getToolTheme(actionName);
+  
+  const formatActionTitle = (name) => {
+    const match = name.match(/\(([^)]+)\)/);
+    if (match) {
+      const base = name.split('(')[0];
+      return <>{base}(<strong>{match[1]}</strong>)</>;
+    }
+    return name;
+  };
+
+  // Consolidate data from all events in the group
+  const input = group.find(ev => ev.input !== undefined && ev.input !== null)?.input;
+  const output = group.find(ev => ev.output !== undefined && ev.output !== null)?.output;
+  const fullSize = mainReturn?.full_size || group.find(ev => ev.full_size)?.full_size;
+
   const { ownIn, ownOut, totalIn, totalOut } = getAggregatedTokens({ group, children });
-  const status = mainReturn?.status || (mainCall?.status === 'pending' ? 'pending' : 'success');
+  const status = mainReturn?.status || (group.find(ev => ev.status === 'error') ? 'error' : 'success');
 
   return (
-    <div className={`call-tree-node depth-${depth}`}>
+    <div className={`call-tree-node depth-${depth} ${toolTheme}`}>
       <div className={`console-call-card ${status} ${isOpen ? 'expanded' : ''}`}>
         <div className="card-header" onClick={() => setIsOpen(!isOpen)}>
           <div className="header-left">
@@ -101,29 +124,39 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
             <span className="time">{displayEvent?.timestamp ? new Date(displayEvent.timestamp * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}) : '--:--:--'}</span>
             <span className="action-title">
               {depth > 0 && <span className="step-index-pill">{actionName.match(/Step (\d+):/)?.[1] || depth}</span>}
-              {actionName.replace(/Step \d+: /, '')}
+              {formatActionTitle(actionName.replace(/Step \d+: /, ''))}
             </span>
           </div>
           <div className="header-right">
-            {duration > 0 && (
-              <div className="duration-tag" title="Execution Time">
-                {duration}ms
-              </div>
-            )}
-            <div className="token-pills-modern">
-              <div className="t-pill in" title={`Own: ${ownIn} / Total: ${totalIn}`}>
-                <span className="t-label">IN</span>
-                <span className="t-value">{totalIn.toLocaleString()}</span>
-              </div>
-              <div className="t-pill out" title={`Own: ${ownOut} / Total: ${totalOut}`}>
-                <span className="t-label">OUT</span>
-                <span className="t-value">{totalOut.toLocaleString()}</span>
-              </div>
+            <div className="meta-group">
+              {duration > 0 && (
+                <div className="duration-tag" title="Execution Time">
+                  {duration}ms
+                </div>
+              )}
+              {displayEvent?.request_id && (
+                <div className="request-id-tag" title={`Trace ID: ${displayEvent.request_id}${displayEvent.parent_request_id ? ' | Parent: ' + displayEvent.parent_request_id : ''}`}>
+                  ID: {displayEvent.request_id}
+                </div>
+              )}
             </div>
-            <span className={`status-badge-modern ${status}`}>{status}</span>
-            <span className={`chevron-modern ${isOpen ? 'open' : ''}`}>
-              <ChevronRight size={16} />
-            </span>
+
+            <div className="metrics-group">
+              <div className="token-pills-modern">
+                <div className="t-pill in" title={`Own: ${ownIn} / Total: ${totalIn}`}>
+                  <span className="t-label">IN</span>
+                  <span className="t-value">{totalIn.toLocaleString()}</span>
+                </div>
+                <div className="t-pill out" title={`Own: ${ownOut} / Total: ${totalOut}`}>
+                  <span className="t-label">OUT</span>
+                  <span className="t-value">{totalOut.toLocaleString()}</span>
+                </div>
+              </div>
+              <span className={`status-badge-modern ${status}`}>{status}</span>
+              <span className={`chevron-modern ${isOpen ? 'open' : ''}`}>
+                <ChevronRight size={14} />
+              </span>
+            </div>
           </div>
         </div>
 
@@ -133,11 +166,11 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
             <div className={`payload-section ${children.length > 0 ? 'sequence-sub-info' : ''}`}>
               <div className="payload-box">
                 <label>Arguments / Input {totalIn > ownIn && <span className="overhead-label">(Local: {ownIn})</span>}</label>
-                <SafeJsonDisplay data={mainCall?.input} fullSize={mainCall?.full_size} />
+                <SafeJsonDisplay data={input} />
               </div>
               <div className="payload-box">
                 <label>Result / Output {totalOut > ownOut && <span className="overhead-label">(Local: {ownOut})</span>}</label>
-                <SafeJsonDisplay data={mainReturn?.output} fullSize={mainReturn?.full_size} />
+                <SafeJsonDisplay data={output} fullSize={fullSize} />
               </div>
             </div>
           </div>
@@ -168,49 +201,41 @@ const ObservabilityConsole = ({ history, trace, selectedSessionId }) => {
 
   // Grouping Logic for History (Enhanced with Recursive Tree Support)
   const groupedHistory = useMemo(() => {
-    if (!history) return [];
-    const filtered = history.filter(ev => 
-       ev.action !== "Gateway Initialized" && 
-       (selectedSessionId === 'global' || ev.session_id === selectedSessionId)
-    );
+    if (!history || history.length === 0) return [];
     
-    const groupsMap = new Map(); // requestId -> array of events
-    const childrenMap = new Map(); // parentRequestId -> array of groupIds
+    const nodesMap = new Map(); // requestId -> { id, group, children }
+    const rootNodes = [];
 
-    // 1. Group events by request_id
-    filtered.forEach((ev) => {
-      if (ev.request_id) {
-        if (!groupsMap.has(ev.request_id)) groupsMap.set(ev.request_id, []);
-        groupsMap.get(ev.request_id).push(ev);
-        
-        if (ev.parent_request_id) {
-          if (!childrenMap.has(ev.parent_request_id)) childrenMap.set(ev.parent_request_id, new Set());
-          childrenMap.get(ev.parent_request_id).add(ev.request_id);
-        }
+    // 1. Alle Events gruppieren
+    history.forEach(ev => {
+      if (!ev.request_id) return;
+      if (!nodesMap.has(ev.request_id)) {
+        nodesMap.set(ev.request_id, { id: ev.request_id, group: [], children: [] });
+      }
+      nodesMap.get(ev.request_id).group.push(ev);
+    });
+
+    // 2. Hierarchie aufbauen
+    nodesMap.forEach(node => {
+      // Suche nach einer parent_request_id in IRGENDEINEM Event dieser Gruppe
+      const parentId = node.group.find(ev => ev.parent_request_id)?.parent_request_id;
+      
+      if (parentId && nodesMap.has(parentId) && parentId !== node.id) {
+        nodesMap.get(parentId).children.push(node);
+      } else if (!parentId) {
+        rootNodes.push(node);
+      } else {
+        // Parent existiert (noch) nicht im lokalen Set, behandle als Root
+        rootNodes.push(node);
       }
     });
 
-    // 2. Identify Root Groups (those that don't have a parent in THIS set)
-    const allGroupIds = Array.from(groupsMap.keys());
-    const childGroupIds = new Set();
-    childrenMap.forEach(ids => ids.forEach(id => childGroupIds.add(id)));
-    
-    const rootIds = allGroupIds.filter(id => !childGroupIds.has(id));
-
-    // 3. Build recursive structure
-    const buildTree = (id) => {
-      const group = groupsMap.get(id);
-      const childIds = Array.from(childrenMap.get(id) || []);
-      return {
-        id,
-        group,
-        children: childIds.map(cid => buildTree(cid)).sort((a,b) => a.group[0].timestamp - b.group[0].timestamp)
-      };
-    };
-
-    const results = rootIds.map(id => buildTree(id));
-    return results.sort((a,b) => b.group[0].timestamp - a.group[0].timestamp);
-  }, [history, selectedSessionId]);
+    return rootNodes.sort((a, b) => {
+      const timeA = a.group[0]?.timestamp || 0;
+      const timeB = b.group[0]?.timestamp || 0;
+      return timeB - timeA;
+    });
+  }, [history]);
 
   // Grouping Logic for Live Trace (Stream)
   const groupedTrace = useMemo(() => {

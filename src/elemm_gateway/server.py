@@ -255,8 +255,7 @@ class ElemmGateway:
                     res = await self.sequence_engine.execute(
                         arguments.get("actions", []) or arguments.get("steps", []),
                         session_id=sid,
-                        request_id=str(uuid.uuid4())[:8],
-                        parent_request_id=request_id
+                        request_id=request_id # The Parent ID for all subsequent steps
                     )
                     # For sequences, tokens are already reported per step
                     output_text_for_tokens = str(res)
