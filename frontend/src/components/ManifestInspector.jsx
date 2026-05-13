@@ -218,6 +218,104 @@ const renderFormattedText = (text) => {
   return html;
 };
 
+const ParameterDocumentation = ({ parameters }) => {
+  if (!parameters || parameters.length === 0) return null;
+
+  return (
+    <div className="parameter-doc-container mb-6">
+      <div className="flex items-center gap-2 mb-4 opacity-40">
+        <BookOpen size={14} />
+        <span className="text-[10px] font-bold uppercase tracking-widest">Parameter Documentation</span>
+      </div>
+      <div className="flex flex-col gap-3">
+        {parameters.map((p, i) => (
+          <div key={i} className="parameter-doc-card bg-white/5 border border-white/10 rounded-lg p-3 hover:bg-white/10 transition-colors">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-sm text-accent">{p.name}</span>
+                <span className="text-[10px] px-1.5 py-0.5 bg-white/5 rounded text-white/40 uppercase">{p.type}</span>
+              </div>
+              {p.required && <span className="text-[9px] font-bold text-amber-500/80 uppercase tracking-tighter bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">Required</span>}
+            </div>
+            {p.description && <p className="text-xs text-white/60 leading-relaxed">{p.description}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const formatSignature = (sig) => {
+  if (!sig) return "// No technical signature loaded for this landmark.\n// Use 'Inspect Active Site' to fetch technical details.";
+
+  return sig.split('\n').map((line, i) => {
+    // Basic syntax highlighting for the TS signature
+    const isComment = line.trim().startsWith('/*') || line.trim().startsWith('//') || line.trim().startsWith('*');
+    const isAction = line.includes('action:');
+    const isParams = line.includes('parameters:');
+    const isReturns = line.includes('returns:') || line.includes('):');
+
+    let colorClass = "text-white/80";
+    if (isComment) colorClass = "text-emerald-400/60 italic";
+    else if (isAction) colorClass = "text-amber-300";
+    else if (isParams) colorClass = "text-blue-300";
+    else if (isReturns) colorClass = "text-pink-300";
+
+    return (
+      <div key={i} className={`whitespace-pre ${colorClass}`}>
+        {line || '\n'}
+      </div>
+    );
+  });
+};
+
+const SafeJsonDisplay = ({ data, title }) => {
+  const [copied, setCopied] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(true);
+  
+  if (!data) return null;
+
+  const handleCopy = (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(data).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div className={`console-call-card theme-discovery overflow-hidden mb-6 ${isExpanded ? 'expanded' : ''}`}>
+      <div 
+        className="card-header cursor-pointer select-none" 
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div className="header-left">
+          <Cpu size={14} className="text-accent" />
+          <span className="action-title font-bold">{title || 'TECHNICAL SIGNATURE'}</span>
+          <span className="text-white/20 text-[10px] ml-2 font-normal">{isExpanded ? '(CLICK TO COLLAPSE)' : '(CLICK TO EXPAND)'}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button 
+            className={`copy-json-btn ${copied ? 'copied' : ''}`} 
+            onClick={handleCopy}
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            <span>{copied ? 'COPIED' : 'COPY'}</span>
+          </button>
+          <ChevronRight size={14} className={`text-white/40 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
+        </div>
+      </div>
+      {isExpanded && (
+        <div className="card-body bg-black/40 p-0 animate-slide-down">
+          <pre className="signature-content custom-scrollbar max-h-[500px] overflow-auto p-6 font-mono text-xs leading-relaxed">
+            {formatSignature(data)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ManifestInspector = () => {
   const [sessionManifests, setSessionManifests] = useState({});
   const [selectedSession, setSelectedSession] = useState('default');
@@ -334,6 +432,30 @@ const ManifestInspector = () => {
 
       const parsed = parseManifest(data.manifest);
 
+      // CRITICAL: If the API provided high-fidelity tool metadata directly (OpenAPI/GraphQL),
+      // use it to override/populate the landmarks store.
+      if (data.tools) {
+        data.tools.forEach(t => {
+          const schema = t.inputSchema || {};
+          const props = schema.properties || {};
+          const required = schema.required || [];
+          
+          parsed.landmarks[t.name] = {
+            description: t.description || "",
+            isTool: true,
+            isTruncated: false,
+            parameters: Object.entries(props).map(([pName, pData]) => ({
+              name: pName,
+              type: pData.type || "any",
+              required: required.includes(pName),
+              description: pData.description || ""
+            })),
+            requiredParams: required,
+            returns: t.returns || "any"
+          };
+        });
+      }
+
       // Merge new landmarks into global store for this session
       setAllLandmarks(prev => ({
         ...prev,
@@ -390,6 +512,38 @@ const ManifestInspector = () => {
     let currentSection = 'instructions';
     let lastLandmarkId = null;
 
+    // 1. First Pass: Detect and parse the Technical Discovery JSON block if present
+    // This is the "Gold Standard" for the debugger as it contains full metadata.
+    let jsonBlockFound = false;
+    const jsonMatch = manifestText.match(/### Technical Discovery\n```json-elemm\n([\s\S]*?)\n```/);
+    if (jsonMatch) {
+      try {
+        const tools = JSON.parse(jsonMatch[1]);
+        tools.forEach(t => {
+          const schema = t.inputSchema || {};
+          const props = schema.properties || {};
+          const required = schema.required || [];
+          
+          sections.landmarks[t.name] = {
+            description: t.description || "",
+            isTool: true,
+            isTruncated: false,
+            parameters: Object.entries(props).map(([pName, pData]) => ({
+              name: pName,
+              type: pData.type || "any",
+              required: required.includes(pName),
+              description: pData.description || ""
+            })),
+            requiredParams: required,
+            returns: t.returns || "any"
+          };
+        });
+        jsonBlockFound = true;
+      } catch (e) {
+        console.warn("Failed to parse Technical Discovery JSON block", e);
+      }
+    }
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
@@ -412,34 +566,36 @@ const ManifestInspector = () => {
           let id = lmMatch[1];
           let desc = lmMatch[2] ? lmMatch[2].trim() : "";
 
-          // If it's the 'Specific Tool Inspector' line, extract the actual tool ID from the description
           if (id === "Specific Tool Inspector") {
             const idMatch = desc.match(/signature for (.*)/);
             if (idMatch) id = idMatch[1].trim();
           }
           
-          // Check for parameter hints in the title line
-          // Example: - Tool: `id` (Required: `p1`) -> Returns: type
           const paramHint = line.match(/\(Required: (.*?)\)/);
           const returnHint = line.match(/-> Returns: (.*?)$/);
           
-          sections.landmarks[id] = { 
-            description: desc, 
-            isTruncated: false,
-            isTool: isToolLine,
-            requiredParams: paramHint ? paramHint[1].split(',').map(p => p.trim().replace(/`/g, '')) : [],
-            returns: returnHint ? returnHint[1].trim() : null,
-            parameters: []
-          };
+          // Only create if not already populated by JSON or if it's an Area
+          if (!sections.landmarks[id] || !isToolLine) {
+            sections.landmarks[id] = { 
+              description: desc, 
+              isTruncated: false,
+              isTool: isToolLine,
+              requiredParams: paramHint ? paramHint[1].split(',').map(p => p.trim().replace(/`/g, '')) : [],
+              returns: returnHint ? returnHint[1].trim() : null,
+              parameters: []
+            };
+          } else {
+            // Update description if it's better in Markdown
+            if (desc && !sections.landmarks[id].description) {
+              sections.landmarks[id].description = desc;
+            }
+          }
           lastLandmarkId = id;
-        } else if (line.startsWith('|') && lastLandmarkId && sections.landmarks[lastLandmarkId]) {
-          // Parse Markdown Table row
-          // | Name | Type | Required | Default | Description |
+        } else if (line.startsWith('|') && lastLandmarkId && sections.landmarks[lastLandmarkId] && !jsonBlockFound) {
+          // Fallback: Parse Markdown Table only if no JSON block was found
           if (!line.includes('---') && !line.includes('Name | Type')) {
             const rawCols = line.split('|');
-            // Remove first and last empty elements from the split
             const cols = rawCols.slice(1, rawCols.length - 1).map(c => c.trim());
-            
             if (cols.length >= 3) {
               sections.landmarks[lastLandmarkId].parameters.push({
                 name: cols[0].replace(/`/g, ''),
@@ -450,23 +606,28 @@ const ManifestInspector = () => {
               });
             }
           }
-        } else if (line.startsWith('**Returns**:') && lastLandmarkId) {
+        } else if (line.startsWith('**Returns**:') && lastLandmarkId && !jsonBlockFound) {
           sections.landmarks[lastLandmarkId].returns = line.split('**Returns**:')[1].trim();
-        } else if (line.includes('... and') && line.includes('more items') && lastLandmarkId) {
-          // Detect truncation marker and attach to the PREVIOUS landmark
-          // Actually, in the manifest, the 'more items' line is a child of the parent.
-          // Example:
-          // - **`Parent`**: Desc
-          //   - Tool: `Parent:Child`
-          //   - ... and 95 more items
-          // In this case, 'Parent' is truncated.
-          
+        } else if (line.trim().startsWith('- Tools:')) {
+          const toolsPart = line.split('- Tools:')[1];
+          const toolMatches = toolsPart.matchAll(/`([^`]+)`(?:\s*\(([^)]*)\))?/g);
+          for (const match of toolMatches) {
+            const id = match[1];
+            const paramsHint = match[2] || "";
+            if (!sections.landmarks[id]) {
+              sections.landmarks[id] = {
+                description: "API Operation",
+                isTool: true,
+                requiredParams: paramsHint.split(',').map(p => p.trim()),
+                parameters: []
+              };
+            }
+          }
+        } else if (line.includes('... and') && line.includes('more') && lastLandmarkId) {
           const parentId = lastLandmarkId.split(':').slice(0, -1).join(':');
           if (parentId && sections.landmarks[parentId]) {
             sections.landmarks[parentId].isTruncated = true;
-            sections.landmarks[parentId].description += ` (${line.split('(')[0].replace('...', '').trim()})`;
           } else if (lastLandmarkId) {
-            // Fallback: If it's a top-level truncation or we can't find parent
             sections.landmarks[lastLandmarkId].isTruncated = true;
           }
         }
@@ -487,7 +648,9 @@ const ManifestInspector = () => {
               const paramStr = paramsMatch[1];
               
               if (!sections.landmarks[actionId]) {
-                sections.landmarks[actionId] = { description: "", parameters: [] };
+                sections.landmarks[actionId] = { description: "", parameters: [], isTool: true };
+              } else {
+                sections.landmarks[actionId].isTool = true;
               }
               
               // Parse parameters from: name?: type, name: type
@@ -522,7 +685,8 @@ const ManifestInspector = () => {
   const buildTree = (landmarks) => {
     const root = {};
     Object.entries(landmarks).forEach(([id, data]) => {
-      const parts = id.split(':');
+      // Support both Elemm native (:) and OpenAPI Bridge (_) separators
+      const parts = id.includes(':') ? id.split(':') : id.split('_');
       let current = root;
       parts.forEach((part, idx) => {
         const isLeaf = idx === parts.length - 1;
@@ -606,68 +770,6 @@ const ManifestInspector = () => {
       }
     }
   }, [selectedLandmark, selectedSession, sessionLandmarks, activeNode]);
-
-  const formatSignature = (sig) => {
-    if (!sig) return "// No technical signature loaded for this landmark.\n// Use 'Inspect Active Site' to fetch technical details.";
-
-    return sig.split('\n').map((line, i) => {
-      let className = "text-white/80";
-      if (line.includes('/**') || line.includes(' *')) className = "text-green-400/60 italic";
-      if (line.includes('function') || line.includes('class')) className = "text-accent font-bold";
-      if (line.includes('action:') || line.includes('method:')) className = "text-accent-blue";
-      if (line.includes('parameters:') || line.includes('props:')) className = "text-purple-400";
-      if (line.includes('return') || line.includes('export')) className = "text-pink-400";
-
-      return <div key={i} className={className}>{line}</div>;
-    });
-  };
-
-  const SafeJsonDisplay = ({ data, title }) => {
-    const [copied, setCopied] = useState(false);
-    const [isExpanded, setIsExpanded] = useState(false);
-    
-    if (!data) return null;
-
-    const handleCopy = (e) => {
-      e.stopPropagation();
-      navigator.clipboard.writeText(data).then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      });
-    };
-
-    return (
-      <div className={`console-call-card theme-discovery overflow-hidden mb-6 ${isExpanded ? 'expanded' : ''}`}>
-        <div 
-          className="card-header cursor-pointer select-none" 
-          onClick={() => setIsExpanded(!isExpanded)}
-        >
-          <div className="header-left">
-            <Cpu size={14} className="text-accent" />
-            <span className="action-title font-bold">{title || 'TECHNICAL SIGNATURE'}</span>
-            <span className="text-white/20 text-[10px] ml-2 font-normal">{isExpanded ? '(CLICK TO COLLAPSE)' : '(CLICK TO EXPAND)'}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button 
-              className={`copy-json-btn ${copied ? 'copied' : ''}`} 
-              onClick={handleCopy}
-            >
-              {copied ? <Check size={12} /> : <Copy size={12} />}
-              <span>{copied ? 'COPIED' : 'COPY'}</span>
-            </button>
-            <ChevronRight size={14} className={`text-white/40 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
-          </div>
-        </div>
-        {isExpanded && (
-          <div className="card-body bg-black/40 p-0 animate-slide-down">
-            <pre className="signature-content custom-scrollbar max-h-[500px] overflow-auto p-6 font-mono text-xs leading-relaxed">
-              {formatSignature(data)}
-            </pre>
-          </div>
-        )}
-      </div>
-    );
-  };
 
   const renderTreeNodes = (nodes, depth = 0) => {
     return Object.values(nodes).map(node => {
@@ -957,40 +1059,7 @@ const ManifestInspector = () => {
                     </div>
                   )}
 
-                  {sessionLandmarks[selectedLandmark]?.parameters?.length > 0 && (
-                    <div className="console-call-card theme-discovery expanded">
-                      <div className="card-header">
-                        <div className="header-left">
-                          <Layers size={14} className="text-purple-400" />
-                          <span className="action-title font-bold">PARAMETERS</span>
-                        </div>
-                      </div>
-                      <div className="card-body p-0 bg-black/20">
-                        <div className="mi-table-wrapper">
-                          <table className="mi-table">
-                            <thead>
-                              <tr>
-                                <th>Name</th>
-                                <th>Type</th>
-                                <th style={{textAlign: 'center'}}>Req</th>
-                                <th>Description</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {sessionLandmarks[selectedLandmark].parameters.map((p, i) => (
-                                <tr key={i}>
-                                  <td className="mi-table-name">{p.name}</td>
-                                  <td className="mi-table-type">{p.type}</td>
-                                  <td style={{textAlign: 'center'}}>{p.required ? <Check size={14} style={{color: 'var(--accent)', display: 'inline'}} /> : <span style={{opacity: 0.2}}>-</span>}</td>
-                                  <td className="mi-table-desc">{p.description}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  {/* Parameter Table removed for protocol purity */}
 
                   {sessionLandmarks[selectedLandmark]?.returns && (
                     <div className="stat-pill-modern mb-6">
@@ -1005,6 +1074,10 @@ const ManifestInspector = () => {
                   <SafeJsonDisplay 
                     data={landmarkSignatures[selectedSession]?.[selectedLandmark] || sessionLandmarks[selectedLandmark]?.signature} 
                     title="TECHNICAL SIGNATURE"
+                  />
+
+                  <ParameterDocumentation 
+                    parameters={sessionLandmarks[selectedLandmark]?.parameters || []} 
                   />
 
                   {sessionLandmarks[selectedLandmark]?.isTool === true && (

@@ -78,7 +78,7 @@ class OpenAPIBridge:
                 op_id = details.get("operationId", f"{method}_{path.strip('/')}")
                 
                 # Sanitize: replace anything not alphanumeric/hyphen/colon with underscore
-                raw_id = f"{tag}:{op_id}"
+                raw_id = f"{tag}_{op_id}"
                 landmark_id = re.sub(r'[^a-zA-Z0-9_:-]', '_', raw_id).strip('_')
                 
                 # 2. Description

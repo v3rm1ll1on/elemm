@@ -45,6 +45,7 @@ class ManifestService:
                     return {
                         "type": "graphql",
                         "manifest": manifest,
+                        "tools": parsed.get("tools", []),
                         "url": url,
                         "status": "success"
                     }
@@ -72,6 +73,7 @@ class ManifestService:
                             return {
                                 "type": "openapi",
                                 "manifest": manifest,
+                                "tools": parsed.get("tools", []),
                                 "url": url,
                                 "status": "success"
                             }
