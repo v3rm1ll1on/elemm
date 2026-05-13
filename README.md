@@ -1,8 +1,9 @@
 # Elemm: The Landmark Manifest Protocol
 
-[![PyPI version](https://img.shields.io/pypi/v/elemm.svg)](https://pypi.org/project/elemm/)
-[![License](https://img.shields.io/pypi/l/elemm.svg)](https://github.com/v3rm1ll1on/elemm/blob/main/LICENSE)
-[![Python versions](https://img.shields.io/pypi/pyversions/elemm.svg)](https://pypi.org/project/elemm/)
+[![PyPI version](https://img.shields.io/pypi/v/elemm?style=flat-square&color=blue)](https://pypi.org/project/elemm/)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/v3rm1ll1on/elemm/tests.yml?branch=main&style=flat-square)](https://github.com/v3rm1ll1on/elemm/actions/workflows/tests.yml)
+[![License](https://img.shields.io/github/license/v3rm1ll1on/elemm?style=flat-square&color=orange)](https://github.com/v3rm1ll1on/elemm/blob/main/LICENSE)
+[![Python versions](https://img.shields.io/pypi/pyversions/elemm?style=flat-square)](https://pypi.org/project/elemm/)
 
 **The Infrastructure for the Agentic Web.**
 

@@ -5,19 +5,46 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "elemm"
 version = "1.1.4"
+authors = [
+  { name="Marc Stöcker" },
+]
 description = "AI Landmarks: The specialized protocol for autonomous agent discovery."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "GPL-3.0-only" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Framework :: FastAPI",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
-    "httpx",
+    "pydantic>=2.0",
+    "httpx>=0.24.0",
     "mcp>=0.1.0",
     "pyyaml",
     "starlette",
     "uvicorn"
 ]
 
+[project.optional-dependencies]
+fastapi = [
+    "fastapi",
+    "httpx",
+]
+examples = [
+    "uvicorn",
+    "mcp>=0.1.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/v3rm1ll1on/elemm"
+"Bug Tracker" = "https://github.com/v3rm1ll1on/elemm/issues"
+
 [project.scripts]
 elemm-gateway = "elemm_gateway.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["examples*", "tests*"]
