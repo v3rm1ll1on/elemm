@@ -63,65 +63,62 @@ class AIProtocolManager:
 
     def landmark(self, landmark_id: str, **landmark_data):
         """Dekorator für Landmark-Tools."""
-        def decorator(func: Callable):
-            # Auto-Prefix if only namespace is provided
+        def decorator(func: Optional[Callable]):
             actual_id = landmark_id
-            if ":" not in landmark_id:
+            if func and hasattr(func, "__name__") and ":" not in actual_id:
                 actual_id = f"{landmark_id}:{func.__name__}"
             
             parts = actual_id.split(":")
             
-            # Fetch Metadata from Registry if available
+            # Metadata
             tool_meta = self.registry.get(actual_id)
-            
-            desc = landmark_data.pop("description", None) or (tool_meta.description if tool_meta else None) or func.__doc__ or f"Tool: {actual_id}"
+            desc = landmark_data.pop("description", None) or (tool_meta.description if tool_meta else None) or (func.__doc__ if func else None) or f"Area: {actual_id}"
             params = landmark_data.pop("parameters", None) or (tool_meta.parameters if tool_meta else None)
-            
-            # Auto-Discovery if no parameters provided
-            if params is None:
+            if params is None and func:
                 params = self.discovery.extract_parameters(func)
                 
             returns = landmark_data.pop("returns", None) or (tool_meta.returns if tool_meta else None)
             remedy = landmark_data.pop("remedy", None) or (tool_meta.remedy if tool_meta else None)
             instructions = landmark_data.pop("instructions", None) or (tool_meta.instructions if tool_meta else None)
 
-            if len(parts) > 1:
-                root_id = parts[0]
-                if root_id not in self.landmarks:
-                    root_meta = self.registry.get(root_id)
-                    root_data = root_meta.model_dump(exclude_none=True) if root_meta else {}
-                    self.landmarks[root_id] = Landmark(
-                        id=root_id,
-                        description=root_data.get("description", f"Area: {root_id}"),
-                        **{k: v for k, v in root_data.items() if k != "id" and k != "description"}
-                    )
+            # Build Hierarchy
+            for i in range(1, len(parts) + 1):
+                current_id = ":".join(parts[:i])
+                is_leaf = (i == len(parts))
                 
-                tool = Landmark(
-                    id=actual_id, 
-                    handler=func, 
-                    description=desc, 
-                    parameters=params, 
-                    returns=returns,
-                    remedy=remedy,
-                    instructions=instructions,
-                    **landmark_data
-                )
-                self.landmarks[root_id].tools.append(tool)
-                self.landmarks[actual_id] = tool
-            else:
-                self.landmarks[landmark_id] = Landmark(
-                    id=landmark_id, 
-                    handler=func, 
-                    description=desc, 
-                    parameters=params, 
-                    returns=returns,
-                    remedy=remedy,
-                    instructions=instructions,
-                    **landmark_data
-                )
+                if current_id not in self.landmarks:
+                    meta = self.registry.get(current_id)
+                    m_data = meta.model_dump(exclude_none=True) if meta else {}
+                    self.landmarks[current_id] = Landmark(
+                        id=current_id,
+                        description=m_data.get("description", f"Area: {current_id}"),
+                        **{k: v for k, v in m_data.items() if k != "id" and k != "description"}
+                    )
+
+                if is_leaf:
+                    lm = self.landmarks[current_id]
+                    lm.handler = func
+                    lm.description = desc
+                    lm.parameters = params
+                    lm.returns = returns
+                    lm.remedy = remedy
+                    lm.instructions = instructions
+                    for k, v in landmark_data.items():
+                        setattr(lm, k, v)
+
+                if i > 1:
+                    parent_id = ":".join(parts[:i-1])
+                    parent = self.landmarks[parent_id]
+                    current = self.landmarks[current_id]
+                    if not any(t.id == current_id for t in parent.tools):
+                        parent.tools.append(current)
             
             return func
         return decorator
+
+    def register(self, landmark_id: str, **landmark_data):
+        """Hilfsmethode zur Registrierung von Landmarken ohne Handler."""
+        return self.landmark(landmark_id, **landmark_data)(None)
 
     async def call_action(self, action_id: str, arguments: Dict[str, Any]) -> Any:
         """Führt eine Action aus mit Smart Repair und Auto-Aliasing."""
@@ -262,12 +259,16 @@ class AIProtocolManager:
         is_full = kwargs.get("full", False)
         hide_signatures = not is_full
         
+        # Erlaube Übersteuerung des Limits via Kwargs (z.B. durch Discovery-Parameter)
+        ctx_limit = kwargs.get("limit") or self.ctx_threshold
+        
         return self.presenter.present_manifest(
             all_landmarks, 
             instructions=self.instructions,
             welcome_message=self.welcome_message,
             hide_json=hide_signatures,
-            technical=kwargs.get("technical", False)
+            technical=kwargs.get("technical", False),
+            max_ctx=ctx_limit
         )
 
     def inspect_landmark(self, landmark_id: str) -> str:

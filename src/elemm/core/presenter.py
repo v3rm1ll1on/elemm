@@ -47,20 +47,67 @@ class ManifestPresenter:
         lines.append("- PIPING: Use '$alias.field' (e.g. '$step0.hostname') to access results directly.")
         lines.append("")
 
-        if hide_json:
+        # 2. Topology / Summary Block
+        # Wir zeigen die Topologie IMMER an, wenn:
+        # - Wir im Summary-Modus sind (hide_json=True)
+        # - Wir explizit technische Details anfordern (technical=True)
+        # - Oder wenn es Sub-Landmarks gibt.
+        show_topology = hide_json or kwargs.get("technical", False) or any(hasattr(lm, 'tools') and lm.tools for lm in landmarks)
+        
+        if show_topology:
             lines.append("### LANDMARK TOPOLOGY")
-            lines.append("> [!IMPORTANT]")
-            lines.append("> Use 'inspect_landmark(id)' to get technical signatures for a landmark BEFORE execution.")
+            if hide_json:
+                lines.append("> [!IMPORTANT]")
+                lines.append("> Use 'inspect_landmark(id)' to get technical signatures for a landmark BEFORE execution.")
             lines.append("")
             
+            # Dynamische Begrenzung basierend auf max_ctx (Konfiguration)
+            # Im Detail-Modus (hide_json=False) zeigen wir mehr oder alles.
+            # Dynamische Begrenzung basierend auf max_ctx (Konfiguration)
+            max_ctx = kwargs.get("max_ctx", 5000)
+            if not hide_json:
+                max_visible_tools = 1000 
+            else:
+                max_visible_tools = max(3, max_ctx // 1000)
+            
             for lm in landmarks:
-                lines.append(f"- **`{lm.id}`**: {lm.description}")
+                # Header für die Landmarke
+                desc = lm.description if hasattr(lm, 'description') else f"Area: {lm.id}"
+                lines.append(f"- **`{lm.id}`**: {desc}")
+                
+                # Detail-Ansicht bei Fokus (nur 1 Landmarke)
+                is_focus = len(landmarks) == 1
+                
                 if hasattr(lm, 'tools') and lm.tools:
-                    for t in lm.tools:
-                        params = [f"`{p.name}`" for p in (t.parameters or []) if p.required]
-                        p_str = f" (Params: {', '.join(params)})" if params else ""
-                        returns = f" -> Returns: {t.returns}" if hasattr(t, 'returns') and t.returns else ""
-                        lines.append(f"  - Tool: `{t.id}`{p_str}{returns}")
+                    visible_tools = lm.tools[:max_visible_tools]
+                    for t in visible_tools:
+                        t_desc = t.description if t.description else ""
+                        # Wenn es eine Sub-Area ist (kein handler), markieren wir das
+                        if not getattr(t, 'handler', None):
+                            lines.append(f"  - Landmark: `{t.id}` (Area/Namespace) - {t_desc}")
+                        else:
+                            req_params = [f"`{p.name}`" for p in (t.parameters or []) if p.required]
+                            p_str = f" (Required: {', '.join(req_params)})" if req_params else " (No required params)"
+                            returns = f" -> Returns: {t.returns}" if hasattr(t, 'returns') and t.returns else ""
+                            lines.append(f"  - Tool: `{t.id}`{p_str}{returns}")
+                            if t_desc:
+                                lines.append(f"    > {t_desc}")
+                    
+                    if len(lm.tools) > max_visible_tools:
+                        lines.append(f"  - ... and {len(lm.tools) - max_visible_tools} more items. (Use `inspect_landmark('{lm.id}')` for more details)")
+                
+                # Wenn wir im Fokus sind und es ein Tool ist, zeige Parameter-Tabelle
+                if is_focus and lm.handler and lm.parameters:
+                    lines.append("\n#### Parameters")
+                    lines.append("| Name | Type | Required | Default | Description |")
+                    lines.append("| :--- | :--- | :---: | :--- | :--- |")
+                    for p in lm.parameters:
+                        req_str = "✅" if p.required else "❌"
+                        def_str = f"`{p.default}`" if p.default is not None else "-"
+                        lines.append(f"| `{p.name}` | {p.type} | {req_str} | {def_str} | {p.description} |")
+                    if lm.returns:
+                        lines.append(f"\n**Returns**: {lm.returns}")
+            lines.append("")
             
             # Technical JSON Block (Discovery) - Also allowed in summary if technical=True
             if kwargs.get("technical", False):

@@ -103,3 +103,61 @@ def test_manager_welcome_message():
     
     md = manager.get_manifest_md()
     assert "# Hello Agent" in md
+
+
+# --- Tests für manager.register() (neu in dieser Session hinzugefügt) ---
+
+def test_register_creates_landmark_without_handler():
+    """register() soll eine Landmarke ohne Handler erzeugen (rein navigatorisch)."""
+    manager = AIProtocolManager()
+    manager.register("Region:District", description="A navigation node")
+
+    assert "Region:District" in manager.landmarks
+    lm = manager.landmarks["Region:District"]
+    assert lm.description == "A navigation node"
+    assert lm.handler is None
+
+
+def test_register_builds_parent_hierarchy():
+    """register() soll auch alle Eltern-Knoten automatisch anlegen."""
+    manager = AIProtocolManager()
+    manager.register("A:B:C", description="Leaf node")
+
+    assert "A" in manager.landmarks
+    assert "A:B" in manager.landmarks
+    assert "A:B:C" in manager.landmarks
+
+
+def test_register_then_landmark_links_correctly():
+    """register() für Parent + landmark() für Tool → Parent.tools muss das Tool enthalten."""
+    manager = AIProtocolManager()
+
+    manager.register("Nord:Sector_042", description="District node")
+    manager.register("Nord:Sector_042:energy", description="Category node")
+
+    @manager.landmark("Nord:Sector_042:energy:reroute_power", description="Reroute tool")
+    def reroute(source: str, target: str):
+        return {"status": "ok"}
+
+    district = manager.landmarks["Nord:Sector_042"]
+    category = manager.landmarks["Nord:Sector_042:energy"]
+    tool = manager.landmarks["Nord:Sector_042:energy:reroute_power"]
+
+    # Kategorie muss im District hängen
+    assert any(t.id == "Nord:Sector_042:energy" for t in district.tools)
+    # Tool muss in Kategorie hängen
+    assert any(t.id == "Nord:Sector_042:energy:reroute_power" for t in category.tools)
+    # Tool muss einen Handler haben, Eltern nicht
+    assert tool.handler is not None
+    assert district.handler is None
+    assert category.handler is None
+
+
+@pytest.mark.asyncio
+async def test_register_namespace_call_returns_error():
+    """call_action auf einen reinen register()-Knoten (kein Handler) soll einen klaren Fehler liefern."""
+    manager = AIProtocolManager()
+    manager.register("Region:District", description="Navigation only")
+
+    result = await manager.call_action("Region:District", {})
+    assert result["status"] == "error"

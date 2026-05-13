@@ -291,7 +291,8 @@ class ElemmGateway:
                 # For OpenAPI, the manifest is already stored
                 # We apply injection again to ensure correct protocol rules
                 self.manifest_loaded = True
-                return [types.TextContent(type="text", text=self._inject_global_landmark(site_data["manifest"], full=is_full))]
+                res_text = self._inject_global_landmark(site_data["manifest"], full=is_full)
+                return self._format_result(res_text, name=name)
             if name == "get_landmarks":
                 if site_data.get("type") == "native":
                     # For native sites, extract topology from the manifest text
@@ -309,7 +310,7 @@ class ElemmGateway:
                     res = "### LANDMARK TOPOLOGY\n"
                     for lid, desc in sorted(landmarks.items()):
                         res += f"- **{lid}**: {desc}\n"
-                    return [types.TextContent(type="text", text=res)]
+                    return self._format_result(res, name=name)
                 
                 # Fallback for OpenAPI/GraphQL
                 tools = site_data.get("tools", [])
@@ -324,7 +325,7 @@ class ElemmGateway:
                 res = "### LANDMARK TOPOLOGY\n"
                 for lm, count in sorted(landmarks.items()):
                     res += f"- **{lm}**: ({count} tools)\n"
-                return [types.TextContent(type="text", text=res)]
+                return self._format_result(res, name=name)
 
             if name == "inspect_landmark":
                 lm_id = arguments.get("landmark_id")
@@ -348,7 +349,7 @@ class ElemmGateway:
                     async with httpx.AsyncClient() as client:
                         for tid in ids:
                             inspect_url = f"{self.active_site_url}/.well-known/elemm-manifest.md"
-                            resp = await client.get(inspect_url, params={"landmark_id": tid, "technical": "true"}, follow_redirects=True)
+                            resp = await client.get(inspect_url, params={"landmark_id": tid, "technical": "true", "limit": self.limit_inspect}, follow_redirects=True)
                             if resp.status_code == 200:
                                 content = resp.text
                                 # CLEANUP: Strip technical JSON block from inspection too
@@ -357,7 +358,7 @@ class ElemmGateway:
                                 signatures.append(content)
                     
                     final_md = "\n\n".join(signatures)
-                    return [types.TextContent(type="text", text=final_md)]
+                    return self._format_result(final_md, name=name)
 
                 # Fallback for OpenAPI/GraphQL (already parsed)
                 signatures = []
@@ -393,7 +394,7 @@ class ElemmGateway:
                     content = "### TECHNICAL SIGNATURES\n```typescript\n" + "\n\n".join(signatures) + "\n```"
                     content += "\n\n(HINT: Combine multiple calls into one 'execute_sequence' for maximum token efficiency!)"
                 
-                return [types.TextContent(type="text", text=self._inject_global_landmark(content))]
+                return self._format_result(self._inject_global_landmark(content), name=name)
             
             if name == "list_aliases":
                 sid = arguments.get("session_id", "default")
@@ -615,7 +616,7 @@ class ElemmGateway:
                 manifest_url = f"{url}/.well-known/elemm-manifest.md"
                 try:
                     # Only fetch the summary manifest initially (No technical=true here!)
-                    resp = await client.get(manifest_url, follow_redirects=True, timeout=10.0)
+                    resp = await client.get(manifest_url, params={"limit": self.limit_standard}, follow_redirects=True, timeout=10.0)
                     if resp.status_code == 200:
                         md_content = self._inject_global_landmark(resp.text)
                         

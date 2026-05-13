@@ -88,27 +88,43 @@ class FastAPIGateway:
             response: Response, 
             landmark_id: Optional[str] = Query(None),
             technical: bool = Query(False),
-            full: bool = Query(False)
+            full: bool = Query(False),
+            limit: Optional[int] = Query(None)
         ):
             """Manifest-Discovery im v1-Format."""
             response.headers["Link"] = '</.well-known/elemm-manifest.md>; rel="elemm-manifest"'
+            
+            # Default-Limit für Browser/Public-Discovery, falls nicht vom Gateway gesetzt
+            ctx_limit = limit if limit is not None else 5000
             
             # Auto-switch to technical if it's an inspect call
             is_inspect = landmark_id is not None
             
             # Wenn landmark_id übergeben wird, zeigen wir Details (FOCUS)
             if landmark_id:
-                # Wir konvertieren zu Liste und splitten Kommas (für Clients wie AnythingLLM)
+                # Wir konvertieren zu Liste und splitten Kommas
                 if isinstance(landmark_id, str):
-                    ids = [id.strip() for id in landmark_id.split(",")]
+                    query_ids = [id.strip().lower() for id in landmark_id.split(",")]
                 else:
-                    ids = landmark_id
+                    query_ids = [id.lower() for id in landmark_id]
                 
-                lms = [self.manager.landmarks[lid] for lid in ids if lid in self.manager.landmarks]
-                manifest_md = self.manager.presenter.present_manifest(lms, full=True, skip_header=False, technical=True)
+                # Case-insensitive Lookup
+                lms = []
+                all_lms_lower = {lid.lower(): lm for lid, lm in self.manager.landmarks.items()}
+                for qid in query_ids:
+                    if qid in all_lms_lower:
+                        lms.append(all_lms_lower[qid])
+                
+                manifest_md = self.manager.presenter.present_manifest(
+                    lms, 
+                    full=True, 
+                    skip_header=False, 
+                    technical=technical,
+                    max_ctx=ctx_limit
+                )
             else:
                 # Standard-Manifest mit v1-Logik (Summary)
-                manifest_md = self.manager.get_manifest_md(technical=technical or full)
+                manifest_md = self.manager.get_manifest_md(technical=technical or full, limit=ctx_limit)
             
             return Response(content=manifest_md, media_type="text/markdown")
 
