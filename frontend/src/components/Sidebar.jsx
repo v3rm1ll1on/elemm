@@ -12,6 +12,18 @@ import './Sidebar.css';
 
 const Sidebar = ({ activeTab, setActiveTab }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const hoverTimeout = React.useRef(null);
+
+  const handleMouseEnter = () => {
+    hoverTimeout.current = setTimeout(() => {
+      setIsExpanded(true);
+    }, 250); // 250ms Delay gegen versehentliches 'Zucken'
+  };
+
+  const handleMouseLeave = () => {
+    if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
+    setIsExpanded(false);
+  };
 
   const menuItems = [
     { id: 'dashboard', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
@@ -25,8 +37,8 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
   return (
     <div 
       className={`sidebar glass ${isExpanded ? 'expanded' : ''}`}
-      onMouseEnter={() => setIsExpanded(true)}
-      onMouseLeave={() => setIsExpanded(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     >
       <div className="sidebar-header">
         <div className="logo-container">

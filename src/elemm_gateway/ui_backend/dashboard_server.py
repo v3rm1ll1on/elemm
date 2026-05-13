@@ -5,9 +5,20 @@ import os
 import json
 import time
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import logging
+import sys
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
+
+# Ensure project root is in path for absolute imports
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
+
+# Internal Elemm Imports
+from elemm_gateway.manifest_service import ManifestService
+from elemm_gateway.components import VaultManager
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Elemm Gateway Dashboard API")
 
@@ -47,11 +58,57 @@ GLOBAL_STATE = {
     "tokens_out": 0,
     "version": "1.2.0-alpha",
     "status": "online",
-    "sessions": {} # Session-specific stats
+    "sessions": {}, # Session-specific stats
+    "manifests": {} # session_id -> manifest string
 }
 
 # Boot time for Uptime calc
 START_TIME = time.time()
+
+vault_manager = VaultManager(VAULT_PATH)
+
+@app.get("/api/v1/inspect")
+async def inspect_site(url: str, landmark_id: str = None, session_id: str = "default"):
+    """
+    Lazy-loads a manifest for a given URL by importing the gateway logic.
+    """
+    try:
+        # Reload vault before inspection before inspection to get latest keys
+        vault_manager.vault = vault_manager.load()
+        
+        result = await ManifestService.inspect_url(url, landmark_id=landmark_id, vault_manager=vault_manager)
+        if result["status"] == "success":
+            # Store it for the UI
+            GLOBAL_STATE["manifests"][session_id] = result["manifest"]
+            return result
+        else:
+            raise HTTPException(status_code=400, detail=result["message"])
+    except Exception as e:
+        logger.error(f"Inspect failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/inspect/landmark")
+async def inspect_landmark(landmark_id: str, url: str = None, session_id: str = "default"):
+    """
+    Fetches the technical signature for a specific landmark.
+    """
+    if not url:
+        session = GLOBAL_STATE["sessions"].get(session_id)
+        if session:
+            url = session.get("active_url")
+    
+    if not url:
+        raise HTTPException(status_code=400, detail="No active URL found for this session. Please connect first.")
+
+    try:
+        # Reload vault before inspection
+        vault_manager.vault = vault_manager.load()
+        
+        result = await ManifestService.inspect_landmark(url, landmark_id, vault_manager=vault_manager)
+        return result
+    except Exception as e:
+        logger.error(f"Landmark inspect failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 app.add_middleware(
     CORSMiddleware,
@@ -85,8 +142,12 @@ async def get_status():
     disallowed = sec_config.get("disallowed_patterns", [])
     level = "hardened" if len(disallowed) > 0 else "standard"
     
-    # Count active clients (seen in last 5 mins)
+    # Count active clients (seen in last 5 mins) and cleanup old ones (> 24h)
     now = time.time()
+    expired_sessions = [sid for sid, s in GLOBAL_STATE["sessions"].items() if now - s.get("last_seen", 0) > 86400]
+    for sid in expired_sessions:
+        del GLOBAL_STATE["sessions"][sid]
+
     active_clients = len([s for s in GLOBAL_STATE["sessions"].values() if now - s.get("last_seen", 0) < 300])
     
     return {
@@ -98,22 +159,73 @@ async def get_status():
 
 @app.post("/api/v1/reset")
 async def reset_dashboard():
-    """Clears the in-memory global and session state."""
-    GLOBAL_STATE.update({
-        "active_sites_count": 0,
-        "total_tokens": 0,
-        "last_action": "Dashboard Reset",
-        "landmark_count": 0,
-        "tokens_in": 0,
-        "tokens_out": 0,
-        "sessions": {}
-    })
-    return {"status": "success", "message": "Global and session state reset."}
+    """Clears history only, preserving global counters and sessions."""
+    GLOBAL_STATE["last_action"] = "History Cleared"
+    
+    # Clear all history and all session entries
+    GLOBAL_STATE["history"] = []
+    GLOBAL_STATE["sessions"] = {}
+    
+    return {"status": "success", "message": "All sessions and history cleared. Global counters preserved."}
+
+CONFIG_PATH = os.path.expanduser("~/.elemm/config.json")
+
+@app.get("/api/v1/config")
+async def get_config():
+    try:
+        if os.path.exists(CONFIG_PATH):
+            with open(CONFIG_PATH, "r") as f:
+                return json.load(f)
+        return {
+            "security": {"disallowed_patterns": [], "disallowed_landmarks": [], "allowed_methods": []},
+            "limit_standard": 5000, "limit_inspect": 20000, "timeout_seconds": 30,
+            "retry_attempts": 3, "retry_delay_ms": 1000
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/config")
+async def update_config(config: dict):
+    try:
+        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+        with open(CONFIG_PATH, "w") as f:
+            json.dump(config, f, indent=2)
+        return {"status": "success", "message": "Configuration updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/vault")
+async def get_vault():
+    try:
+        if os.path.exists(VAULT_PATH):
+            with open(VAULT_PATH, "r") as f:
+                return json.load(f)
+        return {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/vault")
+async def update_vault(vault: dict):
+    try:
+        os.makedirs(os.path.dirname(VAULT_PATH), exist_ok=True)
+        with open(VAULT_PATH, "w") as f:
+            json.dump(vault, f, indent=2)
+        return {"status": "success", "message": "Vault updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/sessions")
 async def get_sessions():
     """Returns statistics for all active sessions."""
     return GLOBAL_STATE["sessions"]
+
+@app.get("/api/v1/sessions/{sid}/manifest")
+async def get_session_manifest(sid: str):
+    """Returns the manifest for a specific session."""
+    manifest = GLOBAL_STATE["manifests"].get(sid)
+    if not manifest:
+        return {"manifest": None, "message": "No manifest found for this session"}
+    return {"manifest": manifest}
 
 @app.post("/api/v1/internal/publish")
 async def publish_event(event: Dict[str, Any]):
@@ -152,6 +264,33 @@ async def publish_event(event: Dict[str, Any]):
             elif k == "active_sites_count":
                 # Special case for site count mapping
                 GLOBAL_STATE["active_sites_count"] = v
+        elif k == "manifest" and v is not None:
+            # Store manifest per session
+            GLOBAL_STATE["manifests"][sid] = v
+
+    # Track active URL for lazy loading
+    last_action = event.get("last_action", "")
+    
+    # 1. Explicit connection strings
+    if "Connected to" in last_action or "connect_to_site" in last_action:
+        import re
+        match = re.search(r'https?://[^\s\]]+', last_action)
+        if match:
+            GLOBAL_STATE["sessions"][sid]["active_url"] = match[0].rstrip('.')
+    
+    # 2. Check input parameters if available
+    ev_input = event.get("input")
+    if ev_input and isinstance(ev_input, dict):
+        if ev_input.get("url"):
+            GLOBAL_STATE["sessions"][sid]["active_url"] = ev_input["url"]
+        elif ev_input.get("parameters") and isinstance(ev_input["parameters"], dict) and ev_input["parameters"].get("url"):
+             GLOBAL_STATE["sessions"][sid]["active_url"] = ev_input["parameters"]["url"]
+    
+    # 3. Check for specific connect_to_site call in action field
+    action_str = event.get("action", "")
+    if "connect_to_site" in action_str:
+        if ev_input and isinstance(ev_input, dict) and ev_input.get("url"):
+            GLOBAL_STATE["sessions"][sid]["active_url"] = ev_input["url"]
     
     # Store in history (last 20)
     history_entry = {
@@ -171,10 +310,10 @@ async def publish_event(event: Dict[str, Any]):
     
     if "history" not in GLOBAL_STATE: GLOBAL_STATE["history"] = []
     GLOBAL_STATE["history"].insert(0, history_entry)
-    GLOBAL_STATE["history"] = GLOBAL_STATE["history"][:20]
+    GLOBAL_STATE["history"] = GLOBAL_STATE["history"][:50]
     
     GLOBAL_STATE["sessions"][sid]["history"].insert(0, history_entry)
-    GLOBAL_STATE["sessions"][sid]["history"] = GLOBAL_STATE["sessions"][sid]["history"][:20]
+    GLOBAL_STATE["sessions"][sid]["history"] = GLOBAL_STATE["sessions"][sid]["history"][:50]
             
     # Also broadcast the specific event to WS, but include the TOTALS for UI
     broadcast_data = {

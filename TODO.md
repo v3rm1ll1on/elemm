@@ -30,3 +30,6 @@
 - [ ] **Advanced Client SDK**: High-level library for building Elemm-compliant clients.
 - [ ] **Landmark Repository**: A library of pre-built landmarks for common enterprise tasks (SQL, Kubernetes, AWS).
 - [ ] **TTL-Based Session Persistence**: Optional caching to relax the handshake requirement for stable connections.
+
+## Gateway Core / Memory Management
+- [ ] Refactor alias storage in `execute_sequence`: Avoid double storage when a custom alias is provided (currently stored as both `$stepN` and custom name). This causes redundancy in `list_aliases` output.

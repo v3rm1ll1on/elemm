@@ -31,6 +31,7 @@ from mcp.server.models import InitializationOptions
 import yaml
 from elemm_gateway.openapi_bridge import OpenAPIBridge
 from elemm_gateway.graphql_bridge import GraphQLBridge
+from elemm_gateway.manifest_service import ManifestService
 from elemm_gateway.monitor import get_monitor
 from elemm_gateway.components import (
     VaultManager, 
@@ -287,6 +288,12 @@ class ElemmGateway:
             # 4. Final Reporting
             try:
                 output_text = res[0].text if (res and hasattr(res[0], 'text')) else str(res)
+                
+                # Check if this was a manifest fetch to include it in the report
+                manifest_data = None
+                if name == "get_manifest" and status == "success":
+                    manifest_data = output_text
+
                 self.monitor.report_activity(
                     last_action=f"RETURN: {display_name}",
                     output_data=output_text,
@@ -295,7 +302,8 @@ class ElemmGateway:
                     session_id=sid,
                     request_id=request_id,
                     duration_ms=duration_ms,
-                    full_size=len(output_text_for_tokens)
+                    full_size=len(output_text_for_tokens),
+                    manifest=manifest_data
                 )
             except Exception as monitor_err:
                 logger.warning(f"Gateway: Final monitor reporting failed: {monitor_err}")
@@ -652,87 +660,44 @@ class ElemmGateway:
                         logger.warning(f"Gateway: GraphQL probing failed for {url}: {e}")
                         return [types.TextContent(type="text", text=f"GraphQL Probing Error: {str(e)}")]
 
-                # 2. Check if it's an OpenAPI JSON/YAML URL
-                if any(url.endswith(ext) for ext in [".json", ".yaml", ".yml"]) or "/openapi" in url:
-                    try:
-                        resp = await client.get(url, follow_redirects=True, timeout=10.0)
-                        if resp.status_code == 200:
-                            # Try JSON first, then YAML
-                            try:
-                                spec = resp.json()
-                            except:
-                                spec = yaml.safe_load(resp.text)
-
-                            if isinstance(spec, dict) and ("openapi" in spec or "swagger" in spec):
-                                logger.info(f"Gateway: Detected OpenAPI spec at {url}")
-                                parsed = OpenAPIBridge.parse_spec(spec, url.rsplit("/", 1)[0])
-                                md_content = OpenAPIBridge.generate_virtual_manifest(parsed)
-                                
-                                self.connected_sites[url] = {
-                                    "manifest": md_content,
-                                    "tools": parsed["tools"],
-                                    "type": "openapi",
-                                    "spec": spec
-                                }
-                                self.active_site_url = url
-                                self.monitor.report_activity(
-                                    active_sites=len(self.connected_sites),
-                                    total_tokens=self._calculate_total_tokens(),
-                                    last_action=f"Connected to OpenAPI: {url}",
-                                    session_id=session_id,
-                                    status="success"
-                                )
-                                
-                                # Check for Auth Requirements
-                                auth_warning = ""
-                                target_url = parsed.get("base_url", "")
-                                host_key = urlparse(target_url).netloc if target_url else urlparse(url).netloc
-                                
-                                schemes = parsed.get("security_schemes", {})
-                                if schemes and host_key not in self.vault_manager.vault:
-                                    auth_warning = (
-                                        "\n\n[WARNING]\n"
-                                        f"AUTHENTICATION REQUIRED: This site requires {list(schemes.keys())[0]}.\n"
-                                        f"REMEDY: Add an entry for '{host_key}' to your `~/.elemm/vault.json`.\n"
-                                        "INSTRUCTION: Inform the user that an API key is required for this service."
-                                    )
-                                
-                                return [types.TextContent(type="text", text=f"CONNECTED to OpenAPI API: {url}\n\nNEXT REQUIRED STEP: Call 'get_manifest' before any other tool.{auth_warning}")]
-                    except Exception as e:
-                        logger.warning(f"Gateway: Failed to probe OpenAPI at {url}: {e}")
-
-                # 3. Standard Elemm Manifest discovery (Lazy Loading Pattern)
-                manifest_url = f"{url}/.well-known/elemm-manifest.md"
-                try:
-                    # Only fetch the summary manifest initially (No technical=true here!)
-                    resp = await client.get(manifest_url, params={"limit": self.limit_standard}, follow_redirects=True, timeout=10.0)
-                    if resp.status_code == 200:
-                        md_content = self._inject_global_landmark(resp.text)
-                        
+                # Use the shared ManifestService for probing and conversion
+                result = await ManifestService.inspect_url(url, vault_manager=self.vault_manager)
+                
+                if result["status"] == "success":
+                    m_type = result["type"]
+                    md_content = self._inject_global_landmark(result["manifest"])
+                    
+                    if m_type == "native":
                         # Extract AGENT DIRECTIVE
                         match = self.SECTION_PATTERN.search(md_content)
                         directive = match.group(1).strip() if match else ManifestBuilder.PROTOCOL_RULES
-                        
-                        # In Lazy Loading, we don't parse tools yet. 
-                        # We just store the manifest for topology discovery.
                         self.connected_sites[url] = {
                             "manifest": md_content,
-                            "tools": [], # Will be filled on-demand or used via proxy
+                            "tools": [],
                             "directive": directive,
                             "type": "native"
                         }
-                        self.active_site_url = url
-                        self.monitor.report_activity(
-                            active_sites=len(self.connected_sites),
-                            total_tokens=self._calculate_total_tokens(),
-                            last_action=f"Connected to Native: {url}",
-                            session_id=session_id,
-                            status="success"
-                        )
-                        return [types.TextContent(type="text", text=f"CONNECTED to Elemm site: {url}\n\nNEXT REQUIRED STEP: Call 'get_manifest' before any other tool.")]
-                except Exception as e:
-                    logger.warning(f"Gateway: Native manifest discovery failed for {url}: {e}")
-
+                    else:
+                        # OpenAPI or GraphQL (parsed in Service)
+                        # Note: For full robustness, we might want the service to return parsed tools too
+                        # but for now, we re-parse if needed or extend service
+                        self.connected_sites[url] = {
+                            "manifest": md_content,
+                            "tools": result.get("tools", []), # Service should ideally provide these
+                            "type": m_type
+                        }
+                    
+                    self.active_site_url = url
+                    self.monitor.report_activity(
+                        active_sites=len(self.connected_sites),
+                        total_tokens=self._calculate_total_tokens(),
+                        last_action=f"Connected to {m_type.upper()}: {url}",
+                        session_id=session_id,
+                        status="success",
+                        manifest=md_content # Report to dashboard for lazy load
+                    )
+                    return [types.TextContent(type="text", text=f"CONNECTED to {m_type.upper()} API: {url}\n\nNEXT REQUIRED STEP: Call 'get_manifest' before any other tool.")]
+                
                 return [types.TextContent(type="text", text=f"Failed to find a supported interface at {url}. (Checked GraphQL, OpenAPI, and Native Elemm)")]
 
         except Exception as e:

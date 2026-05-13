@@ -63,6 +63,7 @@ class DashboardMonitor:
                        input_data: Any = None,
                        output_data: Any = None,
                        status: str = "success",
+                       manifest: str = None,
                        **kwargs):
         """
         Broadcasts activity to the dashboard server.
@@ -74,12 +75,12 @@ class DashboardMonitor:
             tokens_out = self.estimate_tokens(output_data, is_input=False)
 
         # Safety: Truncate large data for the UI
-        def truncate(data):
+        def truncate(data, limit=10000):
             try:
                 s = json.dumps(data, indent=None) if not isinstance(data, str) else data
             except:
                 s = str(data)
-            return (s[:10000] + '...') if len(s) > 10000 else s
+            return (s[:limit] + '...') if len(s) > limit else s
 
         event = {
             "type": "activity",
@@ -92,6 +93,7 @@ class DashboardMonitor:
             "session_id": session_id,
             "input": truncate(input_data) if input_data is not None else None,
             "output": truncate(output_data) if output_data is not None else None,
+            "manifest": truncate(manifest, limit=500000) if manifest else None,
             "status": kwargs.get("status", status),
             "timestamp": time.time(),
             "request_id": kwargs.get("request_id"),

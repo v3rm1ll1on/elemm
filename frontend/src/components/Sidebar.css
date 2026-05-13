@@ -1,17 +1,24 @@
 .sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
   width: var(--sidebar-width-collapsed);
   height: 100vh;
   display: flex;
   flex-direction: column;
-  transition: width var(--transition-base);
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
-  z-index: 100;
-  background: var(--bg-surface);
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(12px);
   border-right: 1px solid var(--border-color);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0);
 }
 
 .sidebar.expanded {
   width: var(--sidebar-width-expanded);
+  box-shadow: 10px 0 40px rgba(0, 0, 0, 0.5);
+  background: rgba(15, 23, 42, 0.95);
 }
 
 .sidebar-header {

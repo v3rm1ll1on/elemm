@@ -4,6 +4,9 @@ import GlassCard from './components/GlassCard';
 import ObservabilityConsole from './components/ObservabilityConsole';
 import CallHistory from './components/CallHistory';
 import { Activity, Shield, Cpu, Zap } from 'lucide-react';
+import Settings from './components/Settings';
+import Vault from './components/Vault';
+import ManifestInspector from './components/ManifestInspector';
 import './App.css';
 
 function App() {
@@ -57,7 +60,7 @@ function App() {
             };
           });
 
-          setTraceEvents(prev => [data, ...prev].slice(0, 50));
+          setTraceEvents(prev => [data, ...prev].slice(0, 10));
         }
       };
 
@@ -93,9 +96,15 @@ function App() {
   const handleReset = async () => {
     try {
       await fetch('http://127.0.0.1:8090/api/v1/reset', { method: 'POST' });
-      setSystemStatus(prev => ({ ...prev, active_sites: 0, total_tokens: 0, tokens_in: 0, tokens_out: 0 }));
-      setSessions({});
-      setSelectedSessionId('global');
+      setTraceEvents([]); 
+      
+      // Sofortiges Re-Fetch der Daten, damit die UI leer ist
+      const [sRes, sessRes] = await Promise.all([
+        fetch('http://127.0.0.1:8090/api/v1/status'),
+        fetch('http://127.0.0.1:8090/api/v1/sessions')
+      ]);
+      setSystemStatus(await sRes.json());
+      setSessions(await sessRes.json());
     } catch (e) { console.error("Reset failed", e); }
   };
 
@@ -114,7 +123,6 @@ function App() {
               <StatItem label="Active APIs" value={displayData?.active_sites || 0} />
               <StatItem label="Traffic In" value={(displayData?.tokens_in || 0).toLocaleString()} />
               <StatItem label="Traffic Out" value={(displayData?.tokens_out || 0).toLocaleString()} />
-              <StatItem label="Security" value={displayData?.security_level || "Standard"} />
             </div>
 
             <ObservabilityConsole 
@@ -133,6 +141,12 @@ function App() {
             />
           </div>
         );
+      case 'vault':
+        return <Vault />;
+      case 'manifest':
+        return <ManifestInspector />;
+      case 'settings':
+        return <Settings />;
       default:
         return (
           <GlassCard title={activeTab.toUpperCase()}>
@@ -165,10 +179,6 @@ function App() {
               ))}
             </select>
             <button className="btn-secondary" onClick={handleReset}>Clear Logs</button>
-            <div className="user-profile">
-              <Shield size={14} color="var(--accent-primary)" />
-              <span>Admin</span>
-            </div>
           </div>
         </header>
         <div className="animate-fade-in">

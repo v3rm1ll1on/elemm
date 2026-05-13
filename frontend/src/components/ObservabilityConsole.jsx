@@ -1,14 +1,14 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, Database, Copy, Check } from 'lucide-react';
 
 // --- Sub-Component: Safe JSON Display with Highlighting ---
 const SafeJsonDisplay = ({ data, fullSize }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
   if (!data) return <span className="text-muted">N/A</span>;
   
   let displayData = data;
   let isJson = false;
-  const isTruncated = fullSize && data.length < fullSize;
   
   if (typeof data === 'string') {
     try {
@@ -22,34 +22,68 @@ const SafeJsonDisplay = ({ data, fullSize }) => {
     isJson = true;
   }
 
-  const highlightJson = (json) => {
-    if (typeof json !== 'string') {
-      json = JSON.stringify(json, null, 2);
-    }
-    
-    return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
-      let cls = 'json-number';
-      if (/^"/.test(match)) {
-        if (/:$/.test(match)) cls = 'json-key';
-        else cls = 'json-string';
-      } else if (/true|false/.test(match)) cls = 'json-boolean';
-      else if (/null/.test(match)) cls = 'json-null';
-      return `<span class="${cls}">${match}</span>`;
+  const handleCopy = (e) => {
+    e.stopPropagation();
+    const textToCopy = isJson ? JSON.stringify(displayData, null, 2) : String(data);
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     });
   };
 
-  const containerStyle = isExpanded ? { maxHeight: 'none' } : { maxHeight: '300px' };
+  const highlightJson = (obj) => {
+    const json = JSON.stringify(obj, null, 2);
+    return json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
+        let cls = 'json-number';
+        if (/^"/.test(match)) {
+          if (/:$/.test(match)) cls = 'json-key';
+          else cls = 'json-string';
+        } else if (/true|false/.test(match)) cls = 'json-boolean';
+        else if (/null/.test(match)) cls = 'json-null';
+        return `<span class="${cls}">${match}</span>`;
+      });
+  };
+
+  const renderFormattedText = (text) => {
+    if (!text) return '';
+    // Basic Markdown/Code highlighting for strings
+    let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    
+    // Highlight Code Blocks (``` ... ```)
+    html = html.replace(/```(?:typescript|json|javascript)?([\s\S]*?)```/g, (match, code) => {
+      return `<div class="embedded-code-block">${code.trim()}</div>`;
+    });
+
+    // Highlight Inline Headers (### ...)
+    html = html.replace(/^(#{1,6})\s+(.*)$/gm, (match, hashes, content) => {
+      const level = hashes.length;
+      return `<div class="md-header h${level}">${content}</div>`;
+    });
+
+    // Highlight Bold (** ... **)
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+    return html;
+  };
 
   return (
     <div className="json-container-modern-wrapper">
-      <div className={`json-container-modern ${isExpanded ? 'expanded' : ''}`} style={containerStyle}>
-        <pre className="json-display">
-          <code dangerouslySetInnerHTML={{ __html: isJson ? highlightJson(displayData) : displayData }} />
-        </pre>
+      <button className={`copy-json-btn ${copied ? 'copied' : ''}`} onClick={handleCopy} title="Copy to clipboard">
+        {copied ? <Check size={12} /> : <Copy size={12} />}
+        <span>{copied ? 'COPIED' : 'COPY'}</span>
+      </button>
+
+      <div className={`json-container-modern ${isExpanded ? 'expanded' : ''}`}>
+        {isJson ? (
+          <pre className="json-display" dangerouslySetInnerHTML={{ __html: highlightJson(displayData) }} />
+        ) : (
+          <div className="json-display markdown-body" dangerouslySetInnerHTML={{ __html: renderFormattedText(String(data)) }} />
+        )}
       </div>
-      {(isTruncated || (!isExpanded && data.length > 500)) && (
-        <button className="load-more-json" onClick={() => setIsExpanded(!isExpanded)}>
-          {isExpanded ? 'Show Less' : isTruncated ? `Show Full (${(fullSize/1024).toFixed(1)} KB)` : 'Show Full'}
+      {(fullSize || JSON.stringify(displayData).length > 500) && (
+        <button className="show-full-btn" onClick={() => setIsExpanded(!isExpanded)}>
+          {isExpanded ? 'SHOW LESS' : fullSize ? `SHOW FULL (${(fullSize/1024).toFixed(1)} KB)` : 'SHOW FULL'}
         </button>
       )}
     </div>
@@ -58,7 +92,8 @@ const SafeJsonDisplay = ({ data, fullSize }) => {
 
 // --- Sub-Component: Tool Call Item ---
 const CallItem = ({ group, children = [], depth = 0 }) => {
-  const [isOpen, setIsOpen] = useState(depth === 0 ? false : true); // Child calls often auto-open
+  const [isOpen, setIsOpen] = useState(false);
+  const [showPayload, setShowPayload] = useState(false);
   
   const mainCall = group.find(ev => (ev.action?.startsWith('CALL:') || ev.last_action?.startsWith('CALL:')));
   const mainReturn = group.find(ev => (ev.action?.startsWith('RETURN:') || ev.last_action?.startsWith('RETURN:')));
@@ -118,7 +153,16 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
   return (
     <div className={`call-tree-node depth-${depth} ${toolTheme}`}>
       <div className={`console-call-card ${status} ${isOpen ? 'expanded' : ''}`}>
-        <div className="card-header" onClick={() => setIsOpen(!isOpen)}>
+        <div className="card-header" onClick={() => {
+          const nextOpen = !isOpen;
+          setIsOpen(nextOpen);
+          // Smart-Logic: Öffnen ohne Kinder -> DATA an. Schließen -> DATA aus.
+          if (nextOpen && children.length === 0) {
+            setShowPayload(true);
+          } else if (!nextOpen) {
+            setShowPayload(false);
+          }
+        }}>
           <div className="header-left">
             <div className="status-indicator-dot"></div>
             <span className="time">{displayEvent?.timestamp ? new Date(displayEvent.timestamp * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'}) : '--:--:--'}</span>
@@ -127,29 +171,37 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
               {formatActionTitle(actionName.replace(/Step \d+: /, ''))}
             </span>
           </div>
+          
           <div className="header-right">
             <div className="meta-group">
-              {duration > 0 && (
-                <div className="duration-tag" title="Execution Time">
-                  {duration}ms
-                </div>
-              )}
+              {duration > 0 && <div className="duration-tag">{duration}ms</div>}
               {displayEvent?.request_id && (
-                <div className="request-id-tag" title={`Trace ID: ${displayEvent.request_id}${displayEvent.parent_request_id ? ' | Parent: ' + displayEvent.parent_request_id : ''}`}>
-                  ID: {displayEvent.request_id}
+                <div className="request-id-tag" title={`Full ID: ${displayEvent.request_id}`}>
+                  ID: {displayEvent.request_id.substring(0, 8)}
                 </div>
               )}
             </div>
 
             <div className="metrics-group">
+              {children.length > 0 && (
+                <button 
+                  className={`payload-toggle ${showPayload ? 'active' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); setShowPayload(!showPayload); }}
+                  title="Toggle Input/Output Data"
+                >
+                  <Database size={12} />
+                  <span>DATA</span>
+                </button>
+              )}
+              
               <div className="token-pills-modern">
-                <div className="t-pill in" title={`Own: ${ownIn} / Total: ${totalIn}`}>
+                <div className="t-pill in" title={`Own: ${ownIn} | Total: ${totalIn}`}>
                   <span className="t-label">IN</span>
-                  <span className="t-value">{totalIn.toLocaleString()}</span>
+                  <span className="t-value">{totalIn > 999 ? (totalIn/1000).toFixed(1) + 'k' : totalIn}</span>
                 </div>
-                <div className="t-pill out" title={`Own: ${ownOut} / Total: ${totalOut}`}>
+                <div className="t-pill out" title={`Own: ${ownOut} | Total: ${totalOut}`}>
                   <span className="t-label">OUT</span>
-                  <span className="t-value">{totalOut.toLocaleString()}</span>
+                  <span className="t-value">{totalOut > 999 ? (totalOut/1000).toFixed(1) + 'k' : totalOut}</span>
                 </div>
               </div>
               <span className={`status-badge-modern ${status}`}>{status}</span>
@@ -160,37 +212,54 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
           </div>
         </div>
 
-        {isOpen && (
-          <div className="card-body animate-fade-in">
-            {/* Payload Breakdown */}
-            <div className={`payload-section ${children.length > 0 ? 'sequence-sub-info' : ''}`}>
-              <div className="payload-box">
-                <label>Arguments / Input {totalIn > ownIn && <span className="overhead-label">(Local: {ownIn})</span>}</label>
-                <SafeJsonDisplay data={input} />
+        {isOpen && (showPayload || children.length > 0) && (
+          <div className="card-body">
+            {/* Spezieller Button für Sequenz-Rohdaten, nur innerhalb des Bodies */}
+            {children.length > 0 && (
+              <div className="sequence-data-header">
+                <button 
+                  className={`sequence-data-toggle ${showPayload ? 'active' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); setShowPayload(!showPayload); }}
+                >
+                  <Database size={12} />
+                  <span>{showPayload ? 'HIDE SEQUENCE JSON' : 'SHOW FULL SEQUENCE JSON'}</span>
+                </button>
               </div>
-              <div className="payload-box">
-                <label>Result / Output {totalOut > ownOut && <span className="overhead-label">(Local: {ownOut})</span>}</label>
-                <SafeJsonDisplay data={output} fullSize={fullSize} />
+            )}
+
+            {showPayload && (
+              <div className="payload-section animate-fade-in">
+                <div className="payload-box">
+                  <label>Arguments / Input <span className="step-duration">local: {ownIn}</span></label>
+                  <div className="json-container-modern">
+                    <SafeJsonDisplay data={input} />
+                  </div>
+                </div>
+                <div className="payload-box">
+                  <label>Result / Output <span className="step-duration">local: {ownOut}</span></label>
+                  <div className="json-container-modern">
+                    <SafeJsonDisplay data={output} fullSize={fullSize} />
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+            
+            {children.length > 0 && (
+              <div className="children-container">
+                <div className="tree-line"></div>
+                {children.map((child, idx) => (
+                  <CallItem 
+                    key={child.id || idx} 
+                    group={child.group} 
+                    children={child.children} 
+                    depth={depth + 1}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      {/* Recursive Children Rendering (Timeline Mode) */}
-      {isOpen && children.length > 0 && (
-        <div className="nested-calls-container">
-          <div className="tree-line-vertical"></div>
-          {children.map((child, idx) => (
-            <CallItem 
-              key={child.id} 
-              group={child.group} 
-              children={child.children} 
-              depth={depth + 1} 
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 };
