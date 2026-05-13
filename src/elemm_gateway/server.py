@@ -668,7 +668,7 @@ class ElemmGateway:
                 write_stream,
                 InitializationOptions(
                     server_name="elemm-gateway",
-                    server_version="1.1.3",
+                    server_version="1.1.4",
                     capabilities=self.server.get_capabilities(
                         notification_options=NotificationOptions(),
                         experimental_capabilities={},

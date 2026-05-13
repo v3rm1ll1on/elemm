@@ -582,7 +582,7 @@ All errors returned by the gateway follow a standardized format with a `_PROTOCO
                              │  8 Core Tools (MCP Protocol)
                              ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                       ELEMM GATEWAY v1.1.3                           │
+│                       ELEMM GATEWAY v1.1.4                           │
 │                                                                      │
 │  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────────┐  │
 │  │ SecurityPolicy│  │ManifestBuilder│  │   ConfigManager          │  │

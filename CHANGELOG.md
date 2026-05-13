@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4] - 2026-05-13
+
+### Added
+- **100k Tool Bloat Example**: Added the Veridian Prime 100,000-tool benchmark to demonstrate true scalability.
+- **Hierarchical Registration**: Added support for handler-less navigation nodes via `manager.register()`.
+
+### Fixed
+- **Tool Bloat Server**: Fixed region prefix alignment and added missing infrastructure category for the multi-sector crisis scenario.
+
 ## [1.1.3] - 2026-05-11
 
 ### Added
