@@ -41,7 +41,7 @@ async def test_protocol_violation_enforcement(gateway):
         assert gateway.manifest_loaded is False
         
         # Try to call action directly
-        res = await gateway._execute_single("General_getData", {})
+        res = await gateway._execute_single("General:getData", {})
         data = json.loads(res)
         
         assert data["status"] == "error"
@@ -117,7 +117,7 @@ async def test_pattern_blocking_execution(gateway):
         })
         
         # Try to call delete action
-        res = await gateway._execute_single("General_deleteUser", {})
+        res = await gateway._execute_single("General:deleteUser", {})
         data = json.loads(res)
         
         assert data["status"] == "error"
@@ -145,7 +145,7 @@ async def test_http_method_restriction(gateway):
         })
         
         # POST should be blocked
-        res = await gateway._execute_single("General_updateData", {})
+        res = await gateway._execute_single("General:updateData", {})
         data = json.loads(res)
         
         assert data["status"] == "error"

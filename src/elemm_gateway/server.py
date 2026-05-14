@@ -447,7 +447,10 @@ class ElemmGateway:
                 signatures = []
                 for tid in ids:
                     # Match exact tool ID or all tools in a landmark namespace
-                    relevant_tools = [t for t in site_data["tools"] if t["name"] == tid or t["name"].startswith(f"{tid}:") or t["name"].startswith(f"{tid}_")]
+                    raw_relevant = [t for t in site_data["tools"] if t["name"] == tid or t["name"].startswith(f"{tid}:") or t["name"].startswith(f"{tid}_")]
+                    
+                    # SECURITY: Filter relevant tools by policy before generating signatures
+                    relevant_tools = [t for t in raw_relevant if self.security_policy.is_action_allowed(t["name"])["allowed"]]
                     
                     for t in relevant_tools:
                         props = t['inputSchema'].get('properties', {})
@@ -474,8 +477,10 @@ class ElemmGateway:
                 if not signatures:
                     content = f"No tools found for landmark/id '{ids}'. Use 'elemm:get_landmarks' to see valid names."
                 else:
-                    content = "### TECHNICAL SIGNATURES\n```typescript\n" + "\n\n".join(signatures) + "\n```"
-                    content += "\n\n(HINT: Combine multiple calls into one 'execute_sequence' for maximum token efficiency!)"
+                    # Provide TS signatures for display
+                    content = "### TECHNICAL SIGNATURES\n```typescript\n" + "\n\n".join(signatures) + "\n```\n"
+                    
+                    content += "\n```"
                 
                 return self._format_result(self._inject_global_landmark(content), name=name)
             

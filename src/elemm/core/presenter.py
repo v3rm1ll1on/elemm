@@ -95,18 +95,6 @@ class ManifestPresenter:
                     
                     if len(lm.tools) > max_visible_tools:
                         lines.append(f"  - ... and {len(lm.tools) - max_visible_tools} more items. (Use `inspect_landmark('{lm.id}')` for more details)")
-                
-                # Wenn wir im Fokus sind und es ein Tool ist, zeige Parameter-Tabelle
-                if is_focus and lm.handler and lm.parameters:
-                    lines.append("\n#### Parameters")
-                    lines.append("| Name | Type | Required | Default | Description |")
-                    lines.append("| :--- | :--- | :---: | :--- | :--- |")
-                    for p in lm.parameters:
-                        req_str = "✅" if p.required else "❌"
-                        def_str = f"`{p.default}`" if p.default is not None else "-"
-                        lines.append(f"| `{p.name}` | {p.type} | {req_str} | {def_str} | {p.description} |")
-                    if lm.returns:
-                        lines.append(f"\n**Returns**: {lm.returns}")
             lines.append("")
             
             # Technical JSON Block (Discovery) - Also allowed in summary if technical=True

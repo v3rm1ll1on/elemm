@@ -79,7 +79,7 @@ async def test_vault_key_injection(gateway):
         
         # Use execute_sequence
         actions = [
-            {"action": "Weather_getCurrentWeather", "parameters": {"q": "Berlin"}}
+            {"action": "Weather:getCurrentWeather", "parameters": {"q": "Berlin"}}
         ]
         await gateway._handle_execute_sequence(actions)
         
@@ -114,7 +114,7 @@ async def test_hygiene_squishing_nested(gateway):
         )
         
         # Call via execute_sequence
-        actions = [{"action": "General_getData", "parameters": {"_select": "user.name"}}]
+        actions = [{"action": "General:getData", "parameters": {"_select": "user.name"}}]
         res = await gateway._handle_execute_sequence(actions)
         
         results = json.loads(res[0].text)
@@ -138,7 +138,7 @@ async def test_auth_remedy_standard(gateway):
         # Mock 401 Unauthorized
         respx.get("https://api.locked.com/secret").respond(status_code=401, text="Unauthorized")
         
-        actions = [{"action": "General_getSecret"}]
+        actions = [{"action": "General:getSecret"}]
         res = await gateway._handle_execute_sequence(actions)
         
         results = json.loads(res[0].text)

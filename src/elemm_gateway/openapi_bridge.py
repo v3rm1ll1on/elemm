@@ -73,13 +73,13 @@ class OpenAPIBridge:
             for method, details in methods.items():
                 if method == "parameters" or not isinstance(details, dict):
                     continue
-                # 1. Landmark ID: Cleaned for MCP compatibility
+                # 1. Landmark ID: Use colon for Elemm hierarchy
                 tag = details.get("tags", ["General"])[0]
                 op_id = details.get("operationId", f"{method}_{path.strip('/')}")
                 
-                # Sanitize: replace anything not alphanumeric/hyphen/colon with underscore
-                raw_id = f"{tag}_{op_id}"
-                landmark_id = re.sub(r'[^a-zA-Z0-9_:-]', '_', raw_id).strip('_')
+                # Sanitize: use colon for hierarchy as per official Elemm protocol
+                raw_id = f"{tag}:{op_id}"
+                landmark_id = re.sub(r'[^a-zA-Z0-9_:-]', '_', raw_id).strip('_').replace('__', '_')
                 
                 # 2. Description
                 description = details.get("summary", details.get("description", "No description provided."))
@@ -113,7 +113,8 @@ class OpenAPIBridge:
                     
                     properties[p_name] = {
                         "type": p_schema.get("type", "string"),
-                        "description": f"[{param.get('in', 'query')}] {p_desc}"
+                        "description": p_desc,
+                        "location": param.get("in", "query")
                     }
                     if param.get("required"):
                         required.append(p_name)
@@ -141,15 +142,15 @@ class OpenAPIBridge:
                 # Inject Universal Parameters into Schema
                 properties["_select"] = {
                     "type": "string",
-                    "description": "[universal] Fields to return (comma-separated). Use dot-notation for nested objects (e.g. 'author.name')."
+                    "description": "Fields to return (comma-separated). Use dot-notation for nested objects (e.g. 'author.name')."
                 }
                 properties["_filter"] = {
                     "type": "string",
-                    "description": "[universal] Basic equality filter (e.g. status=active)"
+                    "description": "Basic equality filter (e.g. status=active)"
                 }
                 properties["_limit"] = {
                     "type": "integer",
-                    "description": "[universal] Max number of items to return"
+                    "description": "Max number of items to return"
                 }
 
                 tools.append({
@@ -219,23 +220,18 @@ class OpenAPIBridge:
 
         for tag, tag_tools in landmarks.items():
             desc = tag_metadata.get(tag, f"Operations related to {tag}")
-            lines.append(f"- **`{tag}`**: {desc}")
+            # Use 'Landmark:' prefix for tags to ensure they are seen as areas
+            lines.append(f"- Landmark: `{tag}` (Area/Namespace) - {desc}")
             
-            # OPTIMIZATION: Only list tool names to save tokens. 
-            # AI is encouraged to use 'inspect_landmark' for details.
-            # ADDITION: Add required parameters as a small hint
-            tool_names = []
+            # Use standard Elemm tool list format so the parser can find them
             for t in tag_tools[:20]:
                 req_params = t.get("inputSchema", {}).get("required", [])
-                # Filter out internal/universal params from the hint
                 display_params = [p for p in req_params if not p.startswith("_")]
-                hint = f" ({', '.join(display_params)})" if display_params else ""
-                tool_names.append(f"`{t['name']}`{hint}")
+                hint = f" (Required: {', '.join(display_params)})" if display_params else ""
+                lines.append(f"  - Tool: `{t['name']}`{hint}")
                 
-            lines.append(f"  - Tools: {', '.join(tool_names)}")
-            
             if len(tag_tools) > 20:
-                lines.append(f"  - ... and {len(tag_tools) - 20} more.")
+                lines.append(f"  - ... and {len(tag_tools) - 20} more. (Use `inspect_landmark('{tag}')` for full list)")
 
         return "\n".join(lines)
 

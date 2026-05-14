@@ -40,8 +40,22 @@ class ManifestService:
                 resp = await client.post(url, json={"query": "{ __schema { types { name } } }"}, headers=headers, timeout=5.0)
                 if resp.status_code == 200 and "data" in resp.json():
                     spec = resp.json()
-                    parsed = GraphQLBridge.parse_schema(spec, url)
-                    manifest = GraphQLBridge.generate_virtual_manifest(parsed)
+                    schema_data = spec.get("data")
+                    parsed = GraphQLBridge.parse_schema(schema_data, url)
+                    
+                    if landmark_id:
+                        manifest = GraphQLBridge.get_tool_signature(parsed, landmark_id)
+                        
+                        # INJECT TECHNICAL DISCOVERY JSON
+                        tools = parsed.get("tools", [])
+                        relevant_tools = [t for t in tools if t["name"] == landmark_id or t["name"].startswith(f"{landmark_id}:")]
+                        if relevant_tools:
+                            manifest += "\n\n### TECHNICAL DISCOVERY\n```json-elemm\n"
+                            manifest += json.dumps(relevant_tools, indent=2)
+                            manifest += "\n```"
+                    else:
+                        manifest = GraphQLBridge.generate_virtual_manifest(parsed)
+                        
                     return {
                         "type": "graphql",
                         "manifest": manifest,
@@ -67,6 +81,14 @@ class ManifestService:
                             # Use summary for root, or signature for specific landmark
                             if landmark_id:
                                 manifest = OpenAPIBridge.get_tool_signature(parsed, landmark_id)
+                                
+                                # INJECT TECHNICAL DISCOVERY JSON
+                                tools = parsed.get("tools", [])
+                                relevant_tools = [t for t in tools if t["name"] == landmark_id or t["name"].startswith(f"{landmark_id}:")]
+                                if relevant_tools:
+                                    manifest += "\n\n### TECHNICAL DISCOVERY\n```json-elemm\n"
+                                    manifest += json.dumps(relevant_tools, indent=2)
+                                    manifest += "\n```"
                             else:
                                 manifest = OpenAPIBridge.generate_virtual_manifest(parsed)
                                 

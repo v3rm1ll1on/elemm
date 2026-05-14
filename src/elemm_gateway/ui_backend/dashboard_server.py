@@ -80,8 +80,19 @@ async def inspect_site(url: str, landmark_id: str = None, session_id: str = "def
         if result["status"] == "success":
             # Store it for the UI
             GLOBAL_STATE["manifests"][session_id] = result["manifest"]
-            if session_id in GLOBAL_STATE["sessions"]:
-                GLOBAL_STATE["sessions"][session_id]["site_type"] = result.get("type", "elemm")
+            
+            # Ensure session entry exists and has the active URL
+            if session_id not in GLOBAL_STATE["sessions"]:
+                GLOBAL_STATE["sessions"][session_id] = {
+                    "tokens_in": 0, "tokens_out": 0, "total_tokens": 0,
+                    "landmark_count": 0, "version": "1.2.0",
+                    "last_action": "Manual Inspection",
+                    "last_seen": time.time(),
+                    "history": []
+                }
+            
+            GLOBAL_STATE["sessions"][session_id]["active_url"] = url
+            GLOBAL_STATE["sessions"][session_id]["site_type"] = result.get("type", "elemm")
             return result
         else:
             raise HTTPException(status_code=400, detail=result["message"])
@@ -116,44 +127,64 @@ async def inspect_landmark(landmark_id: str, url: str = None, session_id: str = 
 async def execute_action(payload: dict):
     """
     Executes a specific action on the remote site.
+    Supports Native Elemm, OpenAPI, and GraphQL.
     """
     url = payload.get("url")
     action = payload.get("action")
     parameters = payload.get("parameters", {})
+    session_id = payload.get("session_id", "default")
     
     if not url or not action:
         raise HTTPException(status_code=400, detail="Missing URL or action")
         
     try:
         import httpx
+        from elemm_gateway.components import OpenAPIExecutor, GraphQLExecutor
+        from elemm_gateway.openapi_bridge import OpenAPIBridge
+        from elemm_gateway.graphql_bridge import GraphQLBridge
+        import yaml
         
-        # Check if URL is OpenAPI spec
-        is_openapi = any(url.endswith(ext) for ext in [".json", ".yaml", ".yml"]) or "/openapi" in url
+        # 1. Determine site type from state or URL
+        session = GLOBAL_STATE["sessions"].get(session_id, {})
+        site_type = session.get("site_type")
         
-        if is_openapi:
-            from elemm_gateway.openapi_bridge import OpenAPIBridge
-            from elemm_gateway.components import OpenAPIExecutor
-            import yaml
-            import json
-            
+        if not site_type:
+            # Fallback to URL detection if session state is missing
+            if any(url.endswith(ext) for ext in [".json", ".yaml", ".yml"]) or "/openapi" in url:
+                site_type = "openapi"
+            elif "/graphql" in url.lower():
+                site_type = "graphql"
+            else:
+                site_type = "native"
+        
+        # 2. Execute based on type
+        if site_type in ["openapi", "graphql"]:
             async with httpx.AsyncClient() as client:
+                # Fetch spec to get tool definitions
                 resp = await client.get(url, follow_redirects=True, timeout=10.0)
                 if resp.status_code != 200:
-                    raise HTTPException(status_code=resp.status_code, detail="Failed to fetch OpenAPI spec for execution")
+                    # For GraphQL, it might be the endpoint itself, try introspection
+                    if site_type == "graphql":
+                        resp = await client.post(url, json={"query": GraphQLBridge.INTROSPECTION_QUERY}, timeout=10.0)
                 
-                try:
-                    spec = resp.json()
-                except:
-                    spec = yaml.safe_load(resp.text)
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=resp.status_code, detail=f"Failed to fetch {site_type} spec/schema for execution")
                 
-                parsed = OpenAPIBridge.parse_spec(spec, url.rsplit("/", 1)[0])
+                if site_type == "openapi":
+                    try:
+                        spec = resp.json()
+                    except:
+                        spec = yaml.safe_load(resp.text)
+                    parsed = OpenAPIBridge.parse_spec(spec, url.rsplit("/", 1)[0])
+                    executor = OpenAPIExecutor(vault_manager)
+                else: # graphql
+                    schema_data = resp.json().get("data")
+                    parsed = GraphQLBridge.parse_schema(schema_data, url)
+                    executor = GraphQLExecutor(vault_manager)
+                
                 tool_data = next((t for t in parsed.get("tools", []) if t["name"] == action), None)
-                
                 if not tool_data:
-                    raise HTTPException(status_code=404, detail=f"Tool '{action}' not found in OpenAPI spec")
-                
-                vault = VaultManager(VAULT_PATH)
-                executor = OpenAPIExecutor(vault)
+                    raise HTTPException(status_code=404, detail=f"Tool '{action}' not found in {site_type} spec")
                 
                 result_str = await executor.execute(tool_data, parameters)
                 
@@ -162,16 +193,26 @@ async def execute_action(payload: dict):
                 except:
                     return {"result": result_str}
         
-        # Native Elemm Route
+        # 3. Native Elemm Route
         async with httpx.AsyncClient() as client:
             exec_url = f"{url.rstrip('/')}/.well-known/elemm/execute"
             exec_payload = {"action": action, "parameters": parameters}
             
             resp = await client.post(exec_url, json=exec_payload, timeout=30.0)
             if resp.status_code != 200:
+                # Fallback: maybe the URL was the manifest itself
+                if "/.well-known/elemm-manifest.md" in url:
+                    base_url = url.split("/.well-known/elemm-manifest.md")[0]
+                    exec_url = f"{base_url.rstrip('/')}/.well-known/elemm/execute"
+                    resp = await client.post(exec_url, json=exec_payload, timeout=30.0)
+
+            if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail=resp.text)
                 
             return resp.json()
+    except Exception as e:
+        logger.error(f"Execution failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.error(f"Execution failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

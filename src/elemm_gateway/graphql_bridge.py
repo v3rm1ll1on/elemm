@@ -113,10 +113,10 @@ class GraphQLBridge:
                     required.append(arg_name)
 
             # Universal Elemm Parameters
-            properties["_select"] = {"type": "string", "description": "[universal] Fields to return (comma-separated). Use dot-notation for nested objects (e.g. 'origin.name')."}
+            properties["_select"] = {"type": "string", "description": "Fields to return (comma-separated). Use dot-notation for nested objects (e.g. 'origin.name')."}
             
             tools.append({
-                "name": f"{category}_{name}",
+                "name": f"{category}:{name}",
                 "description": description,
                 "inputSchema": {
                     "type": "object",

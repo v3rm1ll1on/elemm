@@ -193,8 +193,8 @@ class SecurityPolicy:
                 "remedy": "Contact your administrator to request access to this specific endpoint."
             }
 
-        # 3. Check Landmark Blacklist
-        landmark = action_id.split("_", 1)[0] if "_" in action_id else action_id
+        # 3. Check Landmark Blacklist (Colon is primary separator, underscore is fallback)
+        landmark = action_id.split(":", 1)[0] if ":" in action_id else (action_id.split("_", 1)[0] if "_" in action_id else action_id)
         if landmark.lower() in self.disallowed_landmarks:
             return {
                 "allowed": False,

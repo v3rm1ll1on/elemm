@@ -23,6 +23,9 @@ class DashboardMonitor:
         
     def _async_push(self, event: dict):
         """Internal helper to push events via HTTP without blocking."""
+        if os.environ.get("ELEMM_SKIP_MONITOR") == "1":
+            return
+            
         try:
             # Use synchronous httpx client inside the thread
             with httpx.Client(timeout=2.0) as client:
