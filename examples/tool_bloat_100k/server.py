@@ -1,4 +1,3 @@
-# Copyright (C) 2026 Antigravity (DeepMind)
 import os
 import random
 import logging
