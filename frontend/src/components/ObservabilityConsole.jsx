@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { ChevronRight, Database, Copy, Check } from 'lucide-react';
+import './ObservabilityConsole.css';
 
 // --- Sub-Component: Safe JSON Display with Highlighting ---
 const SafeJsonDisplay = ({ data, fullSize }) => {
@@ -91,7 +92,7 @@ const SafeJsonDisplay = ({ data, fullSize }) => {
 };
 
 // --- Sub-Component: Tool Call Item ---
-const CallItem = ({ group, children = [], depth = 0 }) => {
+const CallItem = ({ group, children = [], depth = 0, config }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showPayload, setShowPayload] = useState(false);
   
@@ -111,17 +112,23 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
     
     let ownIn = nodeGroup.reduce((sum, ev) => sum + (ev.tokens_in || 0), 0);
     let ownOut = nodeGroup.reduce((sum, ev) => sum + (ev.tokens_out || 0), 0);
+    let ownCharsIn = nodeGroup.reduce((sum, ev) => sum + (ev.chars_in || 0), 0);
+    let ownCharsOut = nodeGroup.reduce((sum, ev) => sum + (ev.chars_out || 0), 0);
     
     let totalIn = ownIn;
     let totalOut = ownOut;
+    let totalCharsIn = ownCharsIn;
+    let totalCharsOut = ownCharsOut;
     
     nodeChildren.forEach(child => {
-      const childTokens = getAggregatedTokens(child);
-      totalIn += childTokens.totalIn;
-      totalOut += childTokens.totalOut;
+      const childMetrics = getAggregatedTokens(child);
+      totalIn += childMetrics.totalIn;
+      totalOut += childMetrics.totalOut;
+      totalCharsIn += childMetrics.totalCharsIn;
+      totalCharsOut += childMetrics.totalCharsOut;
     });
     
-    return { ownIn, ownOut, totalIn, totalOut };
+    return { ownIn, ownOut, totalIn, totalOut, ownCharsIn, ownCharsOut, totalCharsIn, totalCharsOut };
   };
 
   const getToolTheme = (name) => {
@@ -147,8 +154,19 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
   const output = group.find(ev => ev.output !== undefined && ev.output !== null)?.output;
   const fullSize = mainReturn?.full_size || group.find(ev => ev.full_size)?.full_size;
 
-  const { ownIn, ownOut, totalIn, totalOut } = getAggregatedTokens({ group, children });
+  const { ownIn, ownOut, totalIn, totalOut, ownCharsIn, ownCharsOut, totalCharsIn, totalCharsOut } = getAggregatedTokens({ group, children });
   const status = mainReturn?.status || (group.find(ev => ev.status === 'error') ? 'error' : 'success');
+
+  const displayMode = config?.ui?.display_mode || 'tokens';
+  const ratio = config?.ui?.char_to_token_ratio || 4.0;
+
+  const formatTraffic = (tokens, chars) => {
+    const formatNum = (n) => n > 999 ? (n/1000).toFixed(1) + 'k' : n;
+    
+    if (displayMode === 'chars') return `${formatNum(chars)} ch`;
+    if (displayMode === 'both') return `${formatNum(tokens)}t (${formatNum(chars)}c)`;
+    return formatNum(tokens);
+  };
 
   return (
     <div className={`call-tree-node depth-${depth} ${toolTheme}`}>
@@ -195,13 +213,13 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
               )}
               
               <div className="token-pills-modern">
-                <div className="t-pill in" title={`Own: ${ownIn} | Total: ${totalIn}`}>
+                <div className="t-pill in" title={`Own: ${ownIn}t / ${ownCharsIn}c | Total: ${totalIn}t / ${totalCharsIn}c`}>
                   <span className="t-label">IN</span>
-                  <span className="t-value">{totalIn > 999 ? (totalIn/1000).toFixed(1) + 'k' : totalIn}</span>
+                  <span className="t-value">{formatTraffic(totalIn, totalCharsIn)}</span>
                 </div>
-                <div className="t-pill out" title={`Own: ${ownOut} | Total: ${totalOut}`}>
+                <div className="t-pill out" title={`Own: ${ownOut}t / ${ownCharsOut}c | Total: ${totalOut}t / ${totalCharsOut}c`}>
                   <span className="t-label">OUT</span>
-                  <span className="t-value">{totalOut > 999 ? (totalOut/1000).toFixed(1) + 'k' : totalOut}</span>
+                  <span className="t-value">{formatTraffic(totalOut, totalCharsOut)}</span>
                 </div>
               </div>
               <span className={`status-badge-modern ${status}`}>{status}</span>
@@ -230,13 +248,13 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
             {showPayload && (
               <div className="payload-section animate-fade-in">
                 <div className="payload-box">
-                  <label>Arguments / Input <span className="step-duration">local: {ownIn}</span></label>
+                  <label>Arguments / Input <span className="step-duration">local: {formatTraffic(ownIn, ownCharsIn)}</span></label>
                   <div className="json-container-modern">
                     <SafeJsonDisplay data={input} />
                   </div>
                 </div>
                 <div className="payload-box">
-                  <label>Result / Output <span className="step-duration">local: {ownOut}</span></label>
+                  <label>Result / Output <span className="step-duration">local: {formatTraffic(ownOut, ownCharsOut)}</span></label>
                   <div className="json-container-modern">
                     <SafeJsonDisplay data={output} fullSize={fullSize} />
                   </div>
@@ -253,6 +271,7 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
                     group={child.group} 
                     children={child.children} 
                     depth={depth + 1}
+                    config={config}
                   />
                 ))}
               </div>
@@ -265,7 +284,7 @@ const CallItem = ({ group, children = [], depth = 0 }) => {
 };
 
 // --- Main Console Component ---
-const ObservabilityConsole = ({ history, trace, selectedSessionId }) => {
+const ObservabilityConsole = ({ history, trace, selectedSessionId, config }) => {
   const scrollRef = useRef(null);
 
   // Grouping Logic for History (Enhanced with Recursive Tree Support)
@@ -374,6 +393,7 @@ const ObservabilityConsole = ({ history, trace, selectedSessionId }) => {
               group={item.group} 
               children={item.children} 
               depth={0} 
+              config={config}
             />
           )) : <div className="empty-state">No calls recorded.</div>}
         </div>

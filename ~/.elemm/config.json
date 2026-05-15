@@ -1,0 +1,24 @@
+{
+  "limit_standard": 5000,
+  "limit_inspect": 20000,
+  "timeout_seconds": 30,
+  "retry_attempts": 3,
+  "retry_delay_ms": 1000,
+  "security": {
+    "disallowed_patterns": [
+      "delete",
+      "remove",
+      "purge",
+      "destroy"
+    ],
+    "allowed_methods": [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE"
+    ],
+    "disallowed_landmarks": [],
+    "disallowed_actions": []
+  }
+}

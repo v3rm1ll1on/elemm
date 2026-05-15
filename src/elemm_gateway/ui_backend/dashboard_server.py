@@ -15,7 +15,7 @@ from typing import List, Dict, Any
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 # Internal Elemm Imports
-from elemm_gateway.manifest_service import ManifestService
+from elemm_gateway.services.manifest_service import ManifestService
 from elemm_gateway.components import VaultManager
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,8 @@ GLOBAL_STATE = {
     "last_action": "Waiting for data...",
     "tokens_in": 0,
     "tokens_out": 0,
+    "chars_in": 0,
+    "chars_out": 0,
     "version": "1.2.0-alpha",
     "status": "online",
     "sessions": {}, # Session-specific stats
@@ -85,6 +87,7 @@ async def inspect_site(url: str, landmark_id: str = None, session_id: str = "def
             if session_id not in GLOBAL_STATE["sessions"]:
                 GLOBAL_STATE["sessions"][session_id] = {
                     "tokens_in": 0, "tokens_out": 0, "total_tokens": 0,
+                    "chars_in": 0, "chars_out": 0, "total_chars": 0,
                     "landmark_count": 0, "version": "1.2.0",
                     "last_action": "Manual Inspection",
                     "last_seen": time.time(),
@@ -140,8 +143,8 @@ async def execute_action(payload: dict):
     try:
         import httpx
         from elemm_gateway.components import OpenAPIExecutor, GraphQLExecutor
-        from elemm_gateway.openapi_bridge import OpenAPIBridge
-        from elemm_gateway.graphql_bridge import GraphQLBridge
+        from elemm_gateway.services.openapi_bridge import OpenAPIBridge
+        from elemm_gateway.services.graphql_bridge import GraphQLBridge
         import yaml
         
         # 1. Determine site type from state or URL
@@ -286,7 +289,8 @@ async def get_config():
         return {
             "security": {"disallowed_patterns": [], "disallowed_landmarks": [], "allowed_methods": []},
             "limit_standard": 5000, "limit_inspect": 20000, "timeout_seconds": 30,
-            "retry_attempts": 3, "retry_delay_ms": 1000
+            "retry_attempts": 3, "retry_delay_ms": 1000,
+            "ui": {"display_mode": "tokens", "char_to_token_ratio": 4.0}
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -339,7 +343,7 @@ async def publish_event(event: Dict[str, Any]):
     """Aggregates events and broadcasts via WebSockets."""
     sid = event.get("session_id", "default")
     action = event.get("last_action", "unknown")
-    print(f"DEBUG: Dashboard received event: {action} [Session: {sid}]")
+    logger.debug(f"Dashboard received event: {action} [Session: {sid}]")
     
     # Ensure session exists in state
     if sid not in GLOBAL_STATE["sessions"]:
@@ -347,6 +351,9 @@ async def publish_event(event: Dict[str, Any]):
             "tokens_in": 0,
             "tokens_out": 0,
             "total_tokens": 0,
+            "chars_in": 0,
+            "chars_out": 0,
+            "total_chars": 0,
             "landmark_count": 0,
             "version": "1.0.0",
             "last_action": "Session started",
@@ -359,11 +366,11 @@ async def publish_event(event: Dict[str, Any]):
 
     # Update states
     for k, v in event.items():
-        if k in ["tokens_in", "tokens_out"] and v is not None:
+        if k in ["tokens_in", "tokens_out", "chars_in", "chars_out"] and v is not None:
             # ACCUMULATE
             GLOBAL_STATE[k] += v
             GLOBAL_STATE["sessions"][sid][k] += v
-        elif k in ["active_sites_count", "landmark_count", "last_action", "total_tokens"] and v is not None:
+        elif k in ["active_sites_count", "landmark_count", "last_action", "total_tokens", "total_chars"] and v is not None:
             # OVERWRITE
             GLOBAL_STATE[k] = v
             if k in GLOBAL_STATE["sessions"][sid]:
@@ -407,6 +414,8 @@ async def publish_event(event: Dict[str, Any]):
         "status": event.get("status", "success"),
         "tokens_in": event.get("tokens_in", 0),
         "tokens_out": event.get("tokens_out", 0),
+        "chars_in": event.get("chars_in", 0),
+        "chars_out": event.get("chars_out", 0),
         "timestamp": event.get("timestamp"),
         "session_id": sid,
         "request_id": event.get("request_id"),
@@ -427,8 +436,12 @@ async def publish_event(event: Dict[str, Any]):
         **event,
         "tokens_in_total": GLOBAL_STATE["sessions"][sid]["tokens_in"],
         "tokens_out_total": GLOBAL_STATE["sessions"][sid]["tokens_out"],
+        "chars_in_total": GLOBAL_STATE["sessions"][sid]["chars_in"],
+        "chars_out_total": GLOBAL_STATE["sessions"][sid]["chars_out"],
         "global_tokens_in": GLOBAL_STATE["tokens_in"],
         "global_tokens_out": GLOBAL_STATE["tokens_out"],
+        "global_chars_in": GLOBAL_STATE["chars_in"],
+        "global_chars_out": GLOBAL_STATE["chars_out"],
         "active_clients": len([s for s in GLOBAL_STATE["sessions"].values() if time.time() - s.get("last_seen", 0) < 300]),
         "active_sites": GLOBAL_STATE["active_sites_count"]
     }

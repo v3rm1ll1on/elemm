@@ -101,7 +101,7 @@ def test_manager_welcome_message():
     manager = AIProtocolManager()
     manager.welcome_message = "Hello Agent"
     
-    md = manager.get_manifest_md()
+    md = manager.get_manifest()
     assert "# Hello Agent" in md
 
 

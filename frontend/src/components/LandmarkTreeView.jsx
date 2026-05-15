@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
+import './LandmarkTreeView.css';
 import {
   ChevronRight,
   Terminal,
@@ -8,11 +9,72 @@ import {
   Home,
   Database,
   Globe,
-  Layers,
   BookOpen,
   Link as LinkIcon,
-  Plus
+  Plus,
+  Zap,
+  Activity
 } from 'lucide-react';
+
+// --- Sub-Components ---
+
+const TreeNode = memo(({ 
+  node, 
+  depth, 
+  isSelected, 
+  isExpanded, 
+  isProbed,
+  onSelect, 
+  onToggle, 
+  loading,
+  children 
+}) => {
+  const hasChildren = Object.keys(node.children).length > 0;
+  
+  // Logic: When should we show a chevron even if there are no children yet? (Lazy Loading)
+  const isLazyCandidate = !node.isTool && (node.isTruncated || !hasChildren);
+
+  return (
+    <div className="tree-node-wrapper">
+      <div
+        className={`tree-node-row ${isSelected ? 'selected' : ''}`}
+        style={{ paddingLeft: `${depth * 16 + 12}px` }}
+        onClick={() => onSelect(node.id)}
+      >
+        <div
+          className={`chevron-icon ${isExpanded ? 'expanded' : ''} ${(!hasChildren && !isLazyCandidate) ? 'invisible' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle(node.id, hasChildren, node.isTool, node.isTruncated);
+          }}
+        >
+          <ChevronRight size={14} />
+        </div>
+
+        <div className={`node-icon ${node.isTool ? 'tool' : 'area'}`}>
+          {node.isTool ? <Terminal size={12} /> : (isExpanded && hasChildren ? <FolderOpen size={13} /> : <Folder size={13} />)}
+        </div>
+
+        <span className={`node-text ${!isProbed ? 'dimmed' : ''}`}>
+          {node.label}
+        </span>
+
+        {loading && isExpanded && !hasChildren && (
+          <RefreshCw size={10} className="spin-icon opacity-40" />
+        )}
+      </div>
+      
+      {isExpanded && (hasChildren || (loading && !node.isTool)) && (
+        <div className="node-children">
+          <div className="indent-guide" style={{ left: `${depth * 16 + 20}px` }}></div>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// --- Main Explorer Component ---
 
 const LandmarkTreeView = ({
   sessions,
@@ -39,157 +101,112 @@ const LandmarkTreeView = ({
     }
   };
 
-  const renderTreeNodes = (nodes, depth = 0) => {
+  const getSessionBadge = () => {
+    const type = sessions[selectedSession]?.site_type;
+    const styles = {
+      openapi: { label: 'OpenAPI', color: '#34d399' },
+      graphql: { label: 'GraphQL', color: '#f472b6' },
+      elemm: { label: 'Elemm Native', color: '#7dd3fc' }
+    };
+    const config = styles[type] || { label: 'Unknown', color: '#94a3b8' };
+    return <span className="badge-micro" style={{ color: config.color }}>{config.label}</span>;
+  };
+
+  const renderNodes = (nodes, depth = 0) => {
     return Object.values(nodes).map(node => {
-      const hasChildren = Object.keys(node.children).length > 0;
-      const isExpanded = expandedNodes[node.id];
-      const isSelected = selectedLandmark === node.id;
+      const cacheKey = `${selectedSession}_${node.id}`;
+      const isProbed = node.isTool || (Object.keys(node.children).length > 0 && !node.isTruncated) || probedLandmarks[cacheKey];
       
-      // Aggressive candidate detection for probing
-      const isLazyCandidate = !node.isTool && (
-        node.isTruncated || 
-        !hasChildren || 
-        node.id.split(':').length < 5
-      );
-
       return (
-        <div key={node.id}>
-          <div
-            className={`ide-tree-row ${isSelected ? 'selected' : ''}`}
-            style={{ paddingLeft: `${depth * 16 + 8}px` }}
-            onClick={() => onSelectLandmark(node.id)}
-          >
-            <div
-              className={`ide-tree-chevron ${isExpanded ? 'expanded' : ''} ${(!hasChildren && !isLazyCandidate) ? 'hidden' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleExpand(node.id, hasChildren, node.isTool, node.isTruncated);
-              }}
-            >
-              <ChevronRight size={14} />
-            </div>
-
-            <div className={`ide-tree-icon ${node.isTool ? 'tool' : 'area'}`}>
-              {node.isTool ? (
-                <Terminal size={14} />
-              ) : (
-                isExpanded && hasChildren ? <FolderOpen size={14} /> : <Folder size={14} />
-              )}
-            </div>
-
-            {(() => {
-              const cacheKey = `${selectedSession}_${node.id}`;
-              const isFullyProbed = node.isTool || (hasChildren && !node.isTruncated) || probedLandmarks[cacheKey];
-              const textClass = isFullyProbed ? 'bold' : 'dimmed';
-              return (
-                <span className={`ide-tree-text ${textClass}`}>{node.label}</span>
-              );
-            })()}
-
-            {loading && isExpanded && !hasChildren && (
-              <RefreshCw size={12} className="spin opacity-40 ml-2" />
-            )}
-          </div>
-          {hasChildren && isExpanded && (
-            <div className="ide-tree-children">
-              <div className="ide-tree-indent-guide" style={{ left: `${depth * 16 + 23}px` }}></div>
-              {renderTreeNodes(node.children, depth + 1)}
-            </div>
-          )}
-        </div>
+        <TreeNode
+          key={node.id}
+          node={node}
+          depth={depth}
+          isSelected={selectedLandmark === node.id}
+          isExpanded={expandedNodes[node.id]}
+          isProbed={isProbed}
+          onSelect={onSelectLandmark}
+          onToggle={onToggleExpand}
+          loading={loading}
+        >
+          {renderNodes(node.children, depth + 1)}
+        </TreeNode>
       );
     });
   };
 
   return (
-    <div className="console-panel stream-panel flex flex-col" style={{ height: '100%', maxHeight: '100%', minHeight: 0, overflow: 'hidden' }}>
-      <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <Globe size={16} className="text-accent" />
-          <h3 style={{ margin: 0 }}>City Topology</h3>
-          {(() => {
-            const type = sessions[selectedSession]?.site_type;
-            if (type === 'openapi') {
-              return <span className="topology-badge" style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#34d399' }}>OpenAPI</span>;
-            } else if (type === 'graphql') {
-              return <span className="topology-badge" style={{ background: 'rgba(236, 72, 153, 0.2)', color: '#f472b6' }}>GraphQL</span>;
-            } else if (type === 'elemm') {
-              return <span className="topology-badge" style={{ background: 'rgba(56, 189, 248, 0.2)', color: '#7dd3fc' }}>Native Elemm</span>;
-            }
-            return null;
-          })()}
+    <div className="tree-explorer-container">
+      {/* Header Section */}
+      <div className="explorer-header">
+        <div className="explorer-title-row">
+          <div className="explorer-title">
+            <Activity size={16} className="text-accent" />
+            <span>Landmark Explorer</span>
+          </div>
+          <div className="explorer-toolbar">
+            <button className="tool-btn" onClick={() => onSelectLandmark('instructions')} title="Go Home">
+              <Home size={14} />
+            </button>
+            <button className={`tool-btn ${loading ? 'active' : ''}`} onClick={onReload} title="Refresh">
+              <RefreshCw size={14} className={loading ? 'spin-icon' : ''} />
+            </button>
+            <button className="tool-btn" onClick={onReset} title="Reset Protocol State">
+              <Database size={14} />
+            </button>
+          </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-          <button className="toolbar-icon-btn" onClick={() => onSelectLandmark('instructions')} title="Reset Browsing to Root">
-            <Home size={14} />
-          </button>
-          <button className={`toolbar-icon-btn ${loading ? 'spin' : ''}`} onClick={() => onReload()} title="Force Reload Topology">
-            <RefreshCw size={14} />
-          </button>
-          <button
-            className="toolbar-icon-btn"
-            style={{ color: 'var(--accent-blue)', borderColor: 'var(--accent-blue)' }}
-            onClick={() => onReset()}
-            title="Clear Memory Bank & Reset State"
-          >
-            <Database size={14} />
-          </button>
-        </div>
-      </div>
 
-      <div className="px-4 py-3 border-b border-white/5">
-        {/* Manual Connect Bar */}
-        <form onSubmit={handleConnect} className="manual-connect-form">
-          <div className="manual-connect-input-wrapper">
-            <LinkIcon size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30" />
+        {/* URL / Connection Bar */}
+        <form onSubmit={handleConnect} className="connect-bar">
+          <div className="connect-input-wrapper">
+            <LinkIcon size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/20" />
             <input 
               type="text" 
-              className="manual-connect-input"
-              placeholder="Connect to URL..."
+              className="connect-input"
+              placeholder="https://api.example.com..."
               value={manualUrl}
               onChange={(e) => setManualUrl(e.target.value)}
             />
           </div>
-          <button 
-            type="submit"
-            className="manual-connect-btn"
-            title="Connect & Inspect"
-          >
-            <Plus size={14} />
+          <button type="submit" className="connect-btn">
+            <Plus size={16} />
           </button>
         </form>
 
-        <div className="session-picker-container">
-          <label className="session-picker-label">Active Connection</label>
+        {/* Session Selection */}
+        <div className="active-session-card">
+          <div className="flex justify-between items-center mb-1">
+            <label className="session-label">Active Connection</label>
+            {getSessionBadge()}
+          </div>
           <select
             value={selectedSession || ''}
             onChange={(e) => onSessionChange(e.target.value)}
-            className="session-picker-select"
+            className="session-select"
           >
-            {Object.entries(sessions).map(([sid, sessionData]) => {
-              const urlLabel = sessionData?.active_url ? sessionData.active_url : `Session: ${sid.substring(0, 8)}`;
-              return <option key={sid} value={sid}>{urlLabel}</option>;
-            })}
-            {Object.keys(sessions).length === 0 && <option value="">No active sites found</option>}
+            {Object.entries(sessions).map(([sid, data]) => (
+              <option key={sid} value={sid}>
+                {data?.active_url ? data.active_url.replace(/^https?:\/\//, '') : `Session ${sid.substring(0, 6)}`}
+              </option>
+            ))}
+            {Object.keys(sessions).length === 0 && <option value="">Awaiting site link...</option>}
           </select>
         </div>
       </div>
 
-      <div className="custom-scrollbar bg-black/20 pb-4" style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-        <div className="tree-container">
-          {/* Protocol Rules as the first "Node" in the tree */}
-          <div
-            className={`ide-tree-row ${selectedLandmark === 'instructions' ? 'selected' : ''}`}
-            style={{ paddingLeft: '8px' }}
-            onClick={() => onSelectLandmark('instructions')}
-          >
-            <div className="ide-tree-chevron hidden"><ChevronRight size={14} /></div>
-            <div className="ide-tree-icon rules"><BookOpen size={14} /></div>
-            <span className="ide-tree-text bold">Protocol Rules</span>
-          </div>
-
-          {renderTreeNodes(treeData)}
+      {/* Tree Content */}
+      <div className="tree-scroller custom-scrollbar">
+        <div 
+          className={`tree-node-row ${selectedLandmark === 'instructions' ? 'selected' : ''}`}
+          onClick={() => onSelectLandmark('instructions')}
+        >
+          <div className="chevron-icon invisible"><ChevronRight size={14} /></div>
+          <div className="node-icon rules"><BookOpen size={13} /></div>
+          <span className="node-text bold">Protocol Rules</span>
         </div>
+
+        {renderNodes(treeData)}
       </div>
     </div>
   );

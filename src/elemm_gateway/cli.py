@@ -44,31 +44,17 @@ async def async_main():
     try:
         gateway = ElemmGateway(server_name=args.name)
         
-        # Friendly greeting on stderr
-        banner = f"""
-╔════════════════════════════════════════════════════════════════════╗
-║  🚀 ELEMM GATEWAY v1.1.3 - Active & Ready                          ║
-║  Connect ANY website or OpenAPI spec to your AI Agent.             ║
-╚════════════════════════════════════════════════════════════════════╝
-"""
-        print(banner, file=sys.stderr)
+        # Banner removed for protocol purity
 
         if args.url:
             logger.info(f"Auto-connecting to: {args.url}")
             await gateway._connect(args.url)
         else:
-            logger.info("No initial URL provided. Waiting for agent to call 'connect_to_site'.")
-            print("💡 TIP: Tell your Agent: 'Connect to http://example.com' or provide an OpenAPI URL.", file=sys.stderr)
+            pass
             
         if args.transport == "stdio":
             logger.info("Transport: STDIO (Perfect for Claude Desktop / Cursor)")
-            from mcp.server.stdio import stdio_server
-            async with stdio_server() as (read, write):
-                await gateway.server.run(
-                    read, 
-                    write, 
-                    gateway.server.create_initialization_options()
-                )
+            await gateway.run()
         else:
             logger.info(f"Transport: SSE (Webserver Mode)")
             logger.info(f"Listening on: http://{args.host}:{args.port}/sse")

@@ -18,7 +18,7 @@ import respx
 import httpx
 import json
 from elemm_gateway.server import ElemmGateway
-from elemm_gateway.graphql_bridge import GraphQLBridge
+from elemm_gateway.services.graphql_bridge import GraphQLBridge
 
 MOCK_GQL_URL = "https://api.test/graphql"
 

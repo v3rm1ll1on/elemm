@@ -1,0 +1,195 @@
+# Copyright (C) 2026 Marc Stöcker
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import json
+import asyncio
+import time
+import logging
+from typing import Any, Dict, List
+import mcp.types as types
+
+logger = logging.getLogger("elemm-gateway")
+
+class SequenceEngine:
+    """Orchestrates multi-step tool calls with data piping and session isolation."""
+    def __init__(self, gateway: Any):
+        self.gateway = gateway
+        self.sessions: Dict[str, Dict[str, Any]] = {}
+
+    def get_session_aliases(self, session_id: str) -> Dict[str, Any]:
+        if session_id not in self.sessions:
+            self.sessions[session_id] = {}
+        return self.sessions[session_id]
+
+    def clear_session(self, session_id: str):
+        if session_id in self.sessions:
+            del self.sessions[session_id]
+
+    def format_aliases_markdown(self, session_id: str) -> str:
+        """Returns a formatted markdown summary of stored findings."""
+        aliases = self.get_session_aliases(session_id)
+        res = (
+            "### SESSION GOVERNANCE\n"
+            "- Use 'list_aliases' to see all current session findings ($step0, $step1, etc.).\n"
+            "- PIPING: Chain results via '$alias.field' (e.g. '$step0.id') in any parameter.\n"
+            "- ISOLATION: Findings are stored for the duration of the 'session_id'.\n"
+            "- CLEANUP: Call 'clear_session' after task completion for privacy.\n\n"
+        )
+        res += f"### MEMORY BANK (Session: {session_id})\n"
+        if not aliases:
+            res += "- No findings stored yet in this session."
+        else:
+            for a, v in sorted(aliases.items()):
+                # Truncate values for privacy and token economy
+                v_str = str(v)
+                if len(v_str) > 200: v_str = v_str[:197] + "..."
+                res += f"- **${a}**: {v_str}\n"
+        return res
+
+    async def execute(self, actions: List[Dict[str, Any]] = None, session_id: str = "default", **kwargs) -> List[types.TextContent]:
+        from elemm_gateway.services.monitor import get_monitor
+        monitor = get_monitor()
+        
+        actions = actions or kwargs.get("steps", [])
+        if not actions:
+            return [types.TextContent(type="text", text="Error: No actions or steps provided in sequence.")]
+            
+        aliases = self.get_session_aliases(session_id)
+        results = []
+        
+        for i, step in enumerate(actions):
+            action_id = step.get("action")
+            params = step.get("parameters", {})
+            alias = step.get("alias")
+            on_error = step.get("on_error", "stop")
+            
+            try:
+                resolved_params = self._resolve_piping(params, aliases)
+            except Exception as e:
+                error_res = {
+                    "status": "error",
+                    "_PROTOCOL_ERROR": "PIPING_FAILED",
+                    "message": f"Data piping failed: {str(e)}",
+                    "remedy": "Check if the alias exists and the path is correct using 'elemm:list_aliases'."
+                }
+                results.append({"step": i, "action": action_id, "alias": alias or f"step{i}", "result": error_res})
+                aliases[f"step{i}"] = error_res
+                if alias: aliases[alias] = error_res
+                if on_error == "stop": break
+                continue
+
+            retries = step.get("retry", 0)
+            retry_on = step.get("retryOn", [])
+            attempt = 0
+            
+            while attempt <= retries:
+                attempt_start = time.perf_counter()
+                try:
+                    if action_id.startswith("elemm:"):
+                        result_val = await self.gateway._execute_single(action_id, resolved_params, session_id=session_id)
+                    elif action_id in ["get_manifest", "get_landmarks", "inspect_landmark"]:
+                        tool_results = await self.gateway._proxy_core_tool(action_id, resolved_params, session_id=session_id)
+                        result_val = tool_results[0].text
+                    else:
+                        result_val = await self.gateway._execute_single(action_id, resolved_params, session_id=session_id)
+                except Exception as e:
+                    result_val = json.dumps({"status": "error", "message": f"Internal Execution Error: {str(e)}"})
+
+                duration_ms = int((time.perf_counter() - attempt_start) * 1000)
+                
+                try: final_res = json.loads(result_val)
+                except: final_res = result_val
+                
+                if isinstance(final_res, dict) and (final_res.get("status") == "error" or "_PROTOCOL_ERROR" in final_res):
+                    proto_err = final_res.get("_PROTOCOL_ERROR")
+                    if proto_err in retry_on and attempt < retries:
+                        attempt += 1
+                        await asyncio.sleep(1)
+                        continue
+                break
+
+            aliases[f"step{i}"] = final_res
+            if alias: aliases[alias] = final_res
+
+            res_str = json.dumps(final_res, indent=2) if not isinstance(final_res, str) else final_res
+            is_truncated = False
+            if len(res_str) > 5000:
+                res_str = res_str[:4997] + "\n\n(Note: Result truncated...)"
+                is_truncated = True
+
+            results.append({
+                "step": i, "action": action_id, "alias": alias or f"step{i}",
+                "duration_ms": duration_ms, "result": json.loads(res_str) if not isinstance(final_res, str) and not is_truncated else res_str,
+                "_truncated": is_truncated
+            })
+
+            if isinstance(final_res, dict) and (final_res.get("status") == "error" or "_PROTOCOL_ERROR" in final_res) and on_error == "stop":
+                break
+
+        return [types.TextContent(type="text", text=json.dumps(results, indent=2))]
+
+    def _resolve_piping(self, params: Any, aliases: Dict[str, Any]) -> Any:
+        if isinstance(params, str) and params.startswith("$"):
+            import re
+            match = re.match(r"\$([\w\d]+)(.*)", params)
+            if match:
+                alias_name, path = match.groups()
+                if alias_name in aliases:
+                    val = aliases[alias_name]
+                    if not path: return val
+                    return self._navigate(val, path, aliases)
+                else:
+                    raise KeyError(f"Alias '{alias_name}' not found.")
+            return params
+        
+        if isinstance(params, list):
+            return [self._resolve_piping(p, aliases) for p in params]
+        if isinstance(params, dict):
+            return {k: self._resolve_piping(v, aliases) for k, v in params.items()}
+        return params
+
+    def _navigate(self, data: Any, path: str, aliases: Dict[str, Any]) -> Any:
+        """Navigates through a data structure using a dot-notated path."""
+        if not path:
+            return data
+        
+        # Normalize path: remove leading dot if any
+        if path.startswith("."):
+            path = path[1:]
+        
+        parts = []
+        # Complex regex to handle both .field and [index]
+        import re
+        for match in re.finditer(r"([^.\[\]]+)|\[(\d+)\]", path):
+            if match.group(1): # field
+                parts.append(match.group(1))
+            else: # index
+                parts.append(int(match.group(2)))
+        
+        curr = data
+        for p in parts:
+            if not p: continue
+            try:
+                if isinstance(p, int):
+                    curr = curr[p]
+                else:
+                    curr = curr[p]
+            except (KeyError, IndexError, TypeError):
+                available = list(curr.keys()) if isinstance(curr, dict) else "N/A"
+                raise ValueError(f"Path component '{p}' failed. Available at this level: {available}")
+            
+            if curr is None: break
+            
+        return curr

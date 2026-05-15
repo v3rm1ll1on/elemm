@@ -1,12 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Clock, Zap, Info } from 'lucide-react';
-
-const Tooltip = ({ text }) => (
-  <div className="tooltip-wrapper">
-    <Info size={14} className="info-icon" />
-    <span className="tooltip-text">{text}</span>
-  </div>
-);
+import { Shield, Clock, Zap } from 'lucide-react';
+import Tooltip from './Tooltip';
+import './Settings.css';
 
 const Settings = () => {
   const [config, setConfig] = useState(null);
@@ -127,7 +122,7 @@ const Settings = () => {
               />
             </div>
             <div className="form-group">
-              <label>Allowed HTTP Methods <Tooltip text="Restrict outgoing methods." /></label>
+              <label>Allowed HTTP Methods <Tooltip text="Restrict outgoing API requests to these specific HTTP methods." /></label>
               <div className="switch-group">
                 {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(method => (
                   <div key={method} className="switch-item">
@@ -188,6 +183,43 @@ const Settings = () => {
               <div className="form-group">
                 <label>Delay (ms)</label>
                 <input type="number" value={config.retry_delay_ms} onChange={(e) => updateNested('retry_delay_ms', parseInt(e.target.value))} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* UI & Metrics Section */}
+        <div className="settings-card glass">
+          <div className="card-header">
+            <Zap size={20} className="text-accent" />
+            <h3>UI & Metrics</h3>
+          </div>
+          <div className="card-body">
+            <div className="form-group">
+              <label>Traffic Display Mode <Tooltip text="Select how data consumption is displayed in the dashboard." /></label>
+              <select 
+                value={config.ui?.display_mode || 'tokens'} 
+                onChange={(e) => updateNested('ui.display_mode', e.target.value)}
+              >
+                <option value="tokens">Tokens (Estimated)</option>
+                <option value="chars">Characters (Precise)</option>
+                <option value="both">Both (Combined)</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Char-to-Token Ratio: <strong>{config.ui?.char_to_token_ratio || 4.0}</strong> <Tooltip text="Adjust the average character-per-token count for better estimation. Standard LLMs use ~4.0." /></label>
+              <input 
+                type="range" 
+                min="2.0" 
+                max="6.0" 
+                step="0.1" 
+                value={config.ui?.char_to_token_ratio || 4.0} 
+                onChange={(e) => updateNested('ui.char_to_token_ratio', parseFloat(e.target.value))} 
+              />
+              <div className="range-labels">
+                <span>Tight (2.0)</span>
+                <span>Standard (4.0)</span>
+                <span>Loose (6.0)</span>
               </div>
             </div>
           </div>

@@ -111,20 +111,10 @@ class FastAPIGateway:
                 # Case-insensitive Lookup
                 lms = []
                 all_lms_lower = {lid.lower(): lm for lid, lm in self.manager.landmarks.items()}
-                for qid in query_ids:
-                    if qid in all_lms_lower:
-                        lms.append(all_lms_lower[qid])
-                
-                manifest_md = self.manager.presenter.present_manifest(
-                    lms, 
-                    full=True, 
-                    skip_header=False, 
-                    technical=technical,
-                    max_ctx=ctx_limit
-                )
+                manifest_md = self.manager.get_manifest(query_ids, technical=technical)
             else:
                 # Standard-Manifest mit v1-Logik (Summary)
-                manifest_md = self.manager.get_manifest_md(technical=technical or full, limit=ctx_limit)
+                manifest_md = self.manager.get_manifest(technical=technical or full, limit=ctx_limit)
             
             return Response(content=manifest_md, media_type="text/markdown")
 

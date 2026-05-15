@@ -25,9 +25,10 @@ class SequenceEngine:
     def __init__(self, manager):
         self.manager = manager
 
-    async def run(self, actions: List[Dict[str, Any]], context: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def run(self, actions: List[Dict[str, Any]], context: Dict[str, Any], index_offset: int = 0) -> List[Dict[str, Any]]:
         results = []
-        for i, action_req in enumerate(actions):
+        for i_raw, action_req in enumerate(actions):
+            i = i_raw + index_offset
             action_id = action_req.get("action")
             raw_params = action_req.get("parameters", {})
             alias = action_req.get("alias")
@@ -189,10 +190,6 @@ class SequenceEngine:
             if current_key in source:
                 return self._navigate_path(source[current_key], remaining, alias_context)
             
-            # Single-field unwrap (fallback)
-            if len(source) == 1 and not remaining:
-                return list(source.values())[0], None
-                
             return None, f"Field '{current_key}' not found in '${alias_context}'. Available: {list(source.keys())}"
 
         if isinstance(source, list):

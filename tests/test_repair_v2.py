@@ -47,7 +47,7 @@ def test_repair_prohibited_direct_call():
 def test_repair_namespace_execution():
     res = SmartRepairEngine.handle_namespace_execution_attempt("home")
     assert "Landmark Namespace" in res.message
-    assert "elemm:inspect_landmark" in res.remedy
+    assert "inspect_landmark" in res.remedy
 
 def test_repair_placeholder_detected():
     res = SmartRepairEngine.handle_placeholder_detected("city", "$prev_result.city")

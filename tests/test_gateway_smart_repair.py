@@ -55,7 +55,7 @@ async def test_openapi_error_details_extraction():
         
         assert res["status"] == "error"
         assert "Invalid date format" in res["message"]
-        assert "elemm:inspect_landmark" in res["remedy"]
+        assert "inspect_landmark" in res["remedy"]
 
 @pytest.mark.asyncio
 async def test_empty_result_info_injection():
@@ -87,13 +87,15 @@ async def test_landmark_namespace_protection_remedy():
         ]
     }
     
+    gateway.manifest_loaded = True
+    
     # We call 'Weather' which is a landmark (prefix of Weather_get)
     res_str = await gateway._execute_openapi("Weather", {})
     res = json.loads(res_str)
     
     assert "STRUCTURAL ERROR" in res["message"]
     assert "Landmark Namespace" in res["message"]
-    assert "elemm:inspect_landmark" in res["remedy"]
+    assert "inspect_landmark" in res["remedy"]
 
 @pytest.mark.asyncio
 async def test_vault_hot_reload():

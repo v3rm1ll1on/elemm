@@ -14,7 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional, Callable, Union
 from pydantic import BaseModel
 from .models import Landmark, LandmarkRegistry, Manifest, Parameter
 
@@ -115,6 +115,9 @@ class AIProtocolManager:
             
             return func
         return decorator
+
+    # Backward compatibility alias
+    bind = landmark
 
     def register(self, landmark_id: str, **landmark_data):
         """Hilfsmethode zur Registrierung von Landmarken ohne Handler."""
@@ -249,26 +252,55 @@ class AIProtocolManager:
         """Gibt alle Root-Landmarken zurück."""
         return [l for l in self.landmarks.values() if ":" not in l.id]
 
-    def get_manifest(self, **kwargs) -> str:
-        """Generiert das Manifest (High-Level Topology für Progressive Disclosure)."""
-        all_landmarks = [l for l in self.landmarks.values() if ":" not in l.id]
+    def _get_registry_lower(self) -> Dict[str, Landmark]:
+        """Lazy-loaded lower-case registry for fast lookups."""
+        if not hasattr(self, "_registry_cache") or len(self._registry_cache) != len(self.landmarks):
+            self._registry_cache = {k.lower(): v for k, v in self.landmarks.items()}
+        return self._registry_cache
+
+    def get_manifest(self, landmark_id: Optional[Union[str, List[str]]] = None, **kwargs) -> str:
+        """Generiert ein dynamisches Manifest basierend auf dem Kontext (Case-Insensitive)."""
+        all_landmarks = []
+        logger.info(f"get_manifest called with landmark_id={landmark_id}")
         
-        # In v2.2 (TypeScript/Progressive Disclosure Update) zeigen wir standardmäßig 
-        # NIE die Signaturen im Root-Manifest, um Kontext zu sparen (Lazy Loading).
-        # Außer, es wird explizit 'full=True' angefordert (z.B. durch Legacy-Routen).
-        is_full = kwargs.get("full", False)
-        hide_signatures = not is_full
+        show_technical = kwargs.pop("technical", False)
         
-        # Erlaube Übersteuerung des Limits via Kwargs (z.B. durch Discovery-Parameter)
-        ctx_limit = kwargs.get("limit") or self.ctx_threshold
+        if landmark_id:
+            ids = [landmark_id] if isinstance(landmark_id, str) else landmark_id
+            reg_lower = self._get_registry_lower()
+            
+            for lid in ids:
+                # Suche erst exakt, dann lower
+                landmark = self.landmarks.get(lid) or reg_lower.get(lid.lower())
+                
+                if not landmark:
+                    logger.warning(f"Landmark {lid} not found in registry.")
+                    continue
+                
+                # Wenn es eine Area ist (kein handler), zeigen wir ihre Kinder
+                if not getattr(landmark, 'handler', None) and landmark.tools:
+                    logger.info(f"Expanding area {landmark.id} into {len(landmark.tools)} sub-items")
+                    all_landmarks.extend(landmark.tools)
+                else:
+                    # Es ist ein Tool oder eine leere Area
+                    all_landmarks.append(landmark)
+        else:
+            # Root-Ebene: Zeige alle Landmarks ohne Doppelpunkt (Distrikte/Hauptbereiche)
+            all_landmarks = [l for l in self.landmarks.values() if ":" not in l.id]
+
+        if not all_landmarks and landmark_id:
+            return f"# Error: No landmarks found for IDs: {landmark_id}"
+
+        # Context-Hygiene: Header nur zeigen, wenn wir auf Root-Ebene sind (keine spezifische ID)
+        is_root = landmark_id is None
         
         return self.presenter.present_manifest(
             all_landmarks, 
-            instructions=self.instructions,
-            welcome_message=self.welcome_message,
-            hide_json=hide_signatures,
-            technical=kwargs.get("technical", False),
-            max_ctx=ctx_limit
+            instructions=self.instructions if is_root else "",
+            welcome_message=self.welcome_message if is_root else "",
+            show_technical=show_technical,
+            is_root=is_root,
+            **kwargs
         )
 
     def inspect_landmark(self, landmark_id: str) -> str:
@@ -291,8 +323,10 @@ class AIProtocolManager:
     def list_aliases(self) -> Dict[str, Any]:
         return self.global_context
 
-    def get_manifest_md(self, **kwargs) -> str:
-        return self.get_manifest(**kwargs)
+    def get_manifest_dict(self) -> List[Dict[str, Any]]:
+        """Gibt eine Liste aller Landmarken als Dictionary zurück."""
+        return [l.model_dump(exclude_none=True) for l in self.landmarks.values()]
+
 
     def load_metadata(self, path: str):
         """Loads YAML metadata and updates existing landmarks."""
@@ -308,9 +342,6 @@ class AIProtocolManager:
                 landmark.parameters = meta.parameters or landmark.parameters
                 landmark.remedy = meta.remedy or landmark.remedy
 
-    def bind(self, landmark_id: str):
-        """Decorator binding for legacy compatibility."""
-        return self.landmark(landmark_id)
 
 
 class ElemmGateway:
@@ -356,7 +387,7 @@ class ElemmGateway:
         gateway = FastAPIGateway(self.manager)
         gateway.bind_to_app(app)
         
-        print(f"Elemm: Landmark Manifest Protocol active at http://{host}:{port}")
+        # print(f"Elemm: Landmark Manifest Protocol active at http://{host}:{port}")
         uvicorn.run(app, host=host, port=port)
 
     def run_mcp(self):

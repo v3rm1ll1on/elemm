@@ -1,37 +1,38 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  /* Color Palette - Professional Slate & Indigo */
-  --bg-color: #0b0e14;
-  --bg-surface: #151921;
-  --bg-subtle: #1c212c;
+  /* Core Palette */
+  --bg-color: #080a10;
+  --bg-surface: #0f121a;
+  --bg-subtle: #161b26;
   
-  --accent-primary: #6366f1; /* Indigo 500 */
-  --accent-secondary: #0ea5e9; /* Sky 500 */
-  --accent-success: #10b981; /* Emerald 500 */
-  --accent-warning: #f59e0b; /* Amber 500 */
-  --accent-danger: #ef4444; /* Red 500 */
+  --accent-primary: #6366f1; /* Indigo */
+  --accent-secondary: #38bdf8; /* Sky */
+  --accent-glow: rgba(99, 102, 241, 0.4);
   
-  --text-primary: #f8fafc;
+  --text-primary: #ffffff;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
   
-  --border-color: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.15);
-  
-  --glass-bg: rgba(21, 25, 33, 0.7);
+  /* Glassmorphism - Premium System */
+  --glass-bg: rgba(8, 12, 24, 0.6);
+  --glass-blur: blur(40px) saturate(180%);
   --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-blur: blur(16px);
+  --glass-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
   
+  /* Card System */
+  --card-bg: rgba(255, 255, 255, 0.03);
+  --card-border: rgba(255, 255, 255, 0.05);
+  --card-radius-lg: 24px;
+  --card-radius-md: 16px;
+  
+  /* Layout */
   --sidebar-width-collapsed: 72px;
   --sidebar-width-expanded: 260px;
   
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-
-  --transition-base: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Interaction */
+  --transition-base: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-fast: all 0.15s ease;
 }
 
 * {
@@ -149,3 +150,67 @@ code, pre {
   animation: fadeIn 0.4s ease-out forwards;
 }
 
+/* Tooltip System (Global) */
+.tooltip-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-left: 8px;
+  cursor: help;
+  vertical-align: middle;
+}
+
+.info-icon {
+  display: block;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  transition: var(--transition-base);
+}
+
+.tooltip-wrapper:hover .info-icon {
+  color: var(--accent-primary);
+  opacity: 1;
+}
+
+.tooltip-text {
+  visibility: hidden;
+  width: 260px;
+  background-color: #0f172a;
+  color: #e2e8f0;
+  text-align: left;
+  border-radius: 12px;
+  padding: 14px 18px;
+  position: absolute;
+  z-index: 10000;
+  bottom: calc(100% + 10px);
+  left: 0; /* Links ausgerichtet statt zentriert */
+  transform: translateY(10px);
+  opacity: 0;
+  transition: opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 0.85rem;
+  font-weight: 400;
+  line-height: 1.6;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+.tooltip-wrapper:hover .tooltip-text {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Dashboard Specific Layout Helpers */
+.stat-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}

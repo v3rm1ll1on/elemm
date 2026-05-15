@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Key, Plus, Trash2, Eye, EyeOff, Globe, Clock, Shield, Info } from 'lucide-react';
+import './Vault.css';
 import Slide2Delete from './Slide2Delete';
 
 const Tooltip = ({ text }) => (

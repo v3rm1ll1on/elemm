@@ -1,0 +1,273 @@
+/* Vault Specific Styling */
+.vault-container {
+  padding: 8px;
+}
+
+.vault-intro {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+  margin-bottom: 30px;
+  background: rgba(99, 102, 241, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.1);
+  border-radius: 12px;
+}
+
+.vault-intro p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-size: 0.9375rem;
+}
+
+.vault-actions {
+  margin-bottom: 24px;
+}
+
+.vault-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 24px;
+}
+
+.vault-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--card-radius-md);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  transition: var(--transition-base);
+  overflow: hidden;
+}
+
+.vault-card:hover {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.05);
+  transform: translateY(-2px);
+}
+
+.vault-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 24px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--card-border);
+}
+
+.host-input {
+  flex: 1;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text-primary);
+  box-shadow: none !important;
+}
+
+.vault-card-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrapper input {
+  padding-right: 45px;
+  width: 100%;
+}
+
+.visibility-toggle {
+  position: absolute;
+  right: 8px;
+  color: var(--text-secondary);
+  background: transparent !important;
+  border: none;
+  opacity: 0.6;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.visibility-toggle:hover {
+  opacity: 1;
+  color: var(--accent-primary) !important;
+  background: rgba(99, 102, 241, 0.1) !important;
+}
+
+.vault-container select {
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 16px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.875rem;
+  width: 100%;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  transition: var(--transition-base);
+}
+
+.vault-container select:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.vault-container select option {
+  background-color: #1e1e2e;
+  color: var(--text-primary);
+}
+
+.btn-icon {
+  background: transparent;
+  border: none;
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.btn-icon:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.btn-icon.text-error:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.empty-vault {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px;
+  text-align: center;
+  color: var(--text-secondary);
+  gap: 16px;
+}
+
+/* Slide2Delete Styling */
+.vault-card.deleting-mode {
+  position: relative;
+}
+
+.vault-card.deleting-mode .vault-card-header,
+.vault-card.deleting-mode .vault-card-body {
+  filter: blur(8px);
+  pointer-events: none;
+  opacity: 0.4;
+  transition: all 0.3s ease;
+}
+
+.delete-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  padding: 20px;
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.delete-overlay h4 {
+  margin: 0 0 16px 0;
+  color: var(--accent-danger);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.slide-track {
+  width: 100%;
+  max-width: 260px;
+  height: 48px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 24px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  overflow: hidden;
+}
+
+.slide-label {
+  position: absolute;
+  width: 100%;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(239, 68, 68, 0.6);
+  pointer-events: none;
+  user-select: none;
+}
+
+.slide-handle {
+  width: 40px;
+  height: 40px;
+  background: var(--accent-danger);
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  cursor: grab;
+  z-index: 2;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+.slide-handle:active {
+  cursor: grabbing;
+}
+
+.deleting-text {
+  color: var(--accent-danger);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: pulse 1s infinite;
+}
+
+.slide-progress {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(239, 68, 68, 0.2);
+  z-index: 1;
+}
+
+.cancel-timer {
+  margin-top: 12px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}

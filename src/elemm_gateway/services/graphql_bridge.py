@@ -90,6 +90,37 @@ class GraphQLBridge:
         }
 
     @staticmethod
+    def generate_virtual_manifest(parsed_data: Dict[str, Any]) -> str:
+        """Generates a virtual Elemm manifest from GQL schema data."""
+        from elemm_gateway.components import ManifestBuilder
+        title = parsed_data.get("title", "GraphQL API")
+        tools = parsed_data.get("tools", [])
+        
+        # Group by category (Query/Mutation)
+        categories = {}
+        for t in tools:
+            cat = t["name"].split(":")[0]
+            if cat not in categories: categories[cat] = []
+            categories[cat].append(t)
+            
+        lines = [
+            ManifestBuilder.build_header(title, "v1-gql"),
+            "### LANDMARK TOPOLOGY",
+            "> [!NOTE]",
+            "> This is a virtual landmark hierarchy generated from GraphQL Introspection.",
+            ""
+        ]
+        
+        for cat, cat_tools in categories.items():
+            lines.append(f"- Landmark: `{cat}` (Namespace) - {cat} operations.")
+            for t in cat_tools[:15]:
+                lines.append(f"  - Tool: `{t['name']}`")
+            if len(cat_tools) > 15:
+                lines.append(f"  - ... and {len(cat_tools)-15} more.")
+                
+        return "\n".join(lines)
+
+    @staticmethod
     def _process_fields(type_obj: Dict[str, Any], category: str, url: str) -> List[Dict[str, Any]]:
         tools = []
         for field in type_obj.get("fields", []):

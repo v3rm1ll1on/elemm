@@ -1,6 +1,16 @@
 import React, { useState, useMemo } from 'react';
+import './CallHistory.css';
 
-const CallHistoryItem = ({ group }) => {
+const formatTraffic = (tokens, chars, config) => {
+  const displayMode = config?.ui?.display_mode || 'tokens';
+  const formatNum = (n) => n > 999 ? (n/1000).toFixed(1) + 'k' : n;
+  
+  if (displayMode === 'chars') return `${formatNum(chars)} ch`;
+  if (displayMode === 'both') return `${formatNum(tokens)}t (${formatNum(chars)}c)`;
+  return formatNum(tokens);
+};
+
+const CallHistoryItem = ({ group, config }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   
   // Find events
@@ -19,6 +29,8 @@ const CallHistoryItem = ({ group }) => {
   
   const tokensIn = group.reduce((sum, ev) => sum + (ev.tokens_in || 0), 0);
   const tokensOut = group.reduce((sum, ev) => sum + (ev.tokens_out || 0), 0);
+  const charsIn = group.reduce((sum, ev) => sum + (ev.chars_in || 0), 0);
+  const charsOut = group.reduce((sum, ev) => sum + (ev.chars_out || 0), 0);
 
   if (!displayEvent.request_id && group.length === 1 && !displayEvent.action?.includes(':')) {
      // Skip system initialization or noise events that aren't tool calls
@@ -38,8 +50,8 @@ const CallHistoryItem = ({ group }) => {
         
         <div className="call-status-info">
           <div className="call-traffic">
-            <span className="in">↓ {tokensIn.toLocaleString()}</span>
-            <span className="out">↑ {tokensOut.toLocaleString()}</span>
+            <span className="in">↓ {formatTraffic(tokensIn, charsIn, config)}</span>
+            <span className="out">↑ {formatTraffic(tokensOut, charsOut, config)}</span>
           </div>
           <div className={`status-pill ${status}`}>
             {status}
@@ -93,7 +105,7 @@ const CallHistoryItem = ({ group }) => {
   );
 };
 
-const CallHistory = ({ history, selectedSessionId }) => {
+const CallHistory = ({ history, selectedSessionId, config }) => {
   const groups = useMemo(() => {
     if (!history) return [];
     
@@ -122,7 +134,7 @@ const CallHistory = ({ history, selectedSessionId }) => {
   return (
     <div className="call-history-container">
       {groups.map((group, i) => (
-        <CallHistoryItem key={group[0].request_id || i} group={group} />
+        <CallHistoryItem key={group[0].request_id || i} group={group} config={config} />
       ))}
     </div>
   );

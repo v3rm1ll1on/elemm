@@ -158,10 +158,10 @@ def generate_logs():
     
     # Pre-defined indices for our 4 scenarios to ensure they appear
     scenario_indices = {
-        15: CITY_ALERTS["Nord:Sector_42"],
-        35: CITY_ALERTS["West:Sector_10"],
-        65: CITY_ALERTS["Zentrum:Sector_01"],
-        85: CITY_ALERTS["Suedost:Sector_777"]
+        15: CITY_ALERTS.get("Nord:Sector_142", ""),
+        35: CITY_ALERTS.get("West:Sector_410", ""),
+        65: CITY_ALERTS.get("Zentrum:Sector_042", ""),
+        85: CITY_ALERTS.get("Suedost:Sector_777", "")
     }
     
     for i in range(100):
@@ -192,12 +192,16 @@ logger.info("Registering 100,000 tools in 10 regions...")
 # 0. Global Management
 manager.landmark(
     "city:status_summary",
-    description="Get a summary of all active alerts and status reports across all city sectors."
+    description="Get a summary of all active alerts and status reports across all city sectors.",
+    returns="{status: string, timestamp: string, total_alerts: number, alerts: dict}",
+    remedy="Scan the 'alerts' dictionary for [CRITICAL] tags. Use 'inspect_landmark' on the mentioned sector to begin troubleshooting."
 )(get_status_summary)
 
 manager.landmark(
     "city:get_security_logs",
-    description="Retrieve the last 100 security log entries from the central monitoring system."
+    description="Retrieve the last 100 security log entries from the central monitoring system.",
+    returns="{status: string, log_format: string, content: string}",
+    remedy="Look for 'Unauthorized access' or 'Brute force' events. Note the sector IDs mentioned in the log content."
 )(get_security_logs)
 
 region_list = list(REGIONS.keys())
@@ -253,7 +257,8 @@ for i, district in enumerate(DISTRICTS):
                 parameters=[
                     Parameter(name="reason", type="string", description="Reason for the call", required=False),
                     Parameter(name="priority", type="number", description="Priority (1-10)", required=False, default=5)
-                ]
+                ],
+                returns="{status: string, district: string, category: string, tool: string, metadata: dict}"
             )(create_tool_handler(district, category, tool_name))
         
         # 4. Special Tools for Scenarios
@@ -265,7 +270,8 @@ for i, district in enumerate(DISTRICTS):
                 parameters=[
                     Parameter(name="source", type="string", description="Surging source (e.g. Substation_A)", required=True),
                     Parameter(name="target", type="string", description="Target destination (e.g. Substation_B)", required=True)
-                ]
+                ],
+                returns="{status: string, message: string, load_factor: number}"
             )(lambda source, target, **kw: {
                 "status": "success",
                 "message": f"Power successfully rerouted from {source} to {target}. Grid stabilized.",
@@ -279,7 +285,9 @@ for i, district in enumerate(DISTRICTS):
                 description="Applies an emergency patch to a burst pipe.",
                 parameters=[
                     Parameter(name="pressure_reduction", type="boolean", description="Whether to reduce pressure during patch", required=True)
-                ]
+                ],
+                returns="{status: string, message: string, leak_rate: number}",
+                remedy="Evaluated the current pipe pressure before patching. High pressure during a patch operation may result in secondary bursts."
             )(lambda pressure_reduction, **kw: {
                 "status": "success",
                 "message": "Pipe successfully patched. " + ("Pressure reduced for safety." if pressure_reduction else "Warning: High pressure maintained."),
@@ -293,7 +301,8 @@ for i, district in enumerate(DISTRICTS):
                 description="Adjusts traffic signals to clear gridlock.",
                 parameters=[
                     Parameter(name="mode", type="string", description="Signal mode (e.g. EMERGENCY_CLEARANCE)", required=True)
-                ]
+                ],
+                returns="{status: string, message: string, flow_rate: string}"
             )(lambda mode, **kw: {
                 "status": "success",
                 "message": f"Signals set to {mode}. Traffic beginning to flow.",
@@ -320,10 +329,11 @@ for i, district in enumerate(DISTRICTS):
             manager.landmark(
                 f"{category_landmark_id}:lockdown_terminal",
                 description="EMERGENCY ONLY: Locks down Terminal 0xAF4 and revokes unauthorized access.",
-                remedy="Mechanical override active. You must first release the emergency brake in Suedost:Sector_777:infrastructure.",
+                remedy="Mechanical override active. If execution fails with MECHANICAL_LOCK, you must first release the emergency brake in Suedost:Sector_777:infrastructure.",
                 parameters=[
                     Parameter(name="confirmation", type="string", description="Type 'CONFIRM' to execute lockdown", required=True)
-                ]
+                ],
+                returns="{status: string, message: string, incident_id: string}"
             )(lockdown_handler)
 
         # Scenario 5: Infrastructure Dependency (Suedost:Sector_777)
@@ -339,7 +349,9 @@ for i, district in enumerate(DISTRICTS):
             manager.landmark(
                 f"{category_landmark_id}:release_emergency_brake",
                 description="Releases the mechanical emergency brake for this sector. Required before any security lockdown.",
-                parameters=[]
+                parameters=[],
+                returns="{status: string, message: string}",
+                remedy="This action is irreversible for the current session. Ensure all personnel have cleared the mechanical bridge before release."
             )(release_brake_handler)
 
 logger.info(f"Registrierung abgeschlossen. {len(manager.landmarks)} Landmarks geladen.")

@@ -17,8 +17,8 @@
 
 .sidebar.expanded {
   width: var(--sidebar-width-expanded);
-  box-shadow: 10px 0 40px rgba(0, 0, 0, 0.5);
-  background: rgba(15, 23, 42, 0.95);
+  box-shadow: 20px 0 50px rgba(0, 0, 0, 0.6); /* Stärkerer Schatten für Overlay-Look */
+  background: rgba(15, 23, 42, 0.98); /* Etwas undurchsichtiger */
 }
 
 .sidebar-header {

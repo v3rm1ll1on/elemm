@@ -16,7 +16,7 @@
 import pytest
 import json
 from unittest.mock import MagicMock, AsyncMock
-from elemm_gateway.graphql_bridge import GraphQLBridge
+from elemm_gateway.services.graphql_bridge import GraphQLBridge
 from elemm_gateway.components import GraphQLExecutor, VaultManager
 
 # Mock Introspection Response

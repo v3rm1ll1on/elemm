@@ -18,8 +18,9 @@ class DashboardMonitor:
     Uses httpx for better performance and consistency.
     """
     
-    def __init__(self, publish_url: str = None):
+    def __init__(self, publish_url: str = None, char_to_token_ratio: float = 4.0):
         self.publish_url = publish_url or "http://127.0.0.1:8090/api/v1/internal/publish"
+        self.char_to_token_ratio = char_to_token_ratio
         
     def _async_push(self, event: dict):
         """Internal helper to push events via HTTP without blocking."""
@@ -34,24 +35,35 @@ class DashboardMonitor:
                     logger.warning(f"Dashboard Monitor: Server returned {r.status_code}")
         except Exception as e:
             # Log the error so we can see it in the server console
-            print(f"DEBUG: Dashboard Monitor Push Failed: {e}")
+            pass # Silent fail for monitor, don't break main protocol
             logger.error(f"Dashboard Monitor: Failed to push event to {self.publish_url}: {e}")
 
     @staticmethod
-    def estimate_tokens(data: Any, is_input: bool = False) -> int:
+    def calculate_characters(data: Any) -> int:
+        """Calculates raw character count of the data."""
+        if data is None:
+            return 0
+        if isinstance(data, str):
+            return len(data)
+        try:
+            return len(json.dumps(data, indent=None))
+        except:
+            return len(str(data))
+
+    def estimate_tokens(self, data: Any, is_input: bool = False, ratio: float = None) -> int:
         """
-        Estimates token count with realistic LLM overhead.
-        - Base overhead for a tool call: ~40-60 tokens
-        - Payload: 4 chars per token
+        Estimates token count based on character count and ratio.
         """
         if data is None:
             return 0
             
-        # Base cost for the tool call structure (name, syntax)
-        base_cost = 45 if is_input else 15 
+        char_count = self.calculate_characters(data)
         
-        payload_str = json.dumps(data) if not isinstance(data, str) else data
-        payload_cost = len(payload_str) // 4
+        # Pure numbers: no fixed overhead unless specified in config/parameters
+        base_cost = 0
+        
+        actual_ratio = ratio or self.char_to_token_ratio
+        payload_cost = int(char_count / actual_ratio)
         
         return base_cost + payload_cost
 
@@ -62,6 +74,8 @@ class DashboardMonitor:
                        landmark_count: int = None,
                        tokens_in: int = None,
                        tokens_out: int = None,
+                       chars_in: int = None,
+                       chars_out: int = None,
                        session_id: str = "default",
                        input_data: Any = None,
                        output_data: Any = None,
@@ -71,6 +85,12 @@ class DashboardMonitor:
         """
         Broadcasts activity to the dashboard server.
         """
+        # Auto-calculate characters if not provided
+        if chars_in is None and input_data is not None:
+            chars_in = self.calculate_characters(input_data)
+        if chars_out is None and output_data is not None:
+            chars_out = self.calculate_characters(output_data)
+
         # Auto-calculate tokens if not provided
         if tokens_in is None and input_data is not None:
             tokens_in = self.estimate_tokens(input_data, is_input=True)
@@ -85,14 +105,22 @@ class DashboardMonitor:
                 s = str(data)
             return (s[:limit] + '...') if len(s) > limit else s
 
+        # Ensure we always have integers for metrics
+        c_in = int(chars_in) if chars_in is not None else 0
+        c_out = int(chars_out) if chars_out is not None else 0
+        t_in = int(tokens_in) if tokens_in is not None else 0
+        t_out = int(tokens_out) if tokens_out is not None else 0
+
         event = {
             "type": "activity",
             "active_sites_count": active_sites,
             "total_tokens": total_tokens,
             "last_action": last_action,
             "landmark_count": landmark_count,
-            "tokens_in": tokens_in or 0,
-            "tokens_out": tokens_out or 0,
+            "tokens_in": t_in,
+            "tokens_out": t_out,
+            "chars_in": c_in,
+            "chars_out": c_out,
             "session_id": session_id,
             "input": truncate(input_data) if input_data is not None else None,
             "output": truncate(output_data) if output_data is not None else None,
@@ -102,13 +130,11 @@ class DashboardMonitor:
             "request_id": kwargs.get("request_id"),
             "parent_request_id": kwargs.get("parent_request_id"),
             "duration_ms": kwargs.get("duration_ms"),
-            "full_size": kwargs.get("full_size")
+            "full_size": kwargs.get("full_size") or c_out
         }
-        # Filter None
-        clean_event = {k: v for k, v in event.items() if v is not None}
         
         # Always push in background to keep core fast
-        Thread(target=self._async_push, args=(clean_event,)).start()
+        Thread(target=self._async_push, args=(event,)).start()
 
 _monitor = None
 
