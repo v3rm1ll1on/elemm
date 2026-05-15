@@ -261,6 +261,7 @@ class AIProtocolManager:
             
             response = {
                 "status": "error", 
+                "_PROTOCOL_ERROR": "EXECUTION_FAILED",
                 "message": f"Execution failed: {error_detail}"
             }
             
@@ -268,10 +269,8 @@ class AIProtocolManager:
             meta = self.registry.get(action_id)
             if meta and meta.remedy:
                 logger.info(f"Shadowing exception for {action_id} with YAML remedy.")
-                response["message"] = meta.remedy
-                # Keep the technical info hidden from the primary message
-                # but we could put it in a separate field if we really wanted to.
-                # Per previous decision: We hide it from the AI.
+                response["message"] = "Execution failed." # Keep it clean
+                response["remedy"] = meta.remedy
                 
             return response
 

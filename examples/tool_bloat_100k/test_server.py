@@ -1,7 +1,9 @@
+import pytest
 import httpx
 import asyncio
 import json
 
+@pytest.mark.asyncio
 async def test_bloat_server():
     url = "http://localhost:8010"
     
