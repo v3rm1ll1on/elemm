@@ -46,6 +46,9 @@ class FastAPIGateway:
         """Bindet die Protokoll-Endpunkte an eine FastAPI-Instanz."""
         self.app = app
         
+        # 1. Bridge Metadata from FastAPI routes to Elemm Landmarks (Consistency)
+        self._bridge_fastapi_metadata(app)
+        
         # Standardisierte Discovery auf Root-Ebene
         from fastapi import Response, Query
         # v1 Pattern: Agent Repair Handler
@@ -121,7 +124,7 @@ class FastAPIGateway:
                 
                 # If limit is small (e.g. < 500), treat it as an item limit (max_landmarks)
                 # otherwise treat as character limit.
-                p_kwargs = {"offset": offset}
+                p_kwargs = {"offset": offset, "full": full}
                 if offset is not None: p_kwargs["offset"] = offset
                 if limit is not None:
                     if limit < 500:
@@ -133,7 +136,7 @@ class FastAPIGateway:
                 manifest_md = self.manager.get_manifest(lms_to_query, technical=technical, **p_kwargs)
             else:
                 # Standard-Manifest mit v1-Logik (Summary)
-                p_kwargs = {"technical": technical or full, "offset": offset}
+                p_kwargs = {"technical": technical or full, "offset": offset, "full": full}
                 if limit is not None:
                     if limit < 500:
                         p_kwargs["max_landmarks"] = limit
@@ -179,12 +182,12 @@ class FastAPIGateway:
                     status_code=400, 
                     content={"status": "error", "message": "Missing 'action_id' or 'actions' in request body."}
                 )
-
+ 
             # Resolve piping if any (global context)
             resolved_params, err = self.manager.sequencer.resolve_all(parameters, self.manager.global_context)
             if err:
                 return JSONResponse(status_code=400, content={"status": "error", "message": f"Piping failed: {err}"})
-
+ 
             result = await self.manager.call_action(action_id, resolved_params)
             return result
 
@@ -206,7 +209,68 @@ class FastAPIGateway:
                 except json.JSONDecodeError:
                     return JSONResponse(status_code=500, content={"error": "Search failed to generate valid JSON", "raw": res})
             return Response(content=res, media_type="text/markdown")
-
+ 
         # Technisches Interface via Router
         router = self.get_router()
         app.include_router(router)
+
+    def _bridge_fastapi_metadata(self, app: FastAPI):
+        """
+        Synchronisiert FastAPI-Metadaten (Tags) mit den Elemm-Landmarks.
+        Stellt sicher, dass native Landmarks dieselbe Namespace-Struktur wie OpenAPI haben.
+        """
+        from fastapi.routing import APIRoute
+        
+        # 1. Mappe alle registrierten Handlers zu ihren Landmark-IDs
+        handler_map = {}
+        for lid, lm in self.manager.landmarks.items():
+            if lm.handler:
+                handler_map[lm.handler] = lid
+
+        # 2. Scanne FastAPI Routen
+        for route in app.routes:
+            if isinstance(route, APIRoute):
+                handler = route.endpoint
+                if handler in handler_map:
+                    old_id = handler_map[handler]
+                    tags = getattr(route, "tags", [])
+                    
+                    if tags:
+                        tag = tags[0]
+                        
+                        # Wir wollen den ursprünglichen Namen, den der User im Decorator angegeben hat.
+                        # Wenn old_id "namespace:func" ist, extrahieren wir den "namespace" Teil,
+                        # falls dieser vom User kam.
+                        
+                        parts = old_id.split(":")
+                        # Wir nehmen den letzten Teil der ID als eigentlichen Tool-Namen
+                        base_name = parts[-1]
+                        new_id = f"{tag}:{base_name}"
+                        
+                        if new_id != old_id:
+                            import logging
+                            logger = logging.getLogger("elemm-fastapi-bridge")
+                            logger.info(f"Syncing Namespace: {old_id} -> {new_id} (via FastAPI Tag '{tag}')")
+                            
+                            landmark = self.manager.landmarks[old_id]
+                            
+                            # 1. Wir löschen die alte Landmark (das Leaf)
+                            del self.manager.landmarks[old_id]
+                            
+                            # 2. Wir löschen auch den alten Namespace, falls er jetzt verwaist ist
+                            # (also keine anderen Kinder mehr hat)
+                            old_parts = old_id.split(":")
+                            for j in range(len(old_parts) - 1, 0, -1):
+                                parent_id = ":".join(old_parts[:j])
+                                # Prüfe ob noch andere Landmarks diesen Parent nutzen
+                                has_siblings = any(lid.startswith(f"{parent_id}:") for lid in self.manager.landmarks.keys())
+                                if not has_siblings and parent_id in self.manager.landmarks:
+                                    del self.manager.landmarks[parent_id]
+
+                            self.manager.landmark(new_id, description=landmark.description, 
+                                               parameters=landmark.parameters, returns=landmark.returns,
+                                               response_schema=landmark.response_schema,
+                                               remedy=landmark.remedy, instructions=landmark.instructions)(handler)
+
+        # 3. Wichtig: Hierarchie neu aufbauen, da sich IDs geändert haben
+        self.manager._rebuild_hierarchy()

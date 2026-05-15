@@ -188,13 +188,13 @@ class OpenAPIExecutor:
         headers = {"User-Agent": "Elemm-Gateway/1.1"}
         json_body = None
 
-        for param_meta in meta.get("params", []):
-            if not isinstance(param_meta, dict):
-                continue
-            p_name = param_meta.get("name")
-            p_in = param_meta.get("in", "query")
+        for param in tool_data.get("parameters", []):
+            p_name = getattr(param, 'name', None) or (param.get('name') if isinstance(param, dict) else None)
+            p_in = getattr(param, 'location', 'query') or (param.get('location', 'query') if isinstance(param, dict) else 'query')
+            
             if not p_name:
                 continue
+                
             if p_name in arguments:
                 val = arguments[p_name]
                 if p_in == "path":
@@ -204,7 +204,11 @@ class OpenAPIExecutor:
                 elif p_in == "header":
                     headers[p_name] = val
                 elif p_in == "body":
-                    json_body = val
+                    if json_body is None: json_body = {}
+                    if isinstance(json_body, dict):
+                        json_body[p_name] = val
+                    else:
+                        json_body = val # Direct payload if not a dict
 
         self.vault.apply_auth(host_key, params, headers)
 

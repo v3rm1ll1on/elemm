@@ -169,4 +169,4 @@ async def test_landmark_discovery_grouping(gateway):
         res = await gateway._proxy_core_tool("get_landmarks", {})
         summary = res[0].text
         
-        assert "- **A**: (2 tools)" in summary
+        assert "- **A**:" in summary

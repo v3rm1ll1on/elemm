@@ -30,10 +30,11 @@ class AIProtocolManager:
 4. **MEMORY**: Access results via '$alias.field' or '$stepN.field'.
 
 ## PIPELINING & MEMORY RULES
-- **VOLATILITY**: '$step0', '$step1' etc. are LOCAL to the current 'execute_sequence' and are overwritten in the next call.
-- **PERSISTENCE**: Use custom aliases (e.g., `alias: "target_host"`) for data you need across multiple tool calls.
-- **SYNTAX**: Access data directly. Use '$step0.id', NOT '$step0.result.id'.
-- **LISTS**: Use '$step0[0].id' to access the first item in a list result.
+- **SESSION MEMORY**: Every tool call (individual or sequence step) is stored as '$step0', '$step1', etc. in order. 
+- **PERSISTENCE**: Use '_alias' in 'call_action' or 'alias' in 'execute_sequence' to name a result permanently.
+- **SYNTAX**: Access data directly: '$step0.id'. 
+- **LISTS**: If a tool returns a list, you MUST use an index: '$step0[0].id'. Ambiguous calls (missing index on lists) will fail.
+- **INSPECT**: Use `list_aliases()` to see all stored findings.
 """
 
     def __init__(self, registry: Optional[LandmarkRegistry] = None, presenter: Optional[Any] = None, **kwargs):
@@ -66,6 +67,7 @@ class AIProtocolManager:
 
         from .discovery import ParameterDiscovery
         self.discovery = ParameterDiscovery()
+        self.session_step_counter = 0
 
     def landmark(self, landmark_id: str, **landmark_data):
         """Dekorator für Landmark-Tools."""
@@ -159,12 +161,20 @@ class AIProtocolManager:
         if not landmark:
             return self.repair.handle_missing_action(action_id, list(self.landmarks.keys())).model_dump(exclude_none=True)
 
+        # 1. Resolve Piping (Global Session Logic)
+        arguments, err = self.sequencer.resolve_all(arguments, self.global_context)
+        if err:
+            return {"status": "error", "message": f"Piping failed: {err}", "remedy": "Ensure the field exists or use explicit indexing (e.g. $step0[0].id) if the source is a list."}
+
         # 2. Check Callability (Area vs Tool)
         if not landmark.handler:
             if landmark.tools:
                 return self.repair.handle_namespace_execution_attempt(action_id).model_dump(exclude_none=True)
             return {"status": "error", "message": f"Tool {action_id} has no implementation."}
 
+        # 2.1 Handle Alias Registration
+        alias = arguments.pop("_alias", None)
+        
         # 3. Validate Parameters
         params = landmark.parameters or []
         
@@ -281,6 +291,32 @@ class AIProtocolManager:
             except ImportError:
                 pass
 
+            # --- RESPONSE UNWRAPPING ---
+            # Handle FastAPI/Starlette Response objects (commonly returned by native tools)
+            try:
+                from fastapi.responses import JSONResponse, Response
+                if isinstance(result, JSONResponse):
+                    import json
+                    result = json.loads(result.body)
+                elif isinstance(result, Response):
+                    # Try to parse as JSON, fallback to text
+                    import json
+                    try:
+                        result = json.loads(result.body)
+                    except:
+                        result = result.body.decode() if hasattr(result.body, "decode") else str(result.body)
+            except ImportError:
+                pass
+
+            # --- PERSISTENCE & SESSION STORAGE ---
+            step_alias = f"step{self.session_step_counter}"
+            self.global_context[step_alias] = result
+            self.session_step_counter += 1
+
+            if alias:
+                self.global_context[alias] = result
+                logger.info(f"Stored result for {action_id} under alias '{alias}'")
+
             return result
         except Exception as e:
             # Extract clean error message
@@ -312,11 +348,49 @@ class AIProtocolManager:
             self._registry_cache = {k.lower(): v for k, v in self.landmarks.items()}
         return self._registry_cache
 
+    def _rebuild_hierarchy(self):
+        """Rekonstruiert die Eltern-Kind-Beziehungen basierend auf Landmark-IDs."""
+        # 1. Alle Tools-Listen leeren, um Duplikate beim Rebuild zu vermeiden
+        for lm in self.landmarks.values():
+            lm.tools = []
+            
+        # 2. Alle IDs sortieren, damit Eltern vor Kindern (oder zumindest strukturiert) kommen
+        # Aber eigentlich reicht ein Pass, wenn wir sicherstellen dass Eltern existieren
+        for lid, lm in list(self.landmarks.items()):
+            if ":" in lid:
+                parts = lid.split(":")
+                parent_id = ":".join(parts[:-1])
+                
+                # Sicherstellen, dass das Eltern-Landmark existiert (Auto-Creation falls nötig)
+                if parent_id not in self.landmarks:
+                    self.landmarks[parent_id] = Landmark(
+                        id=parent_id,
+                        description=f"Area: {parent_id}"
+                    )
+                
+                parent = self.landmarks[parent_id]
+                if not any(t.id == lid for t in parent.tools):
+                    parent.tools.append(lm)
+
+    async def execute_sequence(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        High-level Sequencer für Tool-Ketten.
+        """
+        # Resolve 'steps' or 'actions'
+        steps = arguments.get("steps") or arguments.get("actions") or []
+        
+        # We run the sequence using the current global counter as offset
+        # Note: sequencer.run calls manager.call_action, which handles the counter increments.
+        return await self.sequencer.run(steps, self.global_context, index_offset=self.session_step_counter)
+
     def get_manifest(self, landmark_ids: Optional[Union[str, List[str]]] = None, technical: bool = False, **kwargs) -> str:
         """Generiert ein dynamisches Manifest basierend auf dem Kontext."""
         all_landmarks = []
         
         # Normalize landmark_ids to a list
+        # Handle 'full' parameter from kwargs
+        full = kwargs.pop("full", False)
+        
         if landmark_ids is not None:
             ids = [landmark_ids] if isinstance(landmark_ids, (str, bytes)) else landmark_ids
             reg_lower = self._get_registry_lower()
@@ -333,14 +407,16 @@ class AIProtocolManager:
                 # for JSON and hierarchical rendering for Markdown.
                 all_landmarks.append(landmark)
         else:
-            # Root-Ebene: Zeige alle Landmarks ohne Doppelpunkt (Distrikte/Hauptbereiche)
-            all_landmarks = [l for l in self.landmarks.values() if ":" not in l.id]
+            if full:
+                # Wenn 'full' angefordert wird, zeigen wir ALLES (Flache Liste aller Ebenen)
+                all_landmarks = list(self.landmarks.values())
+            else:
+                # Root-Ebene: Zeige alle Landmarks ohne Doppelpunkt (Distrikte/Hauptbereiche)
+                all_landmarks = [l for l in self.landmarks.values() if ":" not in l.id]
 
         # Context-Hygiene: Header nur zeigen, wenn wir auf Root-Ebene sind
         is_root = landmark_ids is None
         
-        # Handle 'full' parameter from kwargs
-        full = kwargs.pop("full", False)
         if full:
             # When full is requested, we show technical details for everything
             technical = True

@@ -16,6 +16,7 @@
 from typing import List, Dict, Any, Optional
 import json
 from .models import Landmark
+from .schema import SignatureGenerator
 
 class ManifestPresenter:
     """Standard-Presenter für Elemm-Protokoll-Discovery."""
@@ -60,6 +61,7 @@ class ManifestPresenter:
                     "remedy": getattr(lm, 'remedy', None),
                     "instructions": getattr(lm, 'instructions', None),
                     "is_tool": bool(lm.handler),
+                    "meta": getattr(lm, 'meta', {})
                 }
                 
                 # Area/Namespace logic (Lazy Loading Hints)
@@ -110,68 +112,60 @@ class ManifestPresenter:
             lines.append("_No landmarks discovered in this scope._")
         else:
             visible_lms = landmarks[offset : offset + max_landmarks]
-            remaining_landmarks = max(0, len(landmarks) - (offset + max_landmarks))
-
+            items_rendered = 0
             for lm in visible_lms:
-                desc = lm.description if getattr(lm, 'description', None) else f"Area: {lm.id}"
-                lines.append(f"- **`{lm.id}`**: {desc}")
-                
-                if hasattr(lm, 'handler') and lm.handler:
-                    lines.append(self._render_ts_signature(lm))
-                elif hasattr(lm, 'tools') and lm.tools:
-                    # Summary for categories
-                    all_tools = lm.tools
-                    visible_tools = all_tools[:max(1, max_landmarks - 1)]
-                    remaining_tools = len(all_tools) - len(visible_tools)
+                if items_rendered >= max_landmarks:
+                    break
+                    
+                if hasattr(lm, 'tools') and lm.tools:
+                    lines.append(f"- **{lm.id}**:")
+                    items_rendered += 1
+                    
+                    # Show tools but respect remaining budget
+                    remaining_budget = max_landmarks - items_rendered
+                    visible_tools = lm.tools[:remaining_budget]
+                    hidden_tools = len(lm.tools) - len(visible_tools)
                     
                     for t in visible_tools:
                         t_desc = t.description or "No description."
-                        if t.handler:
-                            lines.append(f"  - Tool: `{t.id}` ({self._get_required_params_str(t)} | Returns: {t.returns or 'any'})")
-                            lines.append(f"    > {t_desc}")
-                        else:
-                            lines.append(f"  - Landmark: `{t.id}` (Area/Namespace) - {t_desc}")
-                    
-                    if remaining_tools > 0:
-                        lines.append(f"  - (... and {remaining_tools} more tools. Use `inspect_landmark(landmark_id=\"{lm.id}\")` for full signatures.)")
+                        lines.append(f"  - Tool: `{t.id}` ({self._get_required_params_str(t)} | Returns: {t.returns or 'any'})")
+                        lines.append(f"    > {t_desc}")
+                        if show_technical:
+                            lines.append(self._render_ts_signature(t))
+                        items_rendered += 1
+                        
+                    if hidden_tools > 0:
+                        lines.append(f"  - (... and {hidden_tools} more tools. Use `inspect_landmark(landmark_id=\"{lm.id}\")` for full signatures.)")
+                else:
+                    desc = lm.description if getattr(lm, 'description', None) else f"Area: {lm.id}"
+                    lines.append(f"- **`{lm.id}`**: {desc}")
+                    items_rendered += 1
+                    if hasattr(lm, 'handler') and lm.handler:
+                        lines.append(self._render_ts_signature(lm))
 
-            if remaining_landmarks > 0:
-                next_offset = offset + max_landmarks
-                lines.append(f"\n- (... and {remaining_landmarks} more items available. **ACTION REQUIRED**: Use `_offset={next_offset}` in your next `inspect_landmark` call to fetch the next page of results.)")
+            remaining_landmarks = len(landmarks) - (offset + items_rendered)
+            if remaining_landmarks > 0 or items_rendered < len(visible_lms):
+                # We either have more landmarks in the next page, or we cut off inside this page
+                total_remaining = len(landmarks) - (offset + items_rendered)
+                if total_remaining > 0:
+                    next_offset = offset + items_rendered
+                    lines.append(f"\n- (... and {total_remaining} more items available. **ACTION REQUIRED**: Use `_offset={next_offset}` in your next `inspect_landmark` call to fetch the next page of results.)")
 
         return "\n".join(lines)
 
     def _render_ts_signature(self, lm: Landmark) -> str:
         """Renders a clean TypeScript function signature for the tool."""
-        params = lm.parameters or []
-        if not params:
-            param_str = "{}"
-        else:
-            p_lines = []
-            for p in params:
-                opt = "?" if not p.required else ""
-                p_lines.append(f"{p.name}{opt}: {p.type}")
-            param_str = "{ " + ", ".join(p_lines) + " }"
-
-        returns = lm.returns or "any"
-        ts = ["```typescript", "/**", f" * Tool: {lm.id}"]
+        # Use central SignatureGenerator for consistency
+        ts = SignatureGenerator.to_typescript_signature(lm)
         
-        # Hygiene Filter: Skip redundant or too short descriptions
-        desc = lm.description
-        if desc and not self._should_skip_description(lm.id, desc):
-            ts.append(f" * Description: {desc}")
-            
-        if getattr(lm, 'remedy', None):
-            ts.append(f" * Remedy: {lm.remedy}")
-            
-        ts.extend([" */", f'function call_action(action: "{lm.id}", parameters: {param_str}): {returns};', "```"])
-        
-        # --- RESPONSE SCHEMA INJECTION ---
+        # Add response schema injection if available (extra formatting for agents)
         schema = getattr(lm, 'response_schema', None)
         if schema and isinstance(schema, dict) and "properties" in schema:
-            ts.append(self._render_schema_as_ts_interface(lm.id, schema, is_array=(lm.returns and "[]" in lm.returns)))
+            ts_blocks = [ts]
+            ts_blocks.append(self._render_schema_as_ts_interface(lm.id, schema, is_array=(lm.returns and "[]" in lm.returns)))
+            return "\n".join(ts_blocks)
 
-        return "\n".join(ts)
+        return ts
 
     def _render_schema_as_ts_interface(self, lm_id: str, schema: Dict[str, Any], is_array: bool = False) -> str:
         """Renders the response schema as a TypeScript interface for the agent."""
@@ -215,4 +209,4 @@ class ManifestPresenter:
         required = [p.name for p in params if getattr(p, 'required', True)]
         if not required:
             return "No required params"
-        return f"Req: {', '.join(required)}"
+        return f"REQUIRED PARAMS: {', '.join(required)}"

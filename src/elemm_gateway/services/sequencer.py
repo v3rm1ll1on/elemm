@@ -150,7 +150,7 @@ class SequenceEngine:
                 "action": action_id, 
                 "alias": alias or f"step{i}",
                 "duration_ms": duration_ms, 
-                "result": squished_res if not was_truncated else res_str,
+                "result": squished_res,
                 "_truncated": was_truncated
             })
 

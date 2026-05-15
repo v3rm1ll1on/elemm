@@ -13,10 +13,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import json
 import logging
-import re
 from typing import Dict, Any, List, Optional
+from elemm.core.models import Landmark, Parameter
 
 logger = logging.getLogger("elemm-graphql-bridge")
 
@@ -60,7 +59,7 @@ class GraphQLBridge:
     @staticmethod
     def parse_schema(schema_data: Dict[str, Any], url: str) -> Dict[str, Any]:
         """
-        Parses GraphQL introspection data and returns an Elemm-compatible tool structure.
+        Parses GraphQL introspection data and returns an Elemm-compatible structure.
         """
         schema = schema_data.get("__schema") or {}
         
@@ -71,106 +70,82 @@ class GraphQLBridge:
         mutation_type_name = mt_obj.get("name", "Mutation")
         
         types = {t["name"]: t for t in schema.get("types", []) if t.get("name")}
-        tools = []
+        landmarks = []
         
         # Process Queries
         query_type = types.get(query_type_name)
         if query_type:
-            tools.extend(GraphQLBridge._process_fields(query_type, "Query", url))
+            landmarks.extend(GraphQLBridge._process_fields(query_type, "Query", url))
             
         # Process Mutations
         mutation_type = types.get(mutation_type_name)
         if mutation_type:
-            tools.extend(GraphQLBridge._process_fields(mutation_type, "Mutation", url))
+            landmarks.extend(GraphQLBridge._process_fields(mutation_type, "Mutation", url))
+            
+        # Convert to dicts for backward compatibility with tests and services
+        dict_landmarks = []
+        for lm in landmarks:
+            d = lm.model_dump(exclude_none=True)
+            # Legacy fields
+            d["name"] = lm.id
+            
+            # Inject legacy inputSchema
+            props = {}
+            required = []
+            for p in lm.parameters or []:
+                # Try to find gql_type in parameter or its meta
+                p_dict = p.model_dump(exclude_none=True)
+                props[p.name] = {
+                    "type": p.type,
+                    "description": p.description,
+                    "gql_type": p_dict.get("meta", {}).get("gql_type") or p_dict.get("gql_type")
+                }
+                if p.required:
+                    required.append(p.name)
+            d["inputSchema"] = {"type": "object", "properties": props, "required": required}
+            dict_landmarks.append(d)
             
         return {
-            "tools": tools,
+            "landmarks": dict_landmarks,
+            "tools": dict_landmarks, # Compatibility alias
             "base_url": url,
-            "title": urlparse_title(url)
+            "title": GraphQLBridge.urlparse_title(url)
         }
 
     @staticmethod
-    def generate_virtual_manifest(parsed_data: Dict[str, Any], limit: int = 15) -> str:
-        """Generates a virtual Elemm manifest from GQL schema data."""
-        from elemm_gateway.components import ManifestBuilder
-        title = parsed_data.get("title", "GraphQL API")
-        tools = parsed_data.get("tools", [])
-        
-        # Group by category (Query/Mutation)
-        categories = {}
-        for t in tools:
-            cat = t["name"].split(":")[0]
-            if cat not in categories: categories[cat] = []
-            categories[cat].append(t)
-            
-        lines = [
-            ManifestBuilder.build_header(title, "v1-gql"),
-            "### LANDMARK TOPOLOGY",
-            "> [!NOTE]",
-            "> This is a virtual landmark hierarchy generated from GraphQL Introspection.",
-            ""
-        ]
-        
-        for cat, cat_tools in categories.items():
-            lines.append(f"- Landmark: `{cat}` (Namespace) - {cat} operations.")
-            visible = cat_tools[:limit]
-            remaining = len(cat_tools) - limit
-            
-            for t in visible:
-                lines.append(f"  - Tool: `{t['name']}`")
-            
-            if remaining > 0:
-                lines.append(f"  - (... and {remaining} more tools. Use `inspect_landmark(landmark_id=\"{cat}\")` for full list)")
-                
-        return "\n".join(lines)
-
-    @staticmethod
-    def _process_fields(type_obj: Dict[str, Any], category: str, url: str) -> List[Dict[str, Any]]:
-        tools = []
+    def _process_fields(type_obj: Dict[str, Any], category: str, url: str) -> List[Landmark]:
+        landmarks = []
         for field in type_obj.get("fields", []):
             name = field["name"]
             description = field.get("description", f"{category} operation: {name}")
             
-            # Map Arguments to JSON Schema
-            properties = {}
-            required = []
-            
+            # Map Arguments to Parameter Models
+            params_list = []
             for arg in field.get("args", []):
                 arg_name = arg["name"]
                 arg_type_info = GraphQLBridge._get_type_info(arg["type"])
                 
-                properties[arg_name] = {
-                    "type": arg_type_info["json_type"],
-                    "description": arg.get("description", ""),
-                    "gql_type": arg_type_info.get("gql_type")
-                }
-                if arg_type_info["is_required"]:
-                    required.append(arg_name)
+                params_list.append(Parameter(
+                    name=arg_name,
+                    type=arg_type_info["json_type"],
+                    description=arg.get("description", ""),
+                    required=arg_type_info["is_required"],
+                    meta={"gql_type": arg_type_info.get("gql_type")}
+                ))
 
-            # Universal Elemm Parameters
-            properties["_select"] = {"type": "string", "description": "Fields to return (comma-separated). Use dot-notation for nested objects (e.g. 'origin.name')."}
-            
-            tools.append({
-                "name": f"{category}:{name}",
-                "description": description,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": properties,
-                    "required": required
-                },
-                "meta": {
+            # Create Official Landmark
+            landmarks.append(Landmark(
+                id=f"{category}:{name}",
+                description=description,
+                parameters=params_list,
+                meta={
                     "type": "graphql",
                     "operation_type": category.lower(),
                     "field_name": name,
-                    "base_url": url,
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": properties,
-                        "required": required
-                    }
+                    "base_url": url
                 }
-            })
-        return tools
+            ))
+        return landmarks
 
     @staticmethod
     def _get_type_info(type_obj: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -211,6 +186,7 @@ class GraphQLBridge:
             "is_required": False
         }
 
-def urlparse_title(url: str) -> str:
-    from urllib.parse import urlparse
-    return urlparse(url).netloc
+    @staticmethod
+    def urlparse_title(url: str) -> str:
+        from urllib.parse import urlparse
+        return urlparse(url).netloc

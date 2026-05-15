@@ -42,7 +42,6 @@ class MCPGateway:
         self.manifest_loaded = False # Safety Lock
         # We use the sequencer already attached to the manager
         self.sequencer = manager.sequencer
-        self.step_counter = 0 # Persistent step index across calls
         self.monitor = get_monitor()
         self._setup_server()
 
@@ -200,6 +199,11 @@ class MCPGateway:
             raw_params = arguments.get("parameters", {})
             alias = arguments.get("alias")
             
+            # Inject alias into params for manager to handle context storage
+            if alias:
+                if alias.startswith("$"): alias = alias[1:]
+                raw_params["_alias"] = alias
+
             # Resolve piping
             params, err = self.sequencer.resolve_all(raw_params, self.manager.global_context)
             if err:
@@ -209,52 +213,20 @@ class MCPGateway:
                 )]
             
             res = await self.manager.call_action(action_id, params)
-            
-            if alias:
-                if alias.startswith("$"):
-                    alias = alias[1:]
-                self.manager.global_context[alias] = res
-                
             return [types.TextContent(type="text", text=json.dumps(res, indent=2))]
 
         if name == "execute_sequence":
-            actions = arguments.get("actions", []) or arguments.get("steps", [])
+            # Delegate entirely to manager for consistent logic (local stepN, etc.)
+            results = await self.manager.execute_sequence(arguments)
             
-            # Sub-step reporting logic (live execution)
-            results = []
-            for i, action in enumerate(actions):
-                sub_id = f"{request_id}-{i}"
-                a_id = action.get("action", "unknown")
-                a_params = action.get("parameters", {})
-                
-                if HAS_MONITOR and self.monitor:
-                    self.monitor.report_activity(
-                        last_action=f"Step {i}: {a_id}",
-                        input_data=a_params,
-                        status="pending",
-                        session_id=sid,
-                        request_id=sub_id,
-                        parent_request_id=request_id
-                    )
-                
-                # Execute single step with offset to preserve piping ($step0, $step1, etc.)
-                res = await self.sequencer.run([action], self.manager.global_context, index_offset=self.step_counter)
-                step_res = res[0] if res else {"status": "error", "message": "Step failed to produce result"}
-                results.append(step_res)
-                self.step_counter += 1
-                
-                if HAS_MONITOR and self.monitor:
-                    self.monitor.report_activity(
-                        last_action=f"Step {i}: {a_id}",
-                        output_data=json.dumps(step_res),
-                        status="success" if "error" not in str(step_res).lower() else "error",
-                        session_id=sid,
-                        request_id=sub_id,
-                        parent_request_id=request_id
-                    )
-                
-                # Small delay to ensure correct sorting in Dashboard (timestamps)
-                await asyncio.sleep(0.02)
+            if HAS_MONITOR and self.monitor:
+                self.monitor.report_activity(
+                    last_action="execute_sequence",
+                    output_data=json.dumps(results),
+                    status="success" if not any("error" in str(r).lower() for r in results) else "error",
+                    session_id=sid,
+                    request_id=request_id
+                )
 
             return [types.TextContent(type="text", text=json.dumps(results, indent=2))]
 

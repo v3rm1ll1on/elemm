@@ -169,20 +169,25 @@ class ElemmGateway:
 
     def _format_result(self, raw_res):
         """Markdown-friendly formatting with semantic squishing."""
+        # 1. Safety check for already serialized JSON strings
+        if isinstance(raw_res, str) and (raw_res.strip().startswith("{") or raw_res.strip().startswith("[")):
+            # It's already JSON (from core or bridge), just return as TextContent
+            return [types.TextContent(type="text", text=raw_res)]
+
         max_str_len = self.limit_standard // 2
         max_list_items = max(20, self.limit_standard // 500)
         
-        # 1. Smart Semantic Truncation (Maintains valid JSON)
+        # 2. Smart Semantic Truncation (Maintains valid JSON)
         squished_res, _ = ResponseSquisher.smart_truncate(
             raw_res,
             max_list_items=max_list_items,
             max_string_length=max_str_len
         )
         
-        # 2. Stringify
+        # 3. Stringify
         res_text = json.dumps(squished_res, indent=2) if not isinstance(squished_res, str) else squished_res
         
-        # 3. Final safety cut (only as last resort)
+        # 4. Final safety cut (only as last resort)
         if len(res_text) > self.limit_standard:
             hint = f"\n\n(Note: Result too large. Truncated to {self.limit_standard} chars.)"
             res_text = res_text[:self.limit_standard - len(hint) - 10] + "..." + hint
@@ -218,6 +223,8 @@ class ElemmGateway:
             return self._format_result(res_text)
         
         if name == "get_landmarks":
+            # For discovery, we also imply manifest is known
+            self.manifest_loaded = True
             limit = self.config_manager.get("max_landmarks_per_view", 20)
             return self._format_result(ManifestService.get_landmarks_summary(site_data, security_policy=self.security_policy, limit=limit))
 
@@ -234,11 +241,16 @@ class ElemmGateway:
             
             ids = [lm_id] if isinstance(lm_id, str) else lm_id
             allowed_ids = [tid for tid in ids if self.security_policy.is_action_allowed(f"{tid}_inspect")["allowed"]]
-            if not allowed_ids:
-                return [types.TextContent(type="text", text="Error: Access restricted by security policy.")]
-            
-            res = await ManifestService.inspect_landmark(url, site_data, allowed_ids, limit=limit or self.limit_inspect, offset=offset)
-            return self._format_result(res)
+            res = await ManifestService.inspect_landmark(
+                site_url=url, 
+                landmark_id=lm_id, 
+                vault_manager=self.vault_manager,
+                limit=limit or self.limit_inspect, 
+                offset=offset, 
+                site_data=site_data, 
+                site_type=site_data.get("type")
+            )
+            return self._format_result(res["manifest"] if "manifest" in res else json.dumps(res.get("data", {})))
 
         if name == "search_landmarks":
             query = arguments.get("query")
@@ -254,13 +266,11 @@ class ElemmGateway:
         """Compatibility proxy for old test suite."""
         return await self.sequence_engine.execute(actions, session_id, **kwargs)
 
-    async def _execute_openapi(self, tool_name: str, arguments: Dict) -> str:
-        """Compatibility proxy for old test suite."""
-        return await self._execute_single(tool_name, arguments)
+    async def _execute_openapi(self, tool_name: str, arguments: Dict, session_id: str = "default") -> str:
+        return await self._execute_single(tool_name, arguments, session_id)
 
-    async def _execute_openapi(self, tool_name: str, arguments: Dict) -> str:
-        """Compatibility proxy for old test suite."""
-        return await self._execute_single(tool_name, arguments)
+    async def _execute_graphql(self, tool_name: str, arguments: Dict, session_id: str = "default") -> str:
+        return await self._execute_single(tool_name, arguments, session_id)
 
     async def _execute_single(self, tool_name: str, arguments: Dict, session_id: str = "default") -> str:
         """Universal dispatcher for tool execution (Native/OpenAPI/GraphQL)."""
@@ -268,10 +278,18 @@ class ElemmGateway:
         
         # Determine method for security check
         method = None
-        if site_data and site_data.get("tools"):
-            tool_data = next((t for t in site_data["tools"] if t["name"] == tool_name), None)
-            if tool_data and "meta" in tool_data:
-                method = tool_data["meta"].get("method")
+        if site_data and site_data.get("landmarks"):
+            # Landmark objects have .id or .name
+            tool_data = next((t for t in site_data["landmarks"] if (
+                getattr(t, 'id', None) == tool_name or 
+                getattr(t, 'name', None) == tool_name or 
+                (isinstance(t, dict) and (t.get('id') == tool_name or t.get('name') == tool_name))
+            )), None)
+            if tool_data:
+                if isinstance(tool_data, dict):
+                    method = tool_data.get("meta", {}).get("method")
+                else:
+                    method = getattr(tool_data, 'meta', {}).get("method")
 
         check = self.security_policy.is_action_allowed(tool_name, method=method)
         if not check["allowed"]:
@@ -291,7 +309,6 @@ class ElemmGateway:
                 return await self._execute_single(action, params, session_id=session_id)
             
             if tool_name == "execute_sequence":
-                # Delegate to the specialized handler
                 steps = arguments.get("actions", []) or arguments.get("steps", [])
                 res = await self.sequence_engine.execute(steps, session_id=session_id)
                 return res[0].text if res else "[]"
@@ -302,10 +319,16 @@ class ElemmGateway:
         site_data = self.connected_sites.get(self.active_site_url)
         if site_data and site_data.get("type") in ["openapi", "graphql"]:
             # OpenAPI/GraphQL Execution
-            tool_data = next((t for t in site_data["tools"] if t["name"] == tool_name), None)
+            landmarks = site_data.get("landmarks", site_data.get("tools", []))
+            tool_data = next((t for t in landmarks if (
+                getattr(t, 'id', None) == tool_name or 
+                getattr(t, 'name', None) == tool_name or 
+                (isinstance(t, dict) and (t.get('id') == tool_name or t.get('name') == tool_name))
+            )), None)
+            
             if not tool_data:
-                # Landmark Namespace Protection: Check if the name is a landmark prefix
-                potential_tools = [t["name"] for t in site_data["tools"] if t["name"].startswith(f"{tool_name}:") or t["name"].startswith(f"{tool_name}_")]
+                # Landmark Namespace Protection
+                potential_tools = [getattr(t, 'id', t.get('name', '')) if not isinstance(t, dict) else t.get('name', '') for t in landmarks if (getattr(t, 'id', t.get('name', '')).startswith(f"{tool_name}:") or getattr(t, 'id', t.get('name', '')).startswith(f"{tool_name}_"))]
                 if potential_tools:
                     return json.dumps({
                         "status": "error",
@@ -315,21 +338,27 @@ class ElemmGateway:
                     }, indent=2)
                 return f"Error: Tool '{tool_name}' not found."
             
+            # Convert Landmark object to dict for executors if needed
+            if not isinstance(tool_data, dict):
+                # Simple mapping for executor
+                tool_dict = {
+                    "name": tool_data.id,
+                    "meta": tool_data.meta,
+                    "parameters": tool_data.parameters
+                }
+                tool_data = tool_dict
+
             if site_data["type"] == "graphql":
                 return await self.graphql_executor.execute(tool_data, arguments)
             return await self.openapi_executor.execute(tool_data, arguments)
 
         # Native Elemm Execution
         try:
-            # Extract hygiene params
             select = arguments.pop("_select", None)
             filter_str = arguments.pop("_filter", None)
             limit = arguments.pop("_limit", None)
             offset = arguments.pop("_offset", None)
             
-            if limit: limit = int(limit)
-            if offset: offset = int(offset)
-
             async with httpx.AsyncClient() as client:
                 exec_url = f"{self.active_site_url}/.well-known/elemm/execute"
                 resp = await client.post(exec_url, json={"action": tool_name, "parameters": arguments}, timeout=60.0)
@@ -356,20 +385,17 @@ class ElemmGateway:
         url = url.strip().rstrip("/")
         self.manifest_loaded = False
         
-        # Hot-reload vault for each connection (for UI/Dashboard consistency)
         self.vault_manager.vault = self.vault_manager.load()
-        
         limit = self.config_manager.get("max_tools_per_landmark", 5)
         res = await ManifestService.inspect_url(url, vault_manager=self.vault_manager, limit=limit)
         if res.get("status") == "success":
-            # ...
-            self.connected_sites[url] = {
-                "manifest": res["manifest"],
-                "tools": res.get("tools", []),
-                "type": res["type"]
-            }
+            self.connected_sites[url] = res
+            # Ensure 'landmarks' key exists for consistency
+            if "landmarks" not in self.connected_sites[url]:
+                self.connected_sites[url]["landmarks"] = res.get("landmarks", res.get("tools", []))
+                self.connected_sites[url]["tools"] = res.get("tools", [])
+                
             self.active_site_url = url
-            # Test suite expects specific casing for some strings
             display_type = "GraphQL" if res["type"] == "graphql" else res["type"].upper()
             return [types.TextContent(type="text", text=f"SUCCESS: CONNECTED to {display_type} API at {url}\n\nNEXT: Call 'get_manifest'.")]
         

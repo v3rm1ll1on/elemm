@@ -67,7 +67,7 @@ def test_graphql_bridge_parsing():
     tools = parsed["tools"]
     assert len(tools) > 0
     
-    char_tool = next(t for t in tools if t["name"] == "Query:character")
+    char_tool = next(t for t in tools if t["id"] == "Query:character")
     assert char_tool["description"] == "Get a character"
     assert "id" in char_tool["inputSchema"]["properties"]
     assert char_tool["inputSchema"]["properties"]["id"]["gql_type"] == "ID!"

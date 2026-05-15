@@ -5,7 +5,7 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 class SchemaResolver:
     """
@@ -63,35 +63,62 @@ class SchemaResolver:
             
         return resolved_schema
 
+from .models import Landmark, Parameter
+
 class SignatureGenerator:
     """
     Erzeugt technische Signaturen (z.B. TypeScript) aus Elemm-Tool-Metadaten.
     """
 
     @staticmethod
-    def to_typescript_signature(tool: Dict[str, Any]) -> str:
+    def to_typescript_signature(tool: Union[Landmark, Dict[str, Any]]) -> str:
         """
         Erzeugt eine TypeScript-Funktionssignatur für ein Tool.
         """
-        name = tool.get("name", "unknown_action")
-        description = tool.get("description", "No description")
-        
-        # Inputs
-        input_schema = tool.get("inputSchema", {})
-        required = input_schema.get("required", [])
-        props = input_schema.get("properties", {})
+        if isinstance(tool, Landmark):
+            name = tool.id
+            description = tool.description
+            params_list = tool.parameters or []
+            returns = tool.returns or "any"
+            # Handle Response Schema if available
+            schema = getattr(tool, 'response_schema', None)
+        else:
+            name = tool.get("name", "unknown_action")
+            description = tool.get("description", "No description")
+            input_schema = tool.get("inputSchema", {})
+            required = input_schema.get("required", [])
+            props = input_schema.get("properties", {})
+            params_list = []
+            for p_name, p_info in props.items():
+                params_list.append(Parameter(
+                    name=p_name,
+                    type=p_info.get("type", "string"),
+                    description=p_info.get("description", ""),
+                    required=p_name in required
+                ))
+            returns = tool.get("returns", "any")
+            schema = tool.get("outputSchema")
         
         params = []
-        for p_name, p_info in props.items():
-            is_req = p_name in required
-            p_type = p_info.get("type", "any")
-            params.append(f"{p_name}{'' if is_req else '?'}: {p_type}")
+        for p in params_list:
+            opt = "" if p.required else "?"
+            params.append(f"{p.name}{opt}: {p.type}")
             
         # Outputs
-        output_schema = tool.get("outputSchema")
-        ret_type = SignatureGenerator._schema_to_ts_type(output_schema) if output_schema else tool.get("returns", "any")
+        ret_type = SignatureGenerator._schema_to_ts_type(schema) if schema else returns
         
-        return f"/** {description} */\nfunction call_action(action: '{name}', parameters: {{ {', '.join(params)} }}): {ret_type};"
+        # Outputs
+        ret_type = SignatureGenerator._schema_to_ts_type(schema) if schema else returns
+        
+        # JSDoc description with Redundancy Filter
+        jsdoc = ""
+        if description and len(description) > 3:
+            norm_id = name.lower().replace("_", " ").replace(":", " ").strip()
+            norm_desc = description.lower().strip()
+            if norm_id != norm_desc and norm_id.replace(" ", "") != norm_desc.replace(" ", ""):
+                jsdoc = f"/** Description: {description} */\n"
+                
+        return f"{jsdoc}function call_action(action: '{name}', parameters: {{ {', '.join(params)} }}): {ret_type};"
 
     @staticmethod
     def _schema_to_ts_type(schema: Any, depth: int = 0) -> str:

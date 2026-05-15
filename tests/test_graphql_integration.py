@@ -61,7 +61,7 @@ async def test_gateway_graphql_connect():
     assert site_data["type"] == "graphql"
     assert len(site_data["tools"]) > 0
     assert "Query:test" in [t["name"] for t in site_data["tools"]]
-    assert "# ELEMM v2 INTERFACE" in site_data["manifest"]
+    assert "Bridged Interface" in site_data["manifest"]
 
 @pytest.mark.asyncio
 @respx.mock

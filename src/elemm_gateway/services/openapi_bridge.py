@@ -16,10 +16,9 @@
 import logging
 import re
 from urllib.parse import urlparse
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
+from elemm.core.models import Landmark, Parameter
 from elemm.core.schema import SchemaResolver, SignatureGenerator
-
-logger = logging.getLogger("elemm-openapi-bridge")
 
 class OpenAPIBridge:
     """
@@ -32,7 +31,7 @@ class OpenAPIBridge:
         Parses an OpenAPI spec and returns a structure compatible with Elemm's internal tool registry.
         """
         base_url = None
-        tools = []
+        landmarks = []
         paths = spec.get("paths", {})
         
         # Determine the actual base URL from the spec if available
@@ -84,34 +83,25 @@ class OpenAPIBridge:
                 # 2. Description
                 description = details.get("summary", details.get("description", "No description provided."))
                 
-                # 3. Parameters (Simplified extraction for Elemm)
-                # We want to create a JSON schema for the input
-                properties = {}
-                required = []
+                # 3. Parameters (Official Landmark Models)
+                params_list = []
                 
                 # Merge path-level and operation-level parameters
                 parameters = path_params + details.get("parameters", [])
-                resolved_params = []
                 for param in parameters:
                     # Fully resolve all $refs recursively
                     param = SchemaResolver.resolve(param, spec)
-                        
                     p_name = param.get("name")
-                    if not p_name:
-                        continue
+                    if not p_name: continue
                     
-                    resolved_params.append(param)
-                        
                     p_schema = param.get("schema", {"type": "string"})
-                    p_desc = param.get("description", "")
-                    
-                    properties[p_name] = {
-                        "type": p_schema.get("type", "string"),
-                        "description": p_desc,
-                        "location": param.get("in", "query")
-                    }
-                    if param.get("required"):
-                        required.append(p_name)
+                    params_list.append(Parameter(
+                        name=p_name,
+                        type=p_schema.get("type", "string"),
+                        description=param.get("description", ""),
+                        required=bool(param.get("required", False)),
+                        location=param.get("in", "query")
+                    ))
                 
                 # Handle requestBody
                 body = details.get("requestBody", {})
@@ -120,64 +110,48 @@ class OpenAPIBridge:
                 body_schema = json_content.get("schema", {})
                 
                 if body_schema:
+                    body_schema = SchemaResolver.resolve(body_schema, spec)
                     if body_schema.get("type") == "object" and "properties" in body_schema:
                         for b_name, b_prop in body_schema["properties"].items():
-                            properties[b_name] = b_prop
-                            if b_name in body_schema.get("required", []):
-                                required.append(b_name)
-                            # Add to resolved_params for executor
-                            resolved_params.append({"name": b_name, "in": "body"})
+                            params_list.append(Parameter(
+                                name=b_name,
+                                type=b_prop.get("type", "string"),
+                                description=b_prop.get("description", ""),
+                                required=b_name in body_schema.get("required", []),
+                                location="body"
+                            ))
                     else:
-                        properties["payload"] = body_schema
-                        if body.get("required"):
-                            required.append("payload")
-                        resolved_params.append({"name": "payload", "in": "body"})
+                        params_list.append(Parameter(
+                            name="payload",
+                            type=body_schema.get("type", "object"),
+                            description="Full request body payload",
+                            required=bool(body.get("required", False)),
+                            location="body"
+                        ))
 
-                # Inject Universal Parameters into Schema
-                properties["_select"] = {
-                    "type": "string",
-                    "description": "Fields to return (comma-separated). Use dot-notation for nested objects (e.g. 'author.name')."
-                }
-                properties["_filter"] = {
-                    "type": "string",
-                    "description": "Basic equality filter (e.g. status=active)"
-                }
-                properties["_limit"] = {
-                    "type": "integer",
-                    "description": "Max number of items to return"
-                }
-
-                # 4. Responses (Output Schema for documentation)
+                # 4. Responses (Output Schema)
                 responses = details.get("responses", {})
                 ok_response = responses.get("200", responses.get(200, {}))
                 content = ok_response.get("content", {})
                 json_res = content.get("application/json", {})
                 output_schema = json_res.get("schema", {})
-                
-                # Fully resolve all $refs in the schema recursively
                 if output_schema:
                     output_schema = SchemaResolver.resolve(output_schema, spec)
 
-                tools.append({
-                    "name": landmark_id,
-                    "description": description,
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": properties,
-                        "required": required
-                    },
-                    "outputSchema": output_schema,
-                    "returns": output_schema.get("type", "any") if isinstance(output_schema, dict) else "any",
-                    "meta": {
+                # Create Official Landmark
+                landmarks.append(Landmark(
+                    id=landmark_id,
+                    description=description,
+                    parameters=params_list,
+                    returns=output_schema.get("type", "any") if isinstance(output_schema, dict) else "any",
+                    response_schema=output_schema,
+                    meta={
                         "path": path,
                         "method": method.upper(),
                         "base_url": base_url,
-                        "params": [
-                            {"name": p["name"], "in": p.get("in", "query")} 
-                            for p in resolved_params if "name" in p
-                        ]
+                        "tag": tag
                     }
-                })
+                ))
 
         # Extract Security Schemes
         security_schemes = spec.get("components", {}).get("securitySchemes", {})
@@ -186,8 +160,29 @@ class OpenAPIBridge:
             
         global_security = spec.get("security", [])
 
+        # Convert to dicts for backward compatibility with tests and gateway logic
+        dict_landmarks = []
+        for lm in landmarks:
+            d = lm.model_dump(exclude_none=True)
+            # Legacy fields
+            d["name"] = lm.id
+            
+            # Inject legacy inputSchema
+            props = {}
+            required = []
+            for p in lm.parameters or []:
+                props[p.name] = {
+                    "type": p.type,
+                    "description": p.description
+                }
+                if p.required:
+                    required.append(p.name)
+            d["inputSchema"] = {"type": "object", "properties": props, "required": required}
+            dict_landmarks.append(d)
+
         return {
-            "tools": tools,
+            "landmarks": dict_landmarks,
+            "tools": dict_landmarks, # Compatibility alias
             "tag_metadata": tag_metadata,
             "info": spec.get("info", {}),
             "base_url": base_url,
