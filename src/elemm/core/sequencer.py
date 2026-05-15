@@ -29,6 +29,7 @@ class SequenceEngine:
         results = []
         for i_raw, action_req in enumerate(actions):
             i = i_raw + index_offset
+            step_alias = f"step{i}"
             action_id = action_req.get("action")
             raw_params = action_req.get("parameters", {})
             alias = action_req.get("alias")
@@ -66,9 +67,9 @@ class SequenceEngine:
             result = await self.manager.call_action(action_id, resolved_params)
             
             # 3. Store results
-            step_alias = f"step{i}"
             context[step_alias] = result
             if alias:
+                # Store under custom alias as well
                 context[alias] = result
 
             # Context Hygiene: Omit action if success, keep if error
@@ -77,12 +78,16 @@ class SequenceEngine:
                 "alias": alias or step_alias,
                 "result": result
             }
-            if isinstance(result, dict) and result.get("status") == "error":
+            
+            is_error = isinstance(result, dict) and result.get("status") == "error"
+            if is_error:
                 res_entry["action"] = action_id
 
             results.append(res_entry)
             
-            if isinstance(result, dict) and result.get("status") == "error":
+            # 4. Error Handling (on_error: stop|continue)
+            on_error = action_req.get("on_error", "stop")
+            if is_error and on_error == "stop":
                 break
                 
         return results

@@ -24,10 +24,16 @@ class AIProtocolManager:
     """Zentrale für das Elemm v2 Protokoll (Back-to-Basics)."""
     
     DEFAULT_INSTRUCTIONS = """# ELEMM v2 PROTOCOL RULES
-1. **DISCOVERY**: Use 'get_manifest' to see landmarks.
-2. **INSPECTION**: Use 'inspect_landmark' for technical signatures.
-3. **EXECUTION**: Use 'call_action' or 'execute_sequence' ONLY.
-4. **MEMORY**: Use 'list_aliases' to see stored findings ($step_0, $step_1, etc.)
+1. **DISCOVERY**: Use 'get_manifest' to see functional areas (landmarks).
+2. **INSPECTION**: Use 'inspect_landmark' to get technical signatures (REQUIRED before execution).
+3. **EXECUTION**: Use 'call_action' or 'execute_sequence'.
+4. **MEMORY**: Access results via '$alias.field' or '$stepN.field'.
+
+## PIPELINING & MEMORY RULES
+- **VOLATILITY**: '$step0', '$step1' etc. are LOCAL to the current 'execute_sequence' and are overwritten in the next call.
+- **PERSISTENCE**: Use custom aliases (e.g., `alias: "target_host"`) for data you need across multiple tool calls.
+- **SYNTAX**: Access data directly. Use '$step0.id', NOT '$step0.result.id'.
+- **LISTS**: Use '$step0[0].id' to access the first item in a list result.
 """
 
     def __init__(self, registry: Optional[LandmarkRegistry] = None, presenter: Optional[Any] = None, **kwargs):
@@ -78,6 +84,10 @@ class AIProtocolManager:
                 params = self.discovery.extract_parameters(func)
                 
             returns = landmark_data.pop("returns", None) or (tool_meta.returns if tool_meta else None)
+            response_schema = landmark_data.pop("response_schema", None) or (tool_meta.response_schema if tool_meta else None)
+            if response_schema is None and func:
+                response_schema = self.discovery.extract_return_schema(func)
+                
             remedy = landmark_data.pop("remedy", None) or (tool_meta.remedy if tool_meta else None)
             instructions = landmark_data.pop("instructions", None) or (tool_meta.instructions if tool_meta else None)
 
@@ -125,6 +135,20 @@ class AIProtocolManager:
 
     async def call_action(self, action_id: str, arguments: Dict[str, Any]) -> Any:
         """Führt eine Action aus mit Smart Repair und Auto-Aliasing."""
+        # 0. Handle Internal Core Tools (Redirection for call_action/sequences)
+        if action_id == "get_manifest":
+            return self.get_manifest(**arguments)
+        if action_id == "inspect_landmark":
+            landmark_id = arguments.get("landmark_id")
+            return self.inspect_landmark(landmark_id) if landmark_id else "Error: 'landmark_id' required."
+        if action_id == "search_landmarks":
+            query = arguments.get("query")
+            return self.search_landmarks(query) if query else "Error: 'query' required."
+        if action_id == "get_landmarks":
+            return [lm.model_dump(exclude_none=True) for lm in self.get_landmarks()]
+        if action_id == "list_aliases":
+            return self.list_aliases()
+
         landmark = self.landmarks.get(action_id)
         
         # 1. Check Existence
@@ -284,15 +308,13 @@ class AIProtocolManager:
             self._registry_cache = {k.lower(): v for k, v in self.landmarks.items()}
         return self._registry_cache
 
-    def get_manifest(self, landmark_id: Optional[Union[str, List[str]]] = None, **kwargs) -> str:
-        """Generiert ein dynamisches Manifest basierend auf dem Kontext (Case-Insensitive)."""
+    def get_manifest(self, landmark_ids: Optional[Union[str, List[str]]] = None, technical: bool = False, **kwargs) -> str:
+        """Generiert ein dynamisches Manifest basierend auf dem Kontext."""
         all_landmarks = []
-        logger.info(f"get_manifest called with landmark_id={landmark_id}")
         
-        show_technical = kwargs.pop("technical", False)
-        
-        if landmark_id:
-            ids = [landmark_id] if isinstance(landmark_id, str) else landmark_id
+        # Normalize landmark_ids to a list
+        if landmark_ids:
+            ids = [landmark_ids] if isinstance(landmark_ids, (str, bytes)) else landmark_ids
             reg_lower = self._get_registry_lower()
             
             for lid in ids:
@@ -314,23 +336,17 @@ class AIProtocolManager:
             # Root-Ebene: Zeige alle Landmarks ohne Doppelpunkt (Distrikte/Hauptbereiche)
             all_landmarks = [l for l in self.landmarks.values() if ":" not in l.id]
 
-    def get_manifest(self, landmark_ids: List[str] = None, technical: bool = False, **kwargs) -> str:
-        """Generiert ein Markdown-Manifest für die angeforderten Landmarks."""
-        lms = []
-        if landmark_ids is None:
-            # Root discovery: Show only high-level categories
-            lms = [lm for lid, lm in self.landmarks.items() if ":" not in lid]
-        else:
-            for lid in landmark_ids:
-                lm = self.landmarks.get(lid)
-                if lm:
-                    lms.append(lm)
-        
         # Context-Hygiene: Header nur zeigen, wenn wir auf Root-Ebene sind
         is_root = landmark_ids is None
         
+        # Handle 'full' parameter from kwargs
+        full = kwargs.pop("full", False)
+        if full:
+            # When full is requested, we show technical details for everything
+            technical = True
+
         return self.presenter.present_manifest(
-            lms, 
+            all_landmarks, 
             instructions=self.instructions if is_root else "",
             welcome_message=self.welcome_message if is_root else "",
             show_technical=technical,
@@ -407,6 +423,8 @@ class AIProtocolManager:
             if meta:
                 landmark.description = meta.description or landmark.description
                 landmark.parameters = meta.parameters or landmark.parameters
+                landmark.returns = meta.returns or landmark.returns
+                landmark.response_schema = meta.response_schema or landmark.response_schema
                 landmark.remedy = meta.remedy or landmark.remedy
 
 

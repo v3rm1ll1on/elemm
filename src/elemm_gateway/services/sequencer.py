@@ -99,7 +99,7 @@ class SequenceEngine:
                 try:
                     if action_id.startswith("elemm:"):
                         result_val = await self.gateway._execute_single(action_id, resolved_params, session_id=session_id)
-                    elif action_id in ["get_manifest", "get_landmarks", "inspect_landmark"]:
+                    elif action_id in ["get_manifest", "get_landmarks", "inspect_landmark", "search_landmarks", "list_aliases", "clear_session"]:
                         tool_results = await self.gateway._proxy_core_tool(action_id, resolved_params, session_id=session_id)
                         result_val = tool_results[0].text
                     else:

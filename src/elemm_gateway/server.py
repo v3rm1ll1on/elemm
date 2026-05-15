@@ -284,10 +284,20 @@ class ElemmGateway:
             return "Error: Gateway not connected to a remote site."
 
         # Handle internal tool calls routed via execute_single
-        if tool_name == "call_action":
-            action = arguments.get("action")
-            params = arguments.get("parameters", {})
-            return await self._execute_single(action, params, session_id=session_id)
+        if tool_name in GatewayToolRegistry.CORE_TOOL_NAMES:
+            if tool_name == "call_action":
+                action = arguments.get("action")
+                params = arguments.get("parameters", {})
+                return await self._execute_single(action, params, session_id=session_id)
+            
+            if tool_name == "execute_sequence":
+                # Delegate to the specialized handler
+                steps = arguments.get("actions", []) or arguments.get("steps", [])
+                res = await self.sequence_engine.execute(steps, session_id=session_id)
+                return res[0].text if res else "[]"
+
+            res = await self._proxy_core_tool(tool_name, arguments, session_id=session_id)
+            return res[0].text if res else f"Error: Core tool '{tool_name}' returned empty result."
 
         site_data = self.connected_sites.get(self.active_site_url)
         if site_data and site_data.get("type") in ["openapi", "graphql"]:

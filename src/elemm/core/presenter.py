@@ -56,7 +56,9 @@ class ManifestPresenter:
                     "description": lm.description,
                     "parameters": [p.model_dump() for p in (lm.parameters or [])],
                     "returns": lm.returns or "any",
+                    "outputSchema": getattr(lm, 'response_schema', {}),
                     "remedy": getattr(lm, 'remedy', None),
+                    "instructions": getattr(lm, 'instructions', None),
                     "is_tool": bool(lm.handler),
                 }
                 
@@ -125,7 +127,7 @@ class ManifestPresenter:
                     for t in visible_tools:
                         t_desc = t.description or "No description."
                         if t.handler:
-                            lines.append(f"  - Tool: `{t.id}` ({self._get_required_params_str(t)})")
+                            lines.append(f"  - Tool: `{t.id}` ({self._get_required_params_str(t)} | Returns: {t.returns or 'any'})")
                             lines.append(f"    > {t_desc}")
                         else:
                             lines.append(f"  - Landmark: `{t.id}` (Area/Namespace) - {t_desc}")
@@ -163,7 +165,33 @@ class ManifestPresenter:
             ts.append(f" * Remedy: {lm.remedy}")
             
         ts.extend([" */", f'function call_action(action: "{lm.id}", parameters: {param_str}): {returns};', "```"])
+        
+        # --- RESPONSE SCHEMA INJECTION ---
+        schema = getattr(lm, 'response_schema', None)
+        if schema and isinstance(schema, dict) and "properties" in schema:
+            ts.append(self._render_schema_as_ts_interface(lm.id, schema, is_array=(lm.returns and "[]" in lm.returns)))
+
         return "\n".join(ts)
+
+    def _render_schema_as_ts_interface(self, lm_id: str, schema: Dict[str, Any], is_array: bool = False) -> str:
+        """Renders the response schema as a TypeScript interface for the agent."""
+        props = schema.get("properties", {})
+        if not props: return ""
+        
+        # Derive name: 'it_ops:query_node_logs' -> 'QueryNodeLogsResponse'
+        base_name = lm_id.split(":")[-1].replace("_", " ").title().replace(" ", "")
+        interface_name = f"{base_name}Item" if is_array else f"{base_name}Response"
+        
+        lines = ["```typescript", f"interface {interface_name} {{"]
+        for p_name, p_info in props.items():
+            p_type = p_info.get("type", "any")
+            p_desc = p_info.get("description", "")
+            line = f"  {p_name}: {p_type};"
+            if p_desc: line += f" // {p_desc}"
+            lines.append(line)
+        lines.append("}")
+        lines.append("```")
+        return "\n".join(lines)
 
     def _should_skip_description(self, lm_id: str, description: str) -> bool:
         """Checks if a description is redundant or too short."""
@@ -187,4 +215,4 @@ class ManifestPresenter:
         required = [p.name for p in params if getattr(p, 'required', True)]
         if not required:
             return "No required params"
-        return f"Required params: {', '.join(required)}"
+        return f"Req: {', '.join(required)}"

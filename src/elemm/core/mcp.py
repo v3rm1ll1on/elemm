@@ -73,7 +73,7 @@ class MCPToolFactory:
 
         return types.Tool(
             name="execute_sequence",
-            description="NATIVE PIPELINE: Batch tools in one turn. Every step creates an automatic alias ($step0, $step1...). Access nested data via $alias.path (e.g., $weather.current.temp).",
+            description="Batch execute tools. Piping: Use '$step0.field' or '$step0[0].field'. IMPORTANT: $stepN is ephemeral and relative to this call. Use 'alias' in a step to persist data globally (e.g. alias: 'my_data'). Do NOT use '.result' in paths.",
             inputSchema={
                 "type": "object",
                 "properties": props
@@ -126,11 +126,11 @@ class MCPToolFactory:
         """Returns the search_landmarks tool definition."""
         return types.Tool(
             name="search_landmarks",
-            description="Searches for landmarks and tools by ID or description (regex supported). Use for broad discovery in large registries.",
+            description="Searches for landmarks and tools by functional area. Supports Python REGEX. Use the pipe operator '|' for multiple terms (e.g. 'finance|bank'). DO NOT use natural language or 'OR' keywords.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "query": {"type": "string", "description": "Search query or regex (e.g. 'energy', '^Nord:.*:water$')"},
+                    "query": {"type": "string", "description": "Regex pattern (e.g. 'noc|it_ops' or '^remediation:.*')"},
                     "_limit": {"type": "integer", "description": "Maximum number of result items to show (Hygiene)."},
                     "_offset": {"type": "integer", "description": "Starting index for results (Virtual Pagination)."}
                 },

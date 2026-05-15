@@ -34,7 +34,7 @@ class ManifestBuilder:
         "### OPERATIONAL HYGIENE\n"
         "- HYGIENE: Use '_select', '_filter', '_limit', and '_offset' in EVERY call to prevent context overflow.\n"
         "- VIRTUAL PAGINATION: This gateway supports virtual pagination for ALL tools. If a response is truncated, increment '_offset' to see the remaining data.\n"
-        "- PIPING: Chain results via '$alias.field' (e.g. '$step0.id') in any parameter.\n"
+        "- PIPING: Chain results via '$alias.field' (e.g. '$step0.id') in any parameter. **IMPORTANT: $stepN is local to the current call and overwritten in the next sequence.** Use custom aliases for global persistence.\n"
     )
 
     PROTOCOL_RULES = PROTOCOL_LAZY
@@ -42,9 +42,9 @@ class ManifestBuilder:
     MEMORY_BANK = (
         "### SESSION GOVERNANCE\n"
         "- Use 'list_aliases' to see all current session findings ($step0, $step1, etc.).\n"
-        "- PIPING: Chain results via '$alias.field' (e.g. '$step0.id') in any parameter.\n"
-        "- ISOLATION: Findings are stored for the duration of the 'session_id'.\n"
-        "- CLEANUP: Call 'clear_session' after task completion for privacy.\n"
+        "- PERSISTENCE: Custom aliases (e.g. 'alias: \"user_id\"') stay in memory across turns.\n"
+        "- VOLATILITY: '$stepN' aliases are overwritten in each 'execute_sequence' call. Always prefer custom aliases for critical data.\n"
+        "- SYNTAX: Use '$alias.field' or '$alias[0].field'. Do NOT use '.result' in the path.\n"
     )
 
     @classmethod

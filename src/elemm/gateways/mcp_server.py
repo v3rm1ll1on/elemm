@@ -42,6 +42,7 @@ class MCPGateway:
         self.manifest_loaded = False # Safety Lock
         # We use the sequencer already attached to the manager
         self.sequencer = manager.sequencer
+        self.step_counter = 0 # Persistent step index across calls
         self.monitor = get_monitor()
         self._setup_server()
 
@@ -106,15 +107,23 @@ class MCPGateway:
 
     async def _dispatch_tool(self, name: str, arguments: dict, request_id: str, sid: str) -> list[types.TextContent]:
         """Extracted logic for easier monitoring wrapper."""
-        # 1. Safety Lock & Manifest Loading
+        # 1. Safety Lock & Manifest Auto-Loading (Soft Lock)
+        auto_injected_manifest = None
         if name == "get_manifest":
             self.manifest_loaded = True
         
-        if name in ["call_action", "execute_sequence", "list_aliases"] and not self.manifest_loaded:
-            return [types.TextContent(
-                type="text", 
-                text="CRITICAL PROTOCOL VIOLATION: You are operating blindly. You MUST call 'get_manifest' first."
-            )]
+        if not self.manifest_loaded:
+            if name in ["call_action", "execute_sequence", "list_aliases"]:
+                return [types.TextContent(
+                    type="text", 
+                    text="CRITICAL PROTOCOL VIOLATION: You are operating blindly. You MUST call 'get_manifest' first."
+                )]
+            
+            if name in ["search_landmarks", "get_landmarks", "inspect_landmark"]:
+                # Soft Lock: Load manifest automatically to save a turn
+                logger.info(f"Soft Lock triggered for {name}. Auto-loading manifest.")
+                self.manifest_loaded = True
+                auto_injected_manifest = self.manager.get_manifest(full=False)
 
         if name == "get_manifest":
             is_full = arguments.get("full", False)
@@ -134,6 +143,9 @@ class MCPGateway:
             
             if remaining > 0:
                 res += f"\n- (... and {remaining} more landmarks available. Use `get_manifest(landmark_id=\"...\")` with a specific ID to explore other areas.)"
+            
+            if auto_injected_manifest:
+                res = f"NOTICE: Auto-injected protocol manifest (Initial Discovery Attempt).\n\n{auto_injected_manifest}\n\n---\n\n{res}"
                 
             return [types.TextContent(type="text", text=res)]
 
@@ -164,19 +176,24 @@ class MCPGateway:
 
             results = []
             for lm_id in lm_ids:
-                landmark = self.manager.landmarks.get(lm_id)
-                if not landmark:
-                    results.append(f"Error: Landmark '{lm_id}' not found.")
-                    continue
-                
-                res = self.manager.presenter._render_landmark(landmark, global_context=self.manager.global_context)
-                if landmark.tools:
-                    res += "\n## Contained Tools:\n"
-                    for t in landmark.tools:
-                        res += f"- {t.id}: {t.description}\n"
-                results.append(res)
+                results.append(self.manager.inspect_landmark(lm_id))
             
-            return [types.TextContent(type="text", text="\n\n---\n\n".join(results))]
+            final_res = "\n\n---\n\n".join(results)
+            if auto_injected_manifest:
+                final_res = f"NOTICE: Auto-injected protocol manifest (Initial Discovery Attempt).\n\n{auto_injected_manifest}\n\n---\n\n{final_res}"
+
+            return [types.TextContent(type="text", text=final_res)]
+        
+        if name == "search_landmarks":
+            query = arguments.get("query")
+            if not query:
+                return [types.TextContent(type="text", text="PROTOCOL ERROR: 'query' is required for search.")]
+            
+            res = self.manager.search_landmarks(query)
+            if auto_injected_manifest:
+                res = f"NOTICE: Auto-injected protocol manifest (Initial Discovery Attempt).\n\n{auto_injected_manifest}\n\n---\n\n{res}"
+
+            return [types.TextContent(type="text", text=res)]
 
         if name == "call_action":
             action_id = arguments.get("action")
@@ -221,9 +238,10 @@ class MCPGateway:
                     )
                 
                 # Execute single step with offset to preserve piping ($step0, $step1, etc.)
-                res = await self.sequencer.run([action], self.manager.global_context, index_offset=i)
+                res = await self.sequencer.run([action], self.manager.global_context, index_offset=self.step_counter)
                 step_res = res[0] if res else {"status": "error", "message": "Step failed to produce result"}
                 results.append(step_res)
+                self.step_counter += 1
                 
                 if HAS_MONITOR and self.monitor:
                     self.monitor.report_activity(

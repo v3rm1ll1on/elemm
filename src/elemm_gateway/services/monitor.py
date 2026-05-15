@@ -33,9 +33,11 @@ class DashboardMonitor:
                 r = client.post(self.publish_url, json=event)
                 if r.status_code != 200:
                     logger.warning(f"Dashboard Monitor: Server returned {r.status_code}")
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            # Silent fail if server is down or unreachable
+            return
         except Exception as e:
-            # Log the error so we can see it in the server console
-            pass # Silent fail for monitor, don't break main protocol
+            # Log other unexpected errors
             logger.error(f"Dashboard Monitor: Failed to push event to {self.publish_url}: {e}")
 
     @staticmethod
