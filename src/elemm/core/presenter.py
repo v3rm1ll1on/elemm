@@ -128,7 +128,8 @@ class ManifestPresenter:
                     
                     for t in visible_tools:
                         t_desc = t.description or "No description."
-                        lines.append(f"  - Tool: `{t.id}` ({self._get_required_params_str(t)} | Returns: {t.returns or 'any'})")
+                        remedy_str = f" | Remedy: {t.remedy}" if getattr(t, 'remedy', None) else ""
+                        lines.append(f"  - Tool: `{t.id}` ({self._get_required_params_str(t)} | Returns: {t.returns or 'any'}{remedy_str})")
                         lines.append(f"    > {t_desc}")
                         if show_technical:
                             lines.append(self._render_ts_signature(t))
