@@ -76,20 +76,20 @@ class AIProtocolManager:
             
             parts = actual_id.split(":")
             
-            # Metadata
+            # Metadata - Use get() instead of pop() to avoid data loss in the hierarchy loop
             tool_meta = self.registry.get(actual_id)
-            desc = landmark_data.pop("description", None) or (tool_meta.description if tool_meta else None) or (func.__doc__ if func else None) or f"Area: {actual_id}"
-            params = landmark_data.pop("parameters", None) or (tool_meta.parameters if tool_meta else None)
+            desc = landmark_data.get("description") or (tool_meta.description if tool_meta else None) or (func.__doc__ if func else None) or f"Area: {actual_id}"
+            params = landmark_data.get("parameters") or (tool_meta.parameters if tool_meta else None)
             if params is None and func:
                 params = self.discovery.extract_parameters(func)
                 
-            returns = landmark_data.pop("returns", None) or (tool_meta.returns if tool_meta else None)
-            response_schema = landmark_data.pop("response_schema", None) or (tool_meta.response_schema if tool_meta else None)
+            returns = landmark_data.get("returns") or (tool_meta.returns if tool_meta else None)
+            response_schema = landmark_data.get("response_schema") or (tool_meta.response_schema if tool_meta else None)
             if response_schema is None and func:
                 response_schema = self.discovery.extract_return_schema(func)
                 
-            remedy = landmark_data.pop("remedy", None) or (tool_meta.remedy if tool_meta else None)
-            instructions = landmark_data.pop("instructions", None) or (tool_meta.instructions if tool_meta else None)
+            remedy = landmark_data.get("remedy") or (tool_meta.remedy if tool_meta else None)
+            instructions = landmark_data.get("instructions") or (tool_meta.instructions if tool_meta else None)
 
             # Build Hierarchy
             for i in range(1, len(parts) + 1):
@@ -113,8 +113,12 @@ class AIProtocolManager:
                     lm.returns = returns
                     lm.remedy = remedy
                     lm.instructions = instructions
+                    
+                    # Set extra fields (excluding already handled ones)
+                    skip_keys = {"description", "parameters", "returns", "response_schema", "remedy", "instructions"}
                     for k, v in landmark_data.items():
-                        setattr(lm, k, v)
+                        if k not in skip_keys:
+                            setattr(lm, k, v)
 
                 if i > 1:
                     parent_id = ":".join(parts[:i-1])
