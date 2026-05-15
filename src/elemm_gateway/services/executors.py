@@ -189,8 +189,12 @@ class OpenAPIExecutor:
         json_body = None
 
         for param_meta in meta.get("params", []):
-            p_name = param_meta["name"]
-            p_in = param_meta["in"]
+            if not isinstance(param_meta, dict):
+                continue
+            p_name = param_meta.get("name")
+            p_in = param_meta.get("in", "query")
+            if not p_name:
+                continue
             if p_name in arguments:
                 val = arguments[p_name]
                 if p_in == "path":

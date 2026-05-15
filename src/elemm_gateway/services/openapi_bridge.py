@@ -13,11 +13,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import json
 import logging
 import re
 from urllib.parse import urlparse
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
+from elemm.core.schema import SchemaResolver, SignatureGenerator
 
 logger = logging.getLogger("elemm-openapi-bridge")
 
@@ -93,15 +93,9 @@ class OpenAPIBridge:
                 parameters = path_params + details.get("parameters", [])
                 resolved_params = []
                 for param in parameters:
-                    # Resolve internal $ref if present
-                    if "$ref" in param:
-                        ref_path = param["$ref"].split("/")
-                        if ref_path[0] == "#" and ref_path[1] == "components" and ref_path[2] == "parameters":
-                            param_name = ref_path[3]
-                            param = spec.get("components", {}).get("parameters", {}).get(param_name, {})
-                        else:
-                            continue # Skip unsupported refs for now
-                            
+                    # Fully resolve all $refs recursively
+                    param = SchemaResolver.resolve(param, spec)
+                        
                     p_name = param.get("name")
                     if not p_name:
                         continue
@@ -126,18 +120,18 @@ class OpenAPIBridge:
                 body_schema = json_content.get("schema", {})
                 
                 if body_schema:
-                    # In a real implementation, we'd merge or nest this.
-                    # For simplicity in this PoC, we add a 'body' field if it's complex,
-                    # or flatten it if it's a simple object.
                     if body_schema.get("type") == "object" and "properties" in body_schema:
                         for b_name, b_prop in body_schema["properties"].items():
                             properties[b_name] = b_prop
                             if b_name in body_schema.get("required", []):
                                 required.append(b_name)
+                            # Add to resolved_params for executor
+                            resolved_params.append({"name": b_name, "in": "body"})
                     else:
                         properties["payload"] = body_schema
                         if body.get("required"):
                             required.append("payload")
+                        resolved_params.append({"name": "payload", "in": "body"})
 
                 # Inject Universal Parameters into Schema
                 properties["_select"] = {
@@ -153,6 +147,17 @@ class OpenAPIBridge:
                     "description": "Max number of items to return"
                 }
 
+                # 4. Responses (Output Schema for documentation)
+                responses = details.get("responses", {})
+                ok_response = responses.get("200", responses.get(200, {}))
+                content = ok_response.get("content", {})
+                json_res = content.get("application/json", {})
+                output_schema = json_res.get("schema", {})
+                
+                # Fully resolve all $refs in the schema recursively
+                if output_schema:
+                    output_schema = SchemaResolver.resolve(output_schema, spec)
+
                 tools.append({
                     "name": landmark_id,
                     "description": description,
@@ -161,6 +166,8 @@ class OpenAPIBridge:
                         "properties": properties,
                         "required": required
                     },
+                    "outputSchema": output_schema,
+                    "returns": output_schema.get("type", "any") if isinstance(output_schema, dict) else "any",
                     "meta": {
                         "path": path,
                         "method": method.upper(),
@@ -171,7 +178,7 @@ class OpenAPIBridge:
                         ]
                     }
                 })
-        
+
         # Extract Security Schemes
         security_schemes = spec.get("components", {}).get("securitySchemes", {})
         if not security_schemes and "securityDefinitions" in spec: # Swagger 2.0
@@ -187,6 +194,42 @@ class OpenAPIBridge:
             "security_schemes": security_schemes,
             "global_security": global_security
         }
+
+    @staticmethod
+    def _resolve_refs(schema: Any, spec: Dict[str, Any], depth: int = 0) -> Any:
+        """Recursively resolves $ref pointers in a JSON schema."""
+        if depth > 10: return schema # Safety break
+        
+        if isinstance(schema, list):
+            return [OpenAPIBridge._resolve_refs(item, spec, depth + 1) for item in schema]
+            
+        if not isinstance(schema, dict):
+            return schema
+            
+        if "$ref" in schema:
+            ref_path = schema["$ref"].split("/")
+            if ref_path[0] == "#" and ref_path[1] == "components" and ref_path[2] == "schemas":
+                schema_name = ref_path[3]
+                resolved = spec.get("components", {}).get("schemas", {}).get(schema_name, {})
+                # Continue resolving inside the resolved schema
+                return OpenAPIBridge._resolve_refs(resolved, spec, depth + 1)
+            # Support Swagger 2.0 style refs
+            elif ref_path[0] == "#" and ref_path[1] == "definitions":
+                schema_name = ref_path[2]
+                resolved = spec.get("definitions", {}).get(schema_name, {})
+                return OpenAPIBridge._resolve_refs(resolved, spec, depth + 1)
+        
+        # Recurse into properties and items
+        resolved_schema = schema.copy()
+        if "properties" in resolved_schema:
+            resolved_schema["properties"] = {
+                k: OpenAPIBridge._resolve_refs(v, spec, depth + 1) 
+                for k, v in resolved_schema["properties"].items()
+            }
+        if "items" in resolved_schema:
+            resolved_schema["items"] = OpenAPIBridge._resolve_refs(resolved_schema["items"], spec, depth + 1)
+            
+        return resolved_schema
 
     @staticmethod
     def generate_virtual_manifest(parsed_data: Dict[str, Any], limit: int = 20) -> str:
@@ -231,7 +274,8 @@ class OpenAPIBridge:
                 req_params = t.get("inputSchema", {}).get("required", [])
                 display_params = [p for p in req_params if not p.startswith("_")]
                 hint = f" (Required: {', '.join(display_params)})" if display_params else ""
-                lines.append(f"  - Tool: `{t['name']}`{hint}")
+                ret_hint = f" -> {t.get('returns', 'any')}"
+                lines.append(f"  - Tool: `{t['name']}`{hint}{ret_hint}")
                 
             if remaining > 0:
                 lines.append(f"  - (... and {remaining} more tools. Use `inspect_landmark(landmark_id=\"{tag}\")` for full list)")
@@ -240,15 +284,13 @@ class OpenAPIBridge:
 
     @staticmethod
     def get_tool_signature(parsed_data: Dict[str, Any], landmark_id: str) -> str:
-        """Helper for deep inspection without bloating the main manifest."""
+        """Helper for deep inspection using core SignatureGenerator."""
         tools = parsed_data.get("tools", [])
-        selected = [t for t in tools if t["name"] == landmark_id or t["name"].startswith(landmark_id + "_")]
+        selected = [t for t in tools if t["name"] == landmark_id or t["name"].lower() == landmark_id.lower()]
         if not selected: return ""
         
         lines = ["### TECHNICAL SIGNATURES", "```typescript"]
         for t in selected:
-            schema = t.get("inputSchema", {})
-            params = [f"{n}{'' if n in schema.get('required', []) else '?'}: {d.get('type', 'any')}" for n, d in schema.get("properties", {}).items()]
-            lines.append(f"/** {t.get('description', 'No desc')} */\nfunction call_action(action: '{t['name']}', parameters: {{ {', '.join(params)} }}): any;\n")
+            lines.append(SignatureGenerator.to_typescript_signature(t))
         lines.append("```")
         return "\n".join(lines)

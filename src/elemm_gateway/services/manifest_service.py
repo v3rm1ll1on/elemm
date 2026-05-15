@@ -95,10 +95,13 @@ class ManifestService:
             
             landmarks.append({
                 "id": tool["name"],
-                "type": "tool",
-                "description": tool.get("description", ""),
                 "parameters": params,
+                "returns": tool.get("returns", "any"),
+                "outputSchema": tool.get("outputSchema", {}),
+                "remedy": tool.get("remedy", ""),
+                "type": "tool",
                 "is_tool": True,
+                "description": tool.get("description", ""),
                 "meta": tool.get("meta", {})
             })
             
@@ -252,6 +255,7 @@ class ManifestService:
                 "name": tool["name"],
                 "description": tool.get("description", ""),
                 "parameters": params,
+                "outputSchema": tool.get("outputSchema", {}),
                 "is_tool": True
             }
 
@@ -283,8 +287,7 @@ class ManifestService:
                     if spec:
                         parsed = OpenAPIBridge.parse_spec(spec, site_url)
                         if output_format == "json":
-                            tool = next((t for t in parsed["tools"] if t["name"] == landmark_id), None)
-                            if tool: return {"status": "success", "type": "openapi", "data": map_bridge_tool(tool)}
+                            return {"status": "success", "type": "openapi", "data": map_bridge_tool(parsed, landmark_id)}
                         
                         signature = OpenAPIBridge.get_tool_signature(parsed, landmark_id)
                         return {"status": "success", "type": "openapi", "signature": signature}

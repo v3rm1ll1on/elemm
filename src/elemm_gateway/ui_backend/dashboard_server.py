@@ -156,6 +156,7 @@ async def inspect_landmark(landmark_id: str, url: str = None, session_id: str = 
                         "description": tool.get("description", ""),
                         "parameters": params,
                         "returns": tool.get("returns", "any"),
+                        "outputSchema": tool.get("outputSchema", {}),
                         "remedy": tool.get("remedy", ""),
                         "meta": tool.get("meta", {})
                     }
@@ -226,14 +227,16 @@ async def execute_action(payload: dict):
         
         session = GLOBAL_STATE["sessions"].get(session_id, {})
         site_type = session.get("site_type", "native")
+        logger.info(f"Execution request: {action} on {url} (Type: {site_type})")
         
         # 1. Bridge Execution (OpenAPI/GraphQL)
         if site_type in ["openapi", "graphql"]:
             cached_tools = session.get("tools", [])
-            tool_data = next((t for t in cached_tools if t["name"] == action), None)
+            # Use .get("name") and fallback to .get("id") to be robust
+            tool_data = next((t for t in cached_tools if isinstance(t, dict) and (t.get("name") == action or t.get("id") == action)), None)
             
             if not tool_data:
-                # If tool not in cache, we might need a deep-inspection first
+                logger.warning(f"Tool {action} not found in cache. Available: {[t.get('name', t.get('id')) for t in cached_tools]}")
                 raise HTTPException(status_code=404, detail=f"Tool '{action}' not found in session cache. Try 'inspect_landmark' first.")
             
             if site_type == "openapi":
@@ -249,22 +252,20 @@ async def execute_action(payload: dict):
         
         # 2. Native Elemm Route
         async with httpx.AsyncClient() as client:
-            # Normalize URL (strip .well-known suffix if present)
             base_url = url.split("/.well-known")[0].rstrip("/")
             exec_url = f"{base_url}/.well-known/elemm/execute"
             
             resp = await client.post(exec_url, json={"action": action, "parameters": parameters}, timeout=30.0)
             if resp.status_code != 200:
+                logger.error(f"Native execution failed: {resp.status_code} - {resp.text}")
                 raise HTTPException(status_code=resp.status_code, detail=resp.text)
                 
             return resp.json()
             
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Execution failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-    except Exception as e:
-        logger.error(f"Execution failed: {e}")
+        logger.error(f"Execution failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 app.add_middleware(

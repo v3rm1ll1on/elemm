@@ -49,7 +49,8 @@ const ManifestDebugger = () => {
               description: lm.description || "",
               isTool: lm.is_tool || lm.isTool || true, // Search results are usually tools
               parameters: lm.parameters || [],
-              returns: lm.returns || "any"
+              returns: lm.returns || "any",
+              outputSchema: lm.outputSchema || {}
             };
           });
           setAllLandmarks(prev => ({
@@ -239,7 +240,8 @@ const ManifestDebugger = () => {
             children: {},
             description: isLeaf ? data.description : "",
             isTruncated: isLeaf ? data.isTruncated : false,
-            isTool: isLeaf ? data.isTool : false
+            isTool: isLeaf ? data.isTool : false,
+            outputSchema: isLeaf ? data.outputSchema : {}
           };
         } else if (isLeaf) {
           current[part].description = data.description || current[part].description;
@@ -473,6 +475,7 @@ const ManifestDebugger = () => {
               isTruncated: lm.is_truncated || false,
               parameters: lm.parameters || [],
               returns: lm.returns || "any",
+              outputSchema: lm.outputSchema || {},
               remedy: lm.remedy
             };
             newSignatures[id] = `// Structured Profile for ${id}`;

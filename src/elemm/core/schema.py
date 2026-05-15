@@ -1,0 +1,119 @@
+# Copyright (C) 2026 Marc Stöcker
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+from typing import Any, Dict, List, Optional
+
+class SchemaResolver:
+    """
+    Zentraler Resolver für JSON-Schemas und $ref-Verweise im Elemm-Protokoll.
+    """
+
+    @staticmethod
+    def resolve(schema: Any, spec: Dict[str, Any], depth: int = 0) -> Any:
+        """
+        Löst rekursiv alle $ref-Verweise in einem Schema auf Basis einer Spezifikation auf.
+        Unterstützt OpenAPI 3.0 (components/schemas) und Swagger 2.0 (definitions).
+        """
+        if depth > 10: return schema # Safety break
+        
+        if isinstance(schema, list):
+            return [SchemaResolver.resolve(item, spec, depth + 1) for item in schema]
+            
+        if not isinstance(schema, dict):
+            return schema
+            
+        if "$ref" in schema:
+            ref_path = schema["$ref"].split("/")
+            
+            # OpenAPI 3.0 / Components
+            if len(ref_path) >= 4 and ref_path[0] == "#" and ref_path[1] == "components":
+                root_key = ref_path[2] # schemas, parameters, etc.
+                schema_name = ref_path[3]
+                resolved = spec.get("components", {}).get(root_key, {}).get(schema_name, {})
+                return SchemaResolver.resolve(resolved, spec, depth + 1)
+                
+            # Swagger 2.0 / Definitions
+            elif len(ref_path) >= 3 and ref_path[0] == "#" and ref_path[1] == "definitions":
+                schema_name = ref_path[2]
+                resolved = spec.get("definitions", {}).get(schema_name, {})
+                return SchemaResolver.resolve(resolved, spec, depth + 1)
+                
+            # Generic Fallback (last part of path)
+            else:
+                schema_name = ref_path[-1]
+                # Try to find it anywhere in components or definitions
+                for root in ["components", "definitions"]:
+                    for group in spec.get(root, {}).values() if root == "components" else [spec.get("definitions", {})]:
+                        if isinstance(group, dict) and schema_name in group:
+                            return SchemaResolver.resolve(group[schema_name], spec, depth + 1)
+
+        # Rekursion in Properties und Items
+        resolved_schema = schema.copy()
+        if "properties" in resolved_schema:
+            resolved_schema["properties"] = {
+                k: SchemaResolver.resolve(v, spec, depth + 1) 
+                for k, v in resolved_schema["properties"].items()
+            }
+        if "items" in resolved_schema:
+            resolved_schema["items"] = SchemaResolver.resolve(resolved_schema["items"], spec, depth + 1)
+            
+        return resolved_schema
+
+class SignatureGenerator:
+    """
+    Erzeugt technische Signaturen (z.B. TypeScript) aus Elemm-Tool-Metadaten.
+    """
+
+    @staticmethod
+    def to_typescript_signature(tool: Dict[str, Any]) -> str:
+        """
+        Erzeugt eine TypeScript-Funktionssignatur für ein Tool.
+        """
+        name = tool.get("name", "unknown_action")
+        description = tool.get("description", "No description")
+        
+        # Inputs
+        input_schema = tool.get("inputSchema", {})
+        required = input_schema.get("required", [])
+        props = input_schema.get("properties", {})
+        
+        params = []
+        for p_name, p_info in props.items():
+            is_req = p_name in required
+            p_type = p_info.get("type", "any")
+            params.append(f"{p_name}{'' if is_req else '?'}: {p_type}")
+            
+        # Outputs
+        output_schema = tool.get("outputSchema")
+        ret_type = SignatureGenerator._schema_to_ts_type(output_schema) if output_schema else tool.get("returns", "any")
+        
+        return f"/** {description} */\nfunction call_action(action: '{name}', parameters: {{ {', '.join(params)} }}): {ret_type};"
+
+    @staticmethod
+    def _schema_to_ts_type(schema: Any, depth: int = 0) -> str:
+        """Konvertiert ein JSON-Schema in einen aggressiv 'gesquashten' TS-Typ-String."""
+        if depth > 2 or not isinstance(schema, dict): return "any"
+        
+        s_type = schema.get("type", "any")
+        
+        if s_type == "object" and "properties" in schema:
+            props_dict = schema["properties"]
+            keys = list(props_dict.keys())
+            # Zeige maximal 5 Felder, um Bloat zu vermeiden
+            visible_keys = keys[:5]
+            props = [f"{k}: {SignatureGenerator._schema_to_ts_type(props_dict[k], depth + 1)}" for k in visible_keys]
+            
+            if len(keys) > 5:
+                props.append(f"... +{len(keys) - 5} more fields")
+                
+            return f"{{ {', '.join(props)} }}"
+        
+        if s_type == "array" and "items" in schema:
+            # Kompakte Array-Darstellung
+            return f"Array<{SignatureGenerator._schema_to_ts_type(schema['items'], depth + 1)}>"
+            
+        return s_type

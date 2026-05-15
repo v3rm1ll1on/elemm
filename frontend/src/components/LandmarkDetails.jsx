@@ -47,6 +47,133 @@ const Section = ({ title, icon: Icon, children, action }) => (
   </div>
 );
 
+const SchemaExplorer = ({ schema }) => {
+  const [path, setPath] = useState([]);
+  const [copyFeedback, setCopyFeedback] = useState(null);
+  
+  const currentSchema = useMemo(() => {
+    let curr = schema;
+    for (const part of path) {
+      if (curr.type === 'object' && curr.properties?.[part]) {
+        curr = curr.properties[part];
+      } else if (curr.type === 'array' && curr.items) {
+        curr = curr.items;
+      }
+    }
+    return curr;
+  }, [schema, path]);
+
+  const copyPath = (fieldName) => {
+    const fullPath = [...path, fieldName].join('.');
+    navigator.clipboard.writeText(fullPath);
+    setCopyFeedback(fullPath);
+    setTimeout(() => setCopyFeedback(null), 2000);
+  };
+
+  const renderGrid = (s) => {
+    if (!s) return null;
+
+    let fields = [];
+    if (s.type === 'object' && s.properties) {
+      fields = Object.entries(s.properties).map(([name, prop]) => ({
+        name,
+        type: prop.type || 'any',
+        description: prop.description,
+        raw: prop
+      }));
+    } else if (s.type === 'array' && s.items) {
+      // Direct dive into array items to avoid double 'items' path
+      return renderGrid(s.items);
+    }
+
+    if (fields.length === 0) {
+      return <div style={{ color: '#34d399', fontFamily: 'monospace', padding: '12px' }}>{s.type || 'any'}</div>;
+    }
+
+    return (
+      <div className="param-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+        {fields.map(f => {
+          const isDrillable = f.type === 'object' || f.type === 'array';
+          return (
+            <div 
+              key={f.name} 
+              className={`param-card return-card ${isDrillable ? 'drillable' : ''}`}
+              onClick={() => {
+                if (isDrillable) {
+                  setPath([...path, f.name]);
+                } else {
+                  copyPath(f.name);
+                }
+              }}
+              style={{ 
+                background: 'rgba(255,255,255,0.02)', 
+                border: '1px solid rgba(255,255,255,0.05)',
+                cursor: 'pointer',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+            >
+              <div className="p-header" style={{ marginBottom: '4px', display: 'flex', justifyContent: 'space-between' }}>
+                <span className="p-name" style={{ color: '#fca5a5' }}>{f.name}</span>
+                <span className="p-type" style={{ color: '#34d399' }}>{f.type}</span>
+              </div>
+              {f.description && <div className="p-desc" style={{ fontSize: '11px', opacity: 0.6 }}>{f.description}</div>}
+              <div style={{ position: 'absolute', bottom: '4px', right: '6px', opacity: 0.4 }}>
+                 {isDrillable ? <Layers size={10} /> : <Copy size={10} />}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  return (
+    <div className="schema-explorer-container" style={{ position: 'relative' }}>
+      {/* Feedback Toast */}
+      {copyFeedback && (
+        <div style={{ 
+          position: 'absolute', top: '-40px', right: '0', background: '#6366f1', color: 'white', 
+          padding: '4px 12px', borderRadius: '20px', fontSize: '10px', fontWeight: 'bold',
+          zIndex: 10, animation: 'fadeInOut 2s forwards'
+        }}>
+          PATH COPIED: {copyFeedback}
+        </div>
+      )}
+
+      {/* Breadcrumbs */}
+      <div className="schema-breadcrumbs" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', fontSize: '11px', color: '#94a3b8' }}>
+        <span 
+          onClick={() => setPath([])} 
+          style={{ cursor: 'pointer', color: path.length === 0 ? '#6366f1' : 'inherit', fontWeight: path.length === 0 ? 'bold' : 'normal' }}
+        >
+          ROOT
+        </span>
+        {path.map((part, i) => (
+          <React.Fragment key={i}>
+            <span style={{ opacity: 0.3 }}>/</span>
+            <span 
+              onClick={() => setPath(path.slice(0, i + 1))}
+              style={{ 
+                cursor: 'pointer', 
+                color: i === path.length - 1 ? '#6366f1' : 'inherit',
+                fontWeight: i === path.length - 1 ? 'bold' : 'normal'
+              }}
+            >
+              {part.toUpperCase()}
+            </span>
+          </React.Fragment>
+        ))}
+      </div>
+      
+      {/* Current Grid */}
+      <div className="schema-view-animate">
+        {renderGrid(currentSchema)}
+      </div>
+    </div>
+  );
+};
+
 // --- Main Component ---
 
 const LandmarkDetails = ({ 
@@ -114,11 +241,22 @@ const LandmarkDetails = ({
               </Section>
             )}
 
-            {(landmarkData?.returns || landmarkData?.remedy) && (
-              <Section title="Returns & Remedy" icon={Info}>
-                 <div className="returns-remedy-box" style={{ background: 'rgba(255,255,255,0.05)', padding: '12px', borderRadius: '6px', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {landmarkData?.returns && <div><strong style={{color: '#94a3b8'}}>Returns:</strong> <code style={{ color: '#34d399', marginLeft: '8px' }}>{landmarkData.returns}</code></div>}
-                    {landmarkData?.remedy && <div><strong style={{color: '#94a3b8'}}>Remedy:</strong> <span style={{ color: '#f472b6', marginLeft: '8px' }}>{landmarkData.remedy}</span></div>}
+            {(landmarkData?.returns || landmarkData?.remedy || (landmarkData?.outputSchema && Object.keys(landmarkData.outputSchema).length > 0)) && (
+              <Section title="Returns & Expected Schema" icon={Info}>
+                 <div className="returns-remedy-box" style={{ background: 'rgba(255,255,255,0.03)', padding: '16px', borderRadius: '12px', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    {landmarkData?.returns && landmarkData.returns !== 'any' && (
+                      <div><strong style={{color: '#94a3b8', display: 'block', marginBottom: '4px', fontSize: '11px', textTransform: 'uppercase'}}>Return Type:</strong> <code style={{ color: '#34d399' }}>{landmarkData.returns}</code></div>
+                    )}
+                    {landmarkData?.remedy && <div><strong style={{color: '#94a3b8', display: 'block', marginBottom: '4px', fontSize: '11px', textTransform: 'uppercase'}}>Remedy:</strong> <span style={{ color: '#f472b6' }}>{landmarkData.remedy}</span></div>}
+                    
+                    {landmarkData?.outputSchema && Object.keys(landmarkData.outputSchema).length > 0 && (
+                      <div className="output-schema-section">
+                        <strong style={{color: '#6366f1', display: 'block', marginBottom: '12px', fontSize: '11px', textTransform: 'uppercase'}}>Response Structure:</strong>
+                        <div className="output-schema-viz">
+                          <SchemaExplorer schema={landmarkData.outputSchema} />
+                        </div>
+                      </div>
+                    )}
                  </div>
               </Section>
             )}

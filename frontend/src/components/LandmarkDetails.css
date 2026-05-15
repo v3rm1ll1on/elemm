@@ -111,6 +111,26 @@
   color: #94a3b8;
   word-break: break-word;
   line-height: 1.5;
+  max-height: 90px; /* Approx 5-6 lines */
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.p-desc::-webkit-scrollbar {
+  width: 4px;
+}
+
+.p-desc::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.p-desc::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.p-desc::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .tester-grid {

@@ -106,9 +106,13 @@ class ResponseSquisher:
         return data, was_truncated
 
     @staticmethod
-    def _pick_fields(obj: Any, fields: List[str]) -> Dict[str, Any]:
+    def _pick_fields(obj: Any, fields: List[str]) -> Any:
+        if isinstance(obj, list):
+            return [ResponseSquisher._pick_fields(item, fields) for item in obj]
+            
         if not isinstance(obj, dict):
             return obj
+            
         res = {}
         for f in fields:
             if "." in f:
@@ -117,6 +121,7 @@ class ResponseSquisher:
                     nested_val = ResponseSquisher._pick_fields(obj[parts[0]], [parts[1]])
                     if parts[0] not in res:
                         res[parts[0]] = {}
+                    
                     if isinstance(res[parts[0]], dict) and isinstance(nested_val, dict):
                         res[parts[0]].update(nested_val)
                     else:
