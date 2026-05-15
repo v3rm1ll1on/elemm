@@ -20,16 +20,13 @@
 - [x] **Complete Documentation Overhaul**: 7 docs covering all features.
 
 ## Phase 3: Ecosystem and Hardening (Next)
+- [ ] **Elemm MCP Client (Hub)**: Internal `mcp_registry` to mount pre-configured external MCP servers seamlessly into the Elemm protocol without adding new root tools. Includes full support for Vault keys and Guardian WAF filtering.
 - [ ] **OAuth2 Integration**: Support secure OAuth2 flows for APIs requiring interactive authentication.
 - [ ] **Conditional Branching**: `condition` field in `execute_sequence` steps for if/else logic.
-- [ ] **Streaming Support**: Implement result streaming for long-running tool sequences.
-- [ ] **FastAPI Multi-Tenant Support**: Enable isolated protocol instances for multi-user environments.
+
 
 ## Phase 4: Ecosystem and Tooling (Future)
-- [ ] **Elemm Visualizer**: A debugger for visualizing sequences and piped variable resolutions.
-- [ ] **Advanced Client SDK**: High-level library for building Elemm-compliant clients.
+- [x] **Elemm Visualizer**: A debugger for visualizing sequences and piped variable resolutions.
 - [ ] **Landmark Repository**: A library of pre-built landmarks for common enterprise tasks (SQL, Kubernetes, AWS).
 - [ ] **TTL-Based Session Persistence**: Optional caching to relax the handshake requirement for stable connections.
 
-## Gateway Core / Memory Management
-- [ ] Refactor alias storage in `execute_sequence`: Avoid double storage when a custom alias is provided (currently stored as both `$stepN` and custom name). This causes redundancy in `list_aliases` output.
