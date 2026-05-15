@@ -313,7 +313,7 @@ class AIProtocolManager:
         all_landmarks = []
         
         # Normalize landmark_ids to a list
-        if landmark_ids:
+        if landmark_ids is not None:
             ids = [landmark_ids] if isinstance(landmark_ids, (str, bytes)) else landmark_ids
             reg_lower = self._get_registry_lower()
             
@@ -325,13 +325,9 @@ class AIProtocolManager:
                     logger.warning(f"Landmark {lid} not found in registry.")
                     continue
                 
-                # Wenn es eine Area ist (kein handler), zeigen wir ihre Kinder
-                if not getattr(landmark, 'handler', None) and landmark.tools:
-                    logger.info(f"Expanding area {landmark.id} into {len(landmark.tools)} sub-items")
-                    all_landmarks.extend(landmark.tools)
-                else:
-                    # Es ist ein Tool oder eine leere Area
-                    all_landmarks.append(landmark)
+                # Add the landmark as-is. The Presenter handles drilling down/expansion
+                # for JSON and hierarchical rendering for Markdown.
+                all_landmarks.append(landmark)
         else:
             # Root-Ebene: Zeige alle Landmarks ohne Doppelpunkt (Distrikte/Hauptbereiche)
             all_landmarks = [l for l in self.landmarks.values() if ":" not in l.id]

@@ -44,7 +44,7 @@ class ManifestBuilder:
         "- Use 'list_aliases' to see all current session findings ($step0, $step1, etc.).\n"
         "- PERSISTENCE: Custom aliases (e.g. 'alias: \"user_id\"') stay in memory across turns.\n"
         "- VOLATILITY: '$stepN' aliases are overwritten in each 'execute_sequence' call. Always prefer custom aliases for critical data.\n"
-        "- SYNTAX: Use '$alias.field' or '$alias[0].field'. Do NOT use '.result' in the path.\n"
+        "- SYNTAX: Use '$alias.field' (e.g. '$step0.id') or '$alias[0].field'. Do NOT use '.result' in the path.\n"
     )
 
     @classmethod
