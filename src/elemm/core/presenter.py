@@ -18,122 +18,130 @@ import json
 from .models import Landmark
 
 class ManifestPresenter:
-    """Renders the Elemm v2 manifest in high-fidelity Markdown and TypeScript."""
-    
+    """Standard-Presenter für Elemm-Protokoll-Discovery."""
 
     def present_manifest(self, 
                          landmarks: List[Landmark], 
-                         instructions: str = "",
-                         welcome_message: str = "ELEMM v2 SECURE INTERFACE",
-                         show_technical: bool = False,
-                         is_root: bool = False,
+                         instructions: str = "", 
+                         welcome_message: str = "ELEMM v2 SECURE INTERFACE", 
+                         show_technical: bool = False, 
+                         is_root: bool = False, 
                          **kwargs) -> str:
-        """Renders the manifest in high-fidelity Markdown."""
-        lines = []
+        """Präsentiert eine Liste von Landmarks in Markdown oder JSON."""
         
-        # 1. Header & Welcome (Root Only)
+        # 1. Format Switch Check
+        output_format = kwargs.get("output_format", "markdown")
+        
+        # 2. Hard-Facts JSON Mode (for Dashboards & Machine Processing)
+        if output_format == "json":
+            # EXPLORE LOGIC: If exactly one Area is requested (and it's NOT a root call), 
+            # we show its children instead of itself to allow drilling down.
+            if not is_root and len(landmarks) == 1 and not landmarks[0].handler and hasattr(landmarks[0], 'tools') and landmarks[0].tools:
+                effective_lms = landmarks[0].tools
+                parent_id = landmarks[0].id
+            else:
+                effective_lms = landmarks
+                parent_id = None
+
+            offset = kwargs.get("offset", 0)
+            max_landmarks = kwargs.get("max_landmarks", 100) 
+            
+            total_count = len(effective_lms)
+            paginated_lms = effective_lms[offset : offset + max_landmarks]
+            
+            items = []
+            for lm in paginated_lms:
+                item = {
+                    "id": lm.id,
+                    "description": lm.description,
+                    "parameters": [p.model_dump() for p in (lm.parameters or [])],
+                    "returns": lm.returns or "any",
+                    "remedy": getattr(lm, 'remedy', None),
+                    "is_tool": bool(lm.handler),
+                }
+                
+                # Area/Namespace logic (Lazy Loading Hints)
+                if not lm.handler and hasattr(lm, 'tools') and lm.tools:
+                    item["child_count"] = len(lm.tools)
+                    item["is_truncated"] = len(lm.tools) > 0 
+                
+                items.append(item)
+
+            return json.dumps({
+                "version": "2.0",
+                "parent_id": parent_id,
+                "is_root": is_root,
+                "welcome_message": welcome_message if is_root else None,
+                "landmarks": items,
+                "pagination": {
+                    "total": total_count,
+                    "offset": offset,
+                    "limit": max_landmarks,
+                    "has_more": (offset + max_landmarks) < total_count
+                }
+            }, indent=2)
+
+        # 3. Agent-Facing Markdown Mode (Default)
+        lines = []
         if welcome_message:
             lines.append(f"# {welcome_message}\n")
         
         if instructions:
-            lines.append(instructions)
-            lines.append("\n")
+            lines.append(instructions + "\n")
 
-        # 2. Protocol Hygiene (Memory Bank) - Root Only
+        # Protocol Hygiene (Memory Bank) - Root Only
         if is_root:
             lines.append("### MEMORY BANK (Live Memory)")
             lines.append("- Use `list_aliases()` to see stored findings ($step0, $step1, etc.)")
             lines.append("- PIPING: Use '$alias.field' (e.g. '$step0.hostname') to access results directly.\n")
 
-        # 3. Landmark Topology
         lines.append("### LANDMARK TOPOLOGY\n")
         
-        discovery_data = []
         offset = kwargs.get("offset", 0)
         limit_chars = kwargs.get("limit", 20000)
         
-        # Calculate dynamic item limits based on char budget
+        # Calculate dynamic item limits based on char budget for Markdown
         dyn_max_lm = max(20, limit_chars // 150) if limit_chars else 20
-        dyn_max_tools = max(5, limit_chars // 500) if limit_chars else 5
-        
         max_landmarks = kwargs.get("max_landmarks", dyn_max_lm)
-        max_tools = kwargs.get("max_tools", dyn_max_tools)
-        
-        # Total item budget (if limit was passed, use it as a hard stop)
-        item_budget = kwargs.get("max_landmarks", 99999) 
-        items_rendered = 0
 
         if not landmarks:
             lines.append("_No landmarks discovered in this scope._")
         else:
-            visible_landmarks = landmarks[offset:offset+max_landmarks]
-            remaining_landmarks = len(landmarks) - (offset + max_landmarks)
+            visible_lms = landmarks[offset : offset + max_landmarks]
+            remaining_landmarks = max(0, len(landmarks) - (offset + max_landmarks))
 
-            for lm in visible_landmarks:
-                if items_rendered >= item_budget:
-                    break
-                    
-                # Landmark Header
+            for lm in visible_lms:
                 desc = lm.description if getattr(lm, 'description', None) else f"Area: {lm.id}"
                 lines.append(f"- **`{lm.id}`**: {desc}")
-                items_rendered += 1
                 
-                # Render signature if it's an executable tool
-                if getattr(lm, 'handler', None):
+                if hasattr(lm, 'handler') and lm.handler:
                     lines.append(self._render_ts_signature(lm))
-                
-                # Render children if it's a container area
-                if hasattr(lm, 'tools') and lm.tools:
+                elif hasattr(lm, 'tools') and lm.tools:
+                    # Summary for categories
                     all_tools = lm.tools
-                    # Sub-tools also count towards the budget
-                    current_max_tools = min(max_tools, item_budget - items_rendered)
+                    visible_tools = all_tools[:max(1, max_landmarks - 1)]
+                    remaining_tools = len(all_tools) - len(visible_tools)
                     
-                    if current_max_tools > 0:
-                        visible_tools = all_tools[:current_max_tools]
-                        remaining_tools = len(all_tools) - current_max_tools
+                    for t in visible_tools:
+                        t_desc = t.description or "No description."
+                        if t.handler:
+                            lines.append(f"  - Tool: `{t.id}` ({self._get_required_params_str(t)})")
+                            lines.append(f"    > {t_desc}")
+                        else:
+                            lines.append(f"  - Landmark: `{t.id}` (Area/Namespace) - {t_desc}")
+                    
+                    if remaining_tools > 0:
+                        lines.append(f"  - (... and {remaining_tools} more tools. Use `inspect_landmark(landmark_id=\"{lm.id}\")` for full signatures.)")
 
-                        for t in visible_tools:
-                            t_desc = t.description or "No description"
-                            if getattr(t, 'handler', None):
-                                req_params = self._get_required_params_str(t)
-                                lines.append(f"  - Tool: `{t.id}` ({req_params}) -> Returns: {t.returns or 'any'}")
-                                lines.append(f"    > {t_desc}")
-                            else:
-                                lines.append(f"  - Landmark: `{t.id}` (Area/Namespace) - {t_desc}")
-                            items_rendered += 1
-                        
-                        if remaining_tools > 0:
-                            lines.append(f"  - (... and {remaining_tools} more tools. Use `inspect_landmark(landmark_id=\"{lm.id}\")` for full signatures.)")
-                    else:
-                        lines.append(f"  - (... tools hidden due to budget limit. Use `inspect_landmark(landmark_id=\"{lm.id}\")`.)")
-
-                # Collect technical metadata
-                if show_technical:
-                    discovery_data.append({
-                        "id": lm.id,
-                        "description": desc,
-                        "parameters": [p.model_dump() for p in getattr(lm, 'parameters', None)] if getattr(lm, 'parameters', None) else [],
-                        "returns": getattr(lm, 'returns', 'any')
-                    })
-            
             if remaining_landmarks > 0:
                 next_offset = offset + max_landmarks
                 lines.append(f"\n- (... and {remaining_landmarks} more items available. **ACTION REQUIRED**: Use `_offset={next_offset}` in your next `inspect_landmark` call to fetch the next page of results.)")
-
-        # 4. Technical Discovery Block (Removed in v2 to avoid Context Bloat. Use TS signatures instead.)
-        # if show_technical and discovery_data:
-        #     lines.append("\n---\n### Technical Discovery")
-        #     lines.append("```json")
-        #     lines.append(json.dumps(discovery_data, indent=2))
-        #     lines.append("```")
 
         return "\n".join(lines)
 
     def _render_ts_signature(self, lm: Landmark) -> str:
         """Renders a clean TypeScript function signature for the tool."""
         params = lm.parameters or []
-        
-        # Build parameter interface or object
         if not params:
             param_str = "{}"
         else:
@@ -144,30 +152,34 @@ class ManifestPresenter:
             param_str = "{ " + ", ".join(p_lines) + " }"
 
         returns = lm.returns or "any"
+        ts = ["```typescript", "/**", f" * Tool: {lm.id}"]
         
-        ts = [
-            "```typescript",
-            "/**",
-            f" * Tool: {lm.id}"
-        ]
-        
-        # Hygiene: Filter redundant or too short descriptions
+        # Hygiene Filter: Skip redundant or too short descriptions
         desc = lm.description
-        if desc:
-            is_redundant = desc.lower().replace(" ", "").replace("_", "") == lm.id.lower().replace(" ", "").replace("_", "")
-            is_too_short = len(desc.strip()) < 5
-            if not is_redundant and not is_too_short:
-                ts.append(f" * Description: {desc}")
-        
+        if desc and not self._should_skip_description(lm.id, desc):
+            ts.append(f" * Description: {desc}")
+            
         if getattr(lm, 'remedy', None):
             ts.append(f" * Remedy: {lm.remedy}")
             
-        ts.extend([
-            " */",
-            f'function call_action(action: "{lm.id}", parameters: {param_str}): {returns};',
-            "```"
-        ])
+        ts.extend([" */", f'function call_action(action: "{lm.id}", parameters: {param_str}): {returns};', "```"])
         return "\n".join(ts)
+
+    def _should_skip_description(self, lm_id: str, description: str) -> bool:
+        """Checks if a description is redundant or too short."""
+        if not description: return True
+        desc_clean = description.strip()
+        if len(desc_clean) < 3: return True
+        
+        # Simple redundancy check (e.g. id='get_user', desc='Get user')
+        norm_id = lm_id.lower().replace("_", " ").replace(":", " ").strip()
+        norm_desc = desc_clean.lower().strip()
+        
+        if norm_id == norm_desc: return True
+        # Also check without spaces
+        if norm_id.replace(" ", "") == norm_desc.replace(" ", ""): return True
+        
+        return False
 
     def _get_required_params_str(self, lm: Landmark) -> str:
         """Helper to get a list of required parameter names."""

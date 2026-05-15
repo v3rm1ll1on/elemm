@@ -75,15 +75,21 @@ async def inspect_site(url: str, landmark_id: str = None, session_id: str = "def
     Lazy-loads a manifest for a given URL by importing the gateway logic.
     """
     try:
-        # Reload vault before inspection before inspection to get latest keys
+        # Reload vault before inspection to get latest keys
         vault_manager.vault = vault_manager.load()
         
-        result = await ManifestService.inspect_url(url, landmark_id=landmark_id, vault_manager=vault_manager)
+        result = await ManifestService.inspect_url(url, landmark_id=landmark_id, vault_manager=vault_manager, output_format="json")
         if result["status"] == "success":
-            # Store it for the UI
-            GLOBAL_STATE["manifests"][session_id] = result["manifest"]
+            # 1. Store Manifest String (Ensure it's a string for the UI parser)
+            manifest_content = result.get("manifest")
+            if not manifest_content and "data" in result:
+                # If no manifest string provided, use the bridge's virtual manifest
+                manifest_content = result["data"].get("manifest") or json.dumps(result["data"])
+                result["manifest"] = manifest_content
             
-            # Ensure session entry exists and has the active URL
+            GLOBAL_STATE["manifests"][session_id] = manifest_content
+            
+            # 2. Ensure session entry exists
             if session_id not in GLOBAL_STATE["sessions"]:
                 GLOBAL_STATE["sessions"][session_id] = {
                     "tokens_in": 0, "tokens_out": 0, "total_tokens": 0,
@@ -91,11 +97,21 @@ async def inspect_site(url: str, landmark_id: str = None, session_id: str = "def
                     "landmark_count": 0, "version": "1.2.0",
                     "last_action": "Manual Inspection",
                     "last_seen": time.time(),
-                    "history": []
+                    "history": [],
+                    "tools": [] # Cached tool definitions for execution
                 }
             
-            GLOBAL_STATE["sessions"][session_id]["active_url"] = url
-            GLOBAL_STATE["sessions"][session_id]["site_type"] = result.get("type", "elemm")
+            # 3. Store Metadata and Tools
+            session = GLOBAL_STATE["sessions"][session_id]
+            session["active_url"] = url
+            session["site_type"] = result.get("type", "native")
+            
+            if "bridge_tools" in result:
+                session["tools"] = result["bridge_tools"]
+            elif "data" in result:
+                # Store parsed tools from native if available
+                session["tools"] = result["data"].get("landmarks", [])
+            
             return result
         else:
             raise HTTPException(status_code=400, detail=result["message"])
@@ -106,21 +122,59 @@ async def inspect_site(url: str, landmark_id: str = None, session_id: str = "def
 @app.get("/api/v1/inspect/landmark")
 async def inspect_landmark(landmark_id: str, url: str = None, session_id: str = "default"):
     """
-    Fetches the technical signature for a specific landmark.
+    Fetches the technical signature for a specific landmark, prioritizing session cache.
     """
-    if not url:
-        session = GLOBAL_STATE["sessions"].get(session_id)
-        if session:
-            url = session.get("active_url")
-    
-    if not url:
-        raise HTTPException(status_code=400, detail="No active URL found for this session. Please connect first.")
-
     try:
-        # Reload vault before inspection
-        vault_manager.vault = vault_manager.load()
+        session = GLOBAL_STATE["sessions"].get(session_id)
+        if not url and session:
+            url = session.get("active_url")
         
-        result = await ManifestService.inspect_landmark(url, landmark_id, vault_manager=vault_manager)
+        site_type = session.get("site_type", "native") if session else "native"
+
+        # 1. Try to find in session cache first (Standardized Elemm Format)
+        if session and session.get("tools"):
+            # The tools in session are already normalized by ManifestService.normalize_bridge_to_elemm
+            tool = next((t for t in session["tools"] if t.get("id") == landmark_id or t.get("name") == landmark_id), None)
+            if tool:
+                # If it's a raw bridge tool, we need to map inputSchema to parameters
+                if "inputSchema" in tool and "parameters" not in tool:
+                    params = []
+                    schema = tool.get("inputSchema", {})
+                    req_fields = schema.get("required", [])
+                    for p_name, p_def in schema.get("properties", {}).items():
+                        params.append({
+                            "name": p_name,
+                            "type": p_def.get("type", "string"),
+                            "description": p_def.get("description", ""),
+                            "required": p_name in req_fields,
+                            "location": p_def.get("location", "body")
+                        })
+                    frontend_tool = {
+                        "id": tool.get("name", ""),
+                        "name": tool.get("name", ""),
+                        "is_tool": True,
+                        "description": tool.get("description", ""),
+                        "parameters": params,
+                        "returns": tool.get("returns", "any"),
+                        "remedy": tool.get("remedy", ""),
+                        "meta": tool.get("meta", {})
+                    }
+                else:
+                    frontend_tool = tool
+
+                # If it's a bridge, we might want to add a signature hint
+                res = {"status": "success", "type": site_type, "data": frontend_tool}
+                if site_type != "native" and not frontend_tool.get("signature"):
+                     res["signature"] = f"// {site_type.upper()} Tool: {landmark_id}\n// Parameters mapped to Elemm JSON."
+                return res
+
+        # 2. Fallback to ManifestService (For Native or if cache is cold)
+        if not url:
+            raise HTTPException(status_code=400, detail="No active URL found for this session.")
+
+        result = await ManifestService.inspect_landmark(
+            url, landmark_id, vault_manager=vault_manager, output_format="json", site_type=site_type
+        )
         return result
     except Exception as e:
         logger.error(f"Landmark inspect failed: {e}")
@@ -129,8 +183,7 @@ async def inspect_landmark(landmark_id: str, url: str = None, session_id: str = 
 @app.post("/api/v1/execute")
 async def execute_action(payload: dict):
     """
-    Executes a specific action on the remote site.
-    Supports Native Elemm, OpenAPI, and GraphQL.
+    Executes a specific action on the remote site using cached session data.
     """
     url = payload.get("url")
     action = payload.get("action")
@@ -141,81 +194,48 @@ async def execute_action(payload: dict):
         raise HTTPException(status_code=400, detail="Missing URL or action")
         
     try:
-        import httpx
         from elemm_gateway.components import OpenAPIExecutor, GraphQLExecutor
-        from elemm_gateway.services.openapi_bridge import OpenAPIBridge
-        from elemm_gateway.services.graphql_bridge import GraphQLBridge
-        import yaml
+        import httpx
         
-        # 1. Determine site type from state or URL
         session = GLOBAL_STATE["sessions"].get(session_id, {})
-        site_type = session.get("site_type")
+        site_type = session.get("site_type", "native")
         
-        if not site_type:
-            # Fallback to URL detection if session state is missing
-            if any(url.endswith(ext) for ext in [".json", ".yaml", ".yml"]) or "/openapi" in url:
-                site_type = "openapi"
-            elif "/graphql" in url.lower():
-                site_type = "graphql"
-            else:
-                site_type = "native"
-        
-        # 2. Execute based on type
+        # 1. Bridge Execution (OpenAPI/GraphQL)
         if site_type in ["openapi", "graphql"]:
-            async with httpx.AsyncClient() as client:
-                # Fetch spec to get tool definitions
-                resp = await client.get(url, follow_redirects=True, timeout=10.0)
-                if resp.status_code != 200:
-                    # For GraphQL, it might be the endpoint itself, try introspection
-                    if site_type == "graphql":
-                        resp = await client.post(url, json={"query": GraphQLBridge.INTROSPECTION_QUERY}, timeout=10.0)
-                
-                if resp.status_code != 200:
-                    raise HTTPException(status_code=resp.status_code, detail=f"Failed to fetch {site_type} spec/schema for execution")
-                
-                if site_type == "openapi":
-                    try:
-                        spec = resp.json()
-                    except:
-                        spec = yaml.safe_load(resp.text)
-                    parsed = OpenAPIBridge.parse_spec(spec, url.rsplit("/", 1)[0])
-                    executor = OpenAPIExecutor(vault_manager)
-                else: # graphql
-                    schema_data = resp.json().get("data")
-                    parsed = GraphQLBridge.parse_schema(schema_data, url)
-                    executor = GraphQLExecutor(vault_manager)
-                
-                tool_data = next((t for t in parsed.get("tools", []) if t["name"] == action), None)
-                if not tool_data:
-                    raise HTTPException(status_code=404, detail=f"Tool '{action}' not found in {site_type} spec")
-                
-                result_str = await executor.execute(tool_data, parameters)
-                
-                try:
-                    return json.loads(result_str)
-                except:
-                    return {"result": result_str}
-        
-        # 3. Native Elemm Route
-        async with httpx.AsyncClient() as client:
-            exec_url = f"{url.rstrip('/')}/.well-known/elemm/execute"
-            exec_payload = {"action": action, "parameters": parameters}
+            cached_tools = session.get("tools", [])
+            tool_data = next((t for t in cached_tools if t["name"] == action), None)
             
-            resp = await client.post(exec_url, json=exec_payload, timeout=30.0)
-            if resp.status_code != 200:
-                # Fallback: maybe the URL was the manifest itself
-                if "/.well-known/elemm-manifest.md" in url:
-                    base_url = url.split("/.well-known/elemm-manifest.md")[0]
-                    exec_url = f"{base_url.rstrip('/')}/.well-known/elemm/execute"
-                    resp = await client.post(exec_url, json=exec_payload, timeout=30.0)
-
+            if not tool_data:
+                # If tool not in cache, we might need a deep-inspection first
+                raise HTTPException(status_code=404, detail=f"Tool '{action}' not found in session cache. Try 'inspect_landmark' first.")
+            
+            if site_type == "openapi":
+                executor = OpenAPIExecutor(vault_manager)
+            else:
+                executor = GraphQLExecutor(vault_manager)
+                
+            result_str = await executor.execute(tool_data, parameters)
+            try:
+                return json.loads(result_str)
+            except:
+                return {"result": result_str}
+        
+        # 2. Native Elemm Route
+        async with httpx.AsyncClient() as client:
+            # Normalize URL (strip .well-known suffix if present)
+            base_url = url.split("/.well-known")[0].rstrip("/")
+            exec_url = f"{base_url}/.well-known/elemm/execute"
+            
+            resp = await client.post(exec_url, json={"action": action, "parameters": parameters}, timeout=30.0)
             if resp.status_code != 200:
                 raise HTTPException(status_code=resp.status_code, detail=resp.text)
                 
             return resp.json()
+            
     except Exception as e:
         logger.error(f"Execution failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
     except Exception as e:
         logger.error(f"Execution failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

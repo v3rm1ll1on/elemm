@@ -24,13 +24,13 @@ const ManifestDebugger = () => {
   const renderFormattedText = useCallback((text) => {
     if (!text) return '';
     let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    
+
     // GitHub-style alerts
     html = html.replace(/^&gt;\s+\[!([A-Z]+)\]\n((?:&gt;.*\n?)+)/gm, (match, type, content) => {
       const cleanedContent = content.replace(/^&gt;\s*/gm, '');
       return `<div class="github-alert alert-${type.toLowerCase()}"><strong class="alert-title">${type}</strong><div class="alert-content">${cleanedContent}</div></div>`;
     });
-    
+
     html = html.replace(/^&gt;\s+(.*)/gm, '<blockquote>$1</blockquote>');
     html = html.replace(/```(?:typescript|json|javascript)?([\s\S]*?)```/g, (match, code) => `<div class="embedded-code-block">${code.trim()}</div>`);
     html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
@@ -43,9 +43,42 @@ const ManifestDebugger = () => {
     return html;
   }, []);
 
-  const parseManifest = useCallback((manifestText) => {
-    if (!manifestText) return { instructions: "", memoryBank: "", landmarks: {}, displayManifest: "" };
-    
+  const parseManifest = useCallback((manifestInput) => {
+    if (!manifestInput) return { instructions: "", memoryBank: "", landmarks: {}, displayManifest: "" };
+
+    let manifestObj = null;
+    if (typeof manifestInput === 'object') {
+      manifestObj = manifestInput;
+    } else if (typeof manifestInput === 'string' && manifestInput.trim().startsWith('{')) {
+      try {
+        manifestObj = JSON.parse(manifestInput);
+      } catch (e) {}
+    }
+
+    if (manifestObj) {
+      const lms = {};
+      (manifestObj.landmarks || []).forEach(lm => {
+        lms[lm.id] = {
+          id: lm.id,
+          description: lm.description || "",
+          isTool: lm.is_tool || lm.isTool,
+          isTruncated: lm.is_truncated,
+          parameters: lm.parameters || [],
+          returns: lm.returns || "any",
+          remedy: lm.remedy,
+          signature: lm.signature || ""
+        };
+      });
+      return {
+        instructions: manifestObj.instructions || "",
+        memoryBank: "",
+        landmarks: lms,
+        displayManifest: typeof manifestInput === 'string' ? manifestInput : JSON.stringify(manifestObj, null, 2)
+      };
+    }
+
+    const manifestText = manifestInput;
+
     const sections = {
       instructions: "",
       memoryBank: "",
@@ -55,14 +88,14 @@ const ManifestDebugger = () => {
 
     const jsonMatch = manifestText.match(/```json-elemm\s+([\s\S]*?)```/i) || manifestText.match(/###\s+Technical Discovery[\s\S]*?```(?:json-elemm|json)\s+([\s\S]*?)```/i);
     let jsonBlockFound = false;
-    
+
     if (jsonMatch) {
       try {
         const jsonStr = jsonMatch[1].trim();
         console.log("[Parser] Attempting to parse JSON block of length:", jsonStr.length);
         const tools = JSON.parse(jsonStr);
         const toolList = Array.isArray(tools) ? tools : [tools];
-        
+
         toolList.forEach(t => {
           if (!t.name) return;
           const schema = t.inputSchema || {};
@@ -85,7 +118,7 @@ const ManifestDebugger = () => {
         });
         jsonBlockFound = true;
         console.log("[Parser] Successfully extracted", Object.keys(sections.landmarks).length, "landmarks from JSON.");
-        
+
         // Final aggressive cleanup of the display manifest
         sections.displayManifest = manifestText
           .replace(/---\s*###\s+Technical Discovery[\s\S]*?```[\s\S]*?```/gi, "")
@@ -115,12 +148,12 @@ const ManifestDebugger = () => {
             const id = lmMatch[1];
             // Don't overwrite if JSON already provided more detail, but ensure it exists
             if (!sections.landmarks[id]) {
-              sections.landmarks[id] = { 
-                id, 
-                description: lmMatch[2]?.trim() || "", 
-                isTool: line.includes('Tool: `'), 
-                isTruncated: false, 
-                parameters: [] 
+              sections.landmarks[id] = {
+                id,
+                description: lmMatch[2]?.trim() || "",
+                isTool: line.includes('Tool: `'),
+                isTruncated: false,
+                parameters: []
               };
             } else {
               // Augment existing entry with description if missing
@@ -137,7 +170,7 @@ const ManifestDebugger = () => {
   const buildTree = useCallback((landmarks) => {
     const root = {};
     const landmarkList = Object.entries(landmarks);
-    
+
     // Sort by path depth to ensure parents are processed before children if possible
     landmarkList.sort((a, b) => {
       const depthA = a[0].split(':').length;
@@ -146,7 +179,7 @@ const ManifestDebugger = () => {
     });
 
     landmarkList.forEach(([id, data]) => {
-      const parts = id.split(':'); 
+      const parts = id.split(':');
       let current = root;
       let currentPath = [];
 
@@ -194,12 +227,13 @@ const ManifestDebugger = () => {
       const resp = await fetch('http://127.0.0.1:8090/api/v1/sessions');
       const data = await resp.json();
       setSessions(data);
-      
-      if (forceSelectId && data[forceSelectId]) {
-        setSelectedSession(forceSelectId);
-      } else if (!selectedSession && Object.keys(data).length > 0) {
-        setSelectedSession(Object.keys(data)[0]);
-      }
+
+      setSelectedSession(prev => {
+        if (forceSelectId && data[forceSelectId]) return forceSelectId;
+        if (!prev && Object.keys(data).length > 0) return Object.keys(data)[0];
+        if (prev && !data[prev] && Object.keys(data).length > 0) return Object.keys(data)[0];
+        return prev;
+      });
     } catch (err) {
       console.error("Failed to fetch sessions", err);
     }
@@ -240,38 +274,70 @@ const ManifestDebugger = () => {
       const landmarkQuery = landmarkId ? `&landmark_id=${landmarkId}` : "";
       const resp = await fetch(`http://127.0.0.1:8090/api/v1/inspect?url=${encodeURIComponent(url)}&session_id=${selectedSession}${landmarkQuery}`);
       if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
-      
-      const data = await resp.json();
-      console.log(`[Inspector] Data for ${landmarkId || 'root'}:`, data);
-      const parsed = parseManifest(data.manifest);
 
-      if (data.tools) {
-        data.tools.forEach(t => {
-          const schema = t.inputSchema || {};
-          parsed.landmarks[t.name] = {
-            id: t.name,
-            description: t.description || "",
-            isTool: true,
-            isTruncated: false,
-            parameters: Object.entries(schema.properties || {}).map(([pName, pData]) => ({
-              name: pName,
-              type: pData.type || "any",
-              required: (schema.required || []).includes(pName),
-              description: pData.description || "",
-              location: pData.location
-            })),
-            requiredParams: schema.required || [],
-            returns: t.returns || "any"
+      const data = await resp.json();
+      console.log(`[Inspector] Data received:`, data);
+
+      let newFoundLandmarks = {};
+      let newSignatures = {};
+
+      // 1. Handle New M2M JSON Format
+      if (data.data) {
+        const payload = data.data;
+        const lms = payload.landmarks || (payload.id ? [payload] : []);
+        
+        lms.forEach(lm => {
+          const id = (lms.length === 1 && landmarkId) ? landmarkId : lm.id;
+          newFoundLandmarks[id] = {
+            id: id,
+            description: lm.description || "",
+            isTool: lm.is_tool || lm.isTool,
+            isTruncated: lm.is_truncated || false,
+            parameters: lm.parameters || [],
+            returns: lm.returns || "any",
+            remedy: lm.remedy
           };
+
+          if ((lm.is_tool || lm.isTool)) {
+            newSignatures[id] = `// Structured Profile for ${id}`;
+          }
         });
       }
+      // 2. Handle Legacy / Bridge Format
+      else if (data.manifest || data.signature) {
+        const content = data.manifest || data.signature;
+        const parsed = parseManifest(content);
+        newFoundLandmarks = parsed.landmarks;
 
-      console.log(`[Inspector] Parsed landmarks:`, Object.keys(parsed.landmarks));
+        if (data.tools) {
+          data.tools.forEach(t => {
+            const schema = t.inputSchema || {};
+            newFoundLandmarks[t.name] = {
+              id: t.name,
+              description: t.description || "",
+              isTool: true,
+              isTruncated: false,
+              parameters: Object.entries(schema.properties || {}).map(([pName, pData]) => ({
+                name: pName,
+                type: pData.type || "any",
+                required: (schema.required || []).includes(pName),
+                description: pData.description || "",
+                location: pData.location
+              })),
+              returns: t.returns || "any"
+            };
+          });
+        }
+      }
+
+      setLandmarkSignatures(prev => ({
+        ...prev,
+        [selectedSession]: { ...(prev[selectedSession] || {}), ...newSignatures }
+      }));
 
       setAllLandmarks(prev => {
         const sessionLandmarks = prev[selectedSession] || {};
-        const newLandmarks = { ...sessionLandmarks, ...parsed.landmarks };
-        return { ...prev, [selectedSession]: newLandmarks };
+        return { ...prev, [selectedSession]: { ...sessionLandmarks, ...newFoundLandmarks } };
       });
 
       if (landmarkId === null) {
@@ -280,7 +346,9 @@ const ManifestDebugger = () => {
           Object.keys(newState).forEach(key => { if (key.startsWith(`${selectedSession}_`)) delete newState[key]; });
           return newState;
         });
-        setSessionManifests(prev => ({ ...prev, [selectedSession]: data.manifest }));
+        if (data.manifest || data.data) {
+          setSessionManifests(prev => ({ ...prev, [selectedSession]: data.manifest || data.data }));
+        }
         setSelectedLandmark('instructions');
       }
     } catch (err) {
@@ -295,29 +363,26 @@ const ManifestDebugger = () => {
     setLoading(true);
     setError(null);
     try {
-      const sid = selectedSession || 'default';
+      const sid = `manual_${Date.now()}`;
       const resp = await fetch(`http://127.0.0.1:8090/api/v1/inspect?url=${encodeURIComponent(url)}&session_id=${sid}`);
       if (!resp.ok) throw new Error(`Failed to connect to ${url}`);
-      
+
       const data = await resp.json();
       console.log(`[Inspector] Manual connect data:`, data);
-      const parsed = parseManifest(data.manifest);
-      
+      const parsed = parseManifest(data.data || data.manifest);
+
       // Update ALL relevant states immediately
-      setSessionManifests(prev => ({ ...prev, [sid]: data.manifest }));
-      setAllLandmarks(prev => {
-        const sessionLandmarks = prev[sid] || {};
-        return { ...prev, [sid]: { ...sessionLandmarks, ...parsed.landmarks } };
-      });
-      
+      setSessionManifests(prev => ({ ...prev, [sid]: data.manifest || data.data }));
+      setAllLandmarks(prev => ({ ...prev, [sid]: parsed.landmarks }));
+
       // Update sessions state locally even before re-fetching
       setSessions(prev => ({
         ...prev,
-        [sid]: { active_url: url, site_type: 'elemm', ...(prev[sid] || {}) }
+        [sid]: { active_url: url, site_type: data.type || 'elemm', ...(prev[sid] || {}) }
       }));
 
       setSelectedSession(sid);
-      
+
       // Then sync with server
       await fetchSessions(sid);
       setSelectedLandmark('instructions');
@@ -331,40 +396,78 @@ const ManifestDebugger = () => {
 
   const fetchLandmarkSignature = async (sid, lid) => {
     try {
+      setLoading(true);
+      setError(null);
       const session = sessions[sid];
       const url = sniffUrl(session);
       const urlParam = url ? `&url=${encodeURIComponent(url)}` : "";
-      
+
       const resp = await fetch(`http://127.0.0.1:8090/api/v1/inspect/landmark?landmark_id=${lid}&session_id=${sid}${urlParam}`);
       if (!resp.ok) {
-        const errData = await resp.json().catch(() => ({ detail: "Unknown error" }));
+        const errData = await resp.json().catch(() => ({ detail: "Unknown server error" }));
         throw new Error(errData.detail || `Server error: ${resp.status}`);
       }
-      
+
       const data = await resp.json();
-      console.log(`[Inspector] Received signature for ${lid}. Length: ${data.signature?.length}`);
-      
-      if (data.status === 'success' && data.signature) {
-        const parsed = parseManifest(data.signature);
-        console.log(`[Inspector] Parsed signature. Found ${Object.keys(parsed.landmarks).length} tools.`);
-        
+
+      if (data.status === 'success') {
+        console.log(`[Inspector] Success for ${lid}.`, data);
+        let newFoundLandmarks = {};
+        let newSignatures = {};
+
+        // Case A: Structured JSON Data
+        if (data.data) {
+          const payload = data.data;
+          const lms = payload.landmarks || (payload.id ? [payload] : []);
+          
+          lms.forEach(lm => {
+            const id = (lms.length === 1) ? lid : lm.id;
+            newFoundLandmarks[id] = {
+              id: id,
+              description: lm.description || "",
+              isTool: lm.is_tool || lm.isTool,
+              isTruncated: lm.is_truncated || false,
+              parameters: lm.parameters || [],
+              returns: lm.returns || "any",
+              remedy: lm.remedy
+            };
+            newSignatures[id] = `// Structured Profile for ${id}`;
+          });
+
+          // Ensure our target lid is at least marked as loaded
+          if (!newSignatures[lid]) newSignatures[lid] = "// Loaded via JSON (No Signature)";
+        } 
+        // Case B: Markdown Manifest/Signature
+        else if (data.signature || data.manifest) {
+          const content = data.signature || data.manifest;
+          const parsed = parseManifest(content);
+          newFoundLandmarks = parsed.landmarks;
+          newSignatures[lid] = parsed.displayManifest || content;
+        } else {
+          // Fallback if success but no recognized data keys
+          newSignatures[lid] = "// No technical data available";
+        }
+
         setLandmarkSignatures(prev => ({
           ...prev,
-          [sid]: { ...(prev[sid] || {}), [lid]: parsed.displayManifest }
+          [sid]: { ...(prev[sid] || {}), ...newSignatures }
         }));
 
-        if (parsed?.landmarks && Object.keys(parsed.landmarks).length > 0) {
-          setAllLandmarks(prev => {
-            const currentSessionLms = prev[sid] || {};
-            const newLms = { ...currentSessionLms, ...parsed.landmarks };
-            console.log(`[Inspector] Merged landmarks for session ${sid}. Total now: ${Object.keys(newLms).length}`);
-            return { ...prev, [sid]: newLms };
-          });
-        }
+        setAllLandmarks(prev => {
+          const currentSessionLms = prev[sid] || {};
+          return { ...prev, [sid]: { ...currentSessionLms, ...newFoundLandmarks } };
+        });
       }
     } catch (err) {
-      console.error("Failed to fetch landmark signature", err);
-      setError(`Signature fetch failed: ${err.message}`);
+      console.error("Failed to load signature:", err);
+      setError(`Signature error: ${err.message}`);
+      // Also mark as "errored" in signatures to prevent loop
+      setLandmarkSignatures(prev => ({
+        ...prev,
+        [sid]: { ...(prev[sid] || {}), [lid]: `// Error: ${err.message}` }
+      }));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -379,14 +482,14 @@ const ManifestDebugger = () => {
       const resp = await fetch('http://127.0.0.1:8090/api/v1/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          url, 
-          action: landmark, 
+        body: JSON.stringify({
+          url,
+          action: landmark,
           parameters: parsedParams,
           session_id: selectedSession
         })
       });
-      
+
       const data = await resp.json().catch(() => resp.text());
       setExecutionResult(data);
     } catch (err) {
@@ -418,26 +521,29 @@ const ManifestDebugger = () => {
 
   const currentManifest = sessionManifests[selectedSession];
   const parsedData = parseManifest(currentManifest);
-  
+
   // Merge landmarks from manifest and probed cache for the selected session
   const sessionLandmarks = {
     ...(parsedData.landmarks || {}),
     ...(allLandmarks[selectedSession] || {})
   };
-  
+
   const treeData = buildTree(sessionLandmarks);
   const selectedLandmarkData = sessionLandmarks[selectedLandmark];
 
   return (
-    <div className="manifest-inspector premium-page-container animate-slide-up">
+    <div className="manifest-inspector" style={{ display: 'flex', flexDirection: 'row', width: '100%', height: 'calc(100vh - 120px)', overflow: 'hidden' }}>
       <div className="inspector-sidebar">
-        <LandmarkTreeView 
+        <LandmarkTreeView
           sessions={sessions}
           selectedSession={selectedSession}
           onSessionChange={(sid) => { setSelectedSession(sid); setSelectedLandmark('instructions'); }}
           treeData={treeData}
           selectedLandmark={selectedLandmark}
-          onSelectLandmark={setSelectedLandmark}
+          onSelectLandmark={(id) => {
+            setSelectedLandmark(id);
+            setExecutionResult(null);
+          }}
           expandedNodes={expandedNodes}
           onToggleExpand={(id, hasChildren, isTool, isTruncated) => {
             const cacheKey = `${selectedSession}_${id}`;
@@ -460,7 +566,8 @@ const ManifestDebugger = () => {
       </div>
 
       <div className="inspector-content custom-scrollbar">
-        <LandmarkDetails 
+        <LandmarkDetails
+          key={selectedLandmark}
           selectedLandmark={selectedLandmark}
           landmarkData={selectedLandmarkData}
           signature={landmarkSignatures[selectedSession]?.[selectedLandmark]}

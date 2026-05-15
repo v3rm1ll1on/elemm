@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import json
 from fastapi import FastAPI, APIRouter, Body, Response, Query
 from typing import Any, Dict, List, Optional, Union
 from ..core.manager import AIProtocolManager
@@ -87,8 +88,9 @@ class FastAPIGateway:
         async def well_known_manifest(
             response: Response, 
             landmark_id: Optional[str] = Query(None),
-            technical: bool = Query(False),
-            full: bool = Query(False),
+            full: bool = False,
+            technical: bool = False,
+            output_format: str = Query("markdown", alias="format"),
             limit: Optional[int] = Query(None),
             offset: Optional[int] = Query(0)
         ):
@@ -109,9 +111,13 @@ class FastAPIGateway:
                 else:
                     query_ids = [id.lower() for id in landmark_id]
                 
-                # Case-insensitive Lookup
-                lms = []
-                all_lms_lower = {lid.lower(): lm for lid, lm in self.manager.landmarks.items()}
+                # Case-insensitive Lookup: Resolve to original stored IDs
+                lms_to_query = []
+                all_lms_lower = {lid.lower(): lid for lid in self.manager.landmarks.keys()}
+                for qid in query_ids:
+                    original_id = all_lms_lower.get(qid)
+                    if original_id:
+                        lms_to_query.append(original_id)
                 
                 # If limit is small (e.g. < 500), treat it as an item limit (max_landmarks)
                 # otherwise treat as character limit.
@@ -123,7 +129,8 @@ class FastAPIGateway:
                     else:
                         p_kwargs["limit"] = limit
 
-                manifest_md = self.manager.get_manifest(query_ids, technical=technical, **p_kwargs)
+                p_kwargs["output_format"] = output_format
+                manifest_md = self.manager.get_manifest(lms_to_query, technical=technical, **p_kwargs)
             else:
                 # Standard-Manifest mit v1-Logik (Summary)
                 p_kwargs = {"technical": technical or full, "offset": offset}
@@ -133,9 +140,18 @@ class FastAPIGateway:
                     else:
                         p_kwargs["limit"] = limit
                 else:
-                    p_kwargs["limit"] = ctx_limit
-                    
+                    p_kwargs["limit"] = limit if limit is not None else ctx_limit
+                
+                p_kwargs["output_format"] = output_format
                 manifest_md = self.manager.get_manifest(**p_kwargs)
+            
+            if output_format == "json":
+                # Ensure we have valid JSON to parse
+                if not manifest_md: return JSONResponse(content=[])
+                try:
+                    return JSONResponse(content=json.loads(manifest_md))
+                except json.JSONDecodeError:
+                    return JSONResponse(status_code=500, content={"error": "Presenter failed to generate valid JSON", "raw": manifest_md})
             
             return Response(content=manifest_md, media_type="text/markdown")
 
@@ -173,15 +189,23 @@ class FastAPIGateway:
             return result
 
         @self.app.get("/.well-known/elemm/search")
-        async def search_landmarks(query: str, limit: int = None, offset: int = 0, technical: bool = False):
+        async def search_landmarks(query: str, limit: int = None, offset: int = 0, technical: bool = False, output_format: str = Query("markdown", alias="format")):
             """Suche nach Landmarks."""
-            p_kwargs = {"offset": offset, "technical": technical}
+            p_kwargs = {"offset": offset, "technical": technical, "output_format": output_format}
             if limit is not None:
                 if limit < 500: p_kwargs["max_landmarks"] = limit
                 else: p_kwargs["limit"] = limit
+            else:
+                p_kwargs["limit"] = 10000 # Default character budget for search
                 
-            res_md = self.manager.search_landmarks(query, **p_kwargs)
-            return Response(content=res_md, media_type="text/markdown")
+            res = self.manager.search_landmarks(query, **p_kwargs)
+            if output_format == "json":
+                if not res: return JSONResponse(content=[])
+                try:
+                    return JSONResponse(content=json.loads(res))
+                except json.JSONDecodeError:
+                    return JSONResponse(status_code=500, content={"error": "Search failed to generate valid JSON", "raw": res})
+            return Response(content=res, media_type="text/markdown")
 
         # Technisches Interface via Router
         router = self.get_router()

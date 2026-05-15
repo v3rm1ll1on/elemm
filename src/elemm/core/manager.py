@@ -221,11 +221,38 @@ class AIProtocolManager:
                 if remedy and "remedy" not in result:
                     result["remedy"] = remedy
             
-            return result
+            # --- PROTOCOL HYGIENE ---
+            try:
+                from elemm_gateway.services.hygiene import ResponseSquisher
+                select = arguments.get("_select")
+                filter_str = arguments.get("_filter")
+                limit = arguments.get("_limit")
+                offset = arguments.get("_offset")
                 
-            # Auto-Aliasing: In v2 we only pipe via explicit aliases ($step0 etc.)
-            # or the global_context which is managed by the sequencer/broker.
-            # We no longer flatten results into the global namespace to avoid collisions.
+                if limit is not None: limit = int(limit)
+                if offset is not None: offset = int(offset)
+                
+                if any(v is not None for v in [select, filter_str, limit, offset]) and result is not None:
+                    # Convert to dict if it's a Pydantic model or dataclass
+                    if hasattr(result, "model_dump"):
+                        result = result.model_dump(exclude_none=True)
+                    elif hasattr(result, "dict"):
+                        result = result.dict()
+                        
+                    # Squish operates on dicts and lists safely
+                    squished_data, was_truncated, total = ResponseSquisher.squish(result, select, filter_str, limit, offset)
+                    
+                    if was_truncated:
+                        return {
+                            "status": "success",
+                            "data": squished_data,
+                            "_HYGIENE_NOTICE": f"Output truncated for context hygiene. Showing {len(squished_data) if isinstance(squished_data, list) else 'partial'} of {total} items.",
+                            "remedy": f"The result is large. Use '_offset={int(offset or 0) + (len(squished_data) if isinstance(squished_data, list) else 0)}' to fetch the next page of results."
+                        }
+                    result = squished_data
+            except ImportError:
+                pass
+
             return result
         except Exception as e:
             # Extract clean error message
@@ -291,7 +318,7 @@ class AIProtocolManager:
     def get_manifest(self, landmark_ids: List[str] = None, technical: bool = False, **kwargs) -> str:
         """Generiert ein Markdown-Manifest für die angeforderten Landmarks."""
         lms = []
-        if not landmark_ids:
+        if landmark_ids is None:
             # Root discovery: Show only high-level categories
             lms = [lm for lid, lm in self.landmarks.items() if ":" not in lid]
         else:
@@ -309,6 +336,7 @@ class AIProtocolManager:
             welcome_message=self.welcome_message if is_root else "",
             show_technical=technical,
             is_root=is_root,
+            output_format=kwargs.pop("output_format", "markdown"),
             **kwargs
         )
 
@@ -339,6 +367,7 @@ class AIProtocolManager:
             matches,
             instructions=f"# SEARCH RESULTS FOR: {queries}",
             show_technical=technical,
+            output_format=kwargs.pop("output_format", "markdown"),
             **kwargs
         )
 

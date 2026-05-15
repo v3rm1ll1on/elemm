@@ -1,32 +1,16 @@
 import React, { useState, useMemo } from 'react';
 import './LandmarkDetails.css';
 import { 
-  Terminal, 
-  Layers, 
-  ArrowRight, 
-  RefreshCw, 
-  Globe, 
-  Database, 
-  BookOpen, 
-  Check, 
-  Copy,
-  Info,
-  Zap,
-  Cpu,
-  AlertCircle,
-  Code,
-  Layout,
-  Play
+  Terminal, Layers, RefreshCw, Globe, Database, BookOpen, Check, Copy, Zap, Cpu, AlertCircle, Code, Play, Info
 } from 'lucide-react';
 
 // --- Constants ---
 const HYGIENE_PARAMS = [
-  { name: '_select', type: 'string', description: 'Fields to return (comma-separated). Use dot-notation for nested objects.', location: 'protocol' },
-  { name: '_filter', type: 'string', description: 'Basic equality filter (e.g. status:active).', location: 'protocol' },
-  { name: '_limit', type: 'number', description: 'Max number of items to return.', location: 'protocol' }
+  { name: '_select', type: 'string', description: 'Fields to return.', location: 'protocol' },
+  { name: '_filter', type: 'string', description: 'Basic filter.', location: 'protocol' },
+  { name: '_limit', type: 'number', description: 'Limit results.', location: 'protocol' }
 ];
 
-// --- Utilities ---
 const castValue = (value, type) => {
   if (!value || value === "") return undefined;
   if (type === 'number' || type === 'integer') return Number(value);
@@ -37,234 +21,213 @@ const castValue = (value, type) => {
 // --- Sub-Components ---
 
 const ParameterCard = ({ param, isHygiene }) => (
-  <div className={`param-card-modern ${isHygiene ? 'hygiene' : ''}`}>
-    <div className="p-header">
-      <div className="p-name-tag">
-        <span className="p-name">{param.name}</span>
-        {param.required && <span className="p-req-badge" style={{color: '#ef4444', fontSize: '10px'}}>*</span>}
-      </div>
-      <div className="p-meta">
-        <span className="p-type-pill">{param.type}</span>
-        {param.location && (
-          <span className={`p-loc-badge loc-${param.location.toLowerCase()}`}>
-            {param.location === 'protocol' ? 'PROT' : param.location.toUpperCase()}
-          </span>
-        )}
-      </div>
+  <div className={`param-card ${isHygiene ? 'hygiene' : ''}`}>
+    <div className="p-header" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '6px', marginBottom: '8px' }}>
+      <span className="p-name">{param.name}</span>
+      <span className="p-type">{param.type}</span>
+      {param.required && <span className="p-req badge-micro" style={{background: '#ef4444', marginLeft: 'auto'}}>Required</span>}
+      {param.location && <span className="p-loc badge-micro" style={{background: '#4b5563', marginLeft: param.required ? '0' : 'auto'}}>{param.location}</span>}
     </div>
-    <div className="p-desc">
-      {param.description || (isHygiene ? "Standard Elemm protocol parameter." : "No description provided.")}
-    </div>
-  </div>
-);
-
-const TesterField = ({ param, value, onChange }) => (
-  <div className="tester-field">
-    <label className="tester-label">
-      <span>{param.name}</span>
-      <span className="p-type-pill">{param.type}</span>
-    </label>
-    {param.type === 'boolean' ? (
-      <select className="tester-input" value={value || ''} onChange={e => onChange(e.target.value)}>
-        <option value="">Select...</option>
-        <option value="true">true</option>
-        <option value="false">false</option>
-      </select>
-    ) : (
-      <input 
-        type={param.type === 'number' ? 'number' : 'text'}
-        className="tester-input"
-        placeholder={`Enter ${param.name}...`}
-        value={value || ''}
-        onChange={e => onChange(e.target.value)}
-      />
-    )}
+    <div className="p-desc">{param.description || "No description."}</div>
   </div>
 );
 
 const Section = ({ title, icon: Icon, children, action }) => (
-  <div className="spec-section-card">
-    <div className="spec-card-header">
-      <div className="spec-card-title">
+  <div className="details-section">
+    <div className="section-header">
+      <div className="section-title">
         <Icon size={14} />
         <span>{title}</span>
       </div>
       {action && <div>{action}</div>}
     </div>
-    <div className="spec-card-body">
+    <div className="section-body">
       {children}
     </div>
   </div>
 );
 
-// --- Main Components ---
+// --- Main Component ---
 
 const LandmarkDetails = ({ 
-  selectedLandmark, 
-  landmarkData, 
-  signature, 
-  instructions,
-  memoryBank,
-  onExecute,
-  executing,
-  executionResult,
-  renderFormattedText,
-  error,
-  loading
+  selectedLandmark, landmarkData, signature, instructions, memoryBank, onExecute, executing, executionResult, renderFormattedText, error, loading 
 }) => {
   const [testerParams, setTesterParams] = useState({});
   const [copied, setCopied] = useState(false);
 
-  // Memoized parameter list to avoid recalculation
   const { normalParams, combinedHygiene } = useMemo(() => {
     const raw = landmarkData?.parameters || [];
-    const normal = raw.filter(p => !p.name.startsWith('_'));
-    const inManifest = raw.filter(p => p.name.startsWith('_'));
-    
-    // Merge manifest hygiene with defaults
+    const normal = Array.isArray(raw) ? raw.filter(p => p && p.name && !p.name.startsWith('_')) : [];
+    const inManifest = Array.isArray(raw) ? raw.filter(p => p && p.name && p.name.startsWith('_')) : [];
     const combined = [...inManifest];
     HYGIENE_PARAMS.forEach(def => {
       if (!combined.some(p => p.name === def.name)) combined.push(def);
     });
-    
     return { normalParams: normal, combinedHygiene: combined };
   }, [landmarkData]);
 
-  const handleExecute = () => {
-    const finalPayload = {};
-    [...normalParams, ...combinedHygiene].forEach(p => {
-      const val = castValue(testerParams[p.name], p.type);
-      if (val !== undefined) finalPayload[p.name] = val;
-    });
-    onExecute(selectedLandmark, finalPayload);
-  };
-
-  const handleCopySpec = () => {
-    const md = `# Spec: ${selectedLandmark}\n\n${landmarkData?.description}\n\n${signature}`;
-    navigator.clipboard.writeText(md).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
-  if (!selectedLandmark) return (
-    <div className="empty-details-view">
-      <Globe size={64} className="text-accent opacity-20" />
-      <h2 className="glow-text-indigo">Satellite Link Ready</h2>
-      <p className="text-muted">Select a node from the topology to begin technical inspection.</p>
-    </div>
-  );
-
-  if (loading && selectedLandmark !== 'instructions') return (
-    <div className="empty-details-view">
-      <RefreshCw size={48} className="spin text-accent" />
-      <p className="font-mono text-xs tracking-widest uppercase opacity-50">Fetching Specifications...</p>
-    </div>
-  );
+  if (!selectedLandmark) return <div className="empty-state">Select a landmark to inspect</div>;
 
   return (
     <div className="landmark-details-container">
       {/* Header */}
       <div className="mi-header-row">
-        <div className="mi-header-left">
-          <div className="mi-header-badge">
-            <div className="mi-header-pulse"></div>
-            <span>{landmarkData?.isTool ? 'Executable Tool' : 'Area Namespace'}</span>
-          </div>
-          <h1 className="mi-header-title glow-text-indigo">{selectedLandmark.split(/[:_]/).pop()}</h1>
-          <p className="mi-header-desc">{landmarkData?.description || "No specific architectural data available."}</p>
+        <div className="mi-header-main">
+           <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+              <div className="badge-micro">{(landmarkData?.isTool || landmarkData?.is_tool) ? 'Executable Tool' : 'Area Namespace'}</div>
+              {landmarkData?.meta?.method && <div className="badge-micro" style={{background: '#3b82f6'}}>{landmarkData.meta.method}</div>}
+              {landmarkData?.meta?.path && <div className="badge-micro" style={{background: '#1f2937', color: '#9ca3af', fontFamily: 'monospace'}}>{landmarkData.meta.path}</div>}
+              {landmarkData?.meta?.operation_type && <div className="badge-micro" style={{background: '#8b5cf6'}}>{landmarkData.meta.operation_type}</div>}
+           </div>
+           <h1 className="mi-header-title">{typeof selectedLandmark === 'string' ? selectedLandmark.split(/[:_]/).pop() : 'Node'}</h1>
+           <p className="mi-header-desc">{landmarkData?.description || "Technical landmark node in the topology."}</p>
         </div>
-        <div className="mi-header-right">
-          <button className={`btn-action-pill ${copied ? 'success' : ''}`} onClick={handleCopySpec}>
-            {copied ? <Check size={14} /> : <Copy size={14} />}
-            <span>{copied ? 'Copied' : 'Copy Spec'}</span>
-          </button>
-        </div>
+        <button className="btn-action-pill" onClick={() => {
+           navigator.clipboard.writeText(signature || selectedLandmark);
+           setCopied(true);
+           setTimeout(() => setCopied(false), 2000);
+        }}>
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+          <span>{copied ? 'Copied' : 'Copy Spec'}</span>
+        </button>
       </div>
 
-      {/* Conditional Content */}
-      {selectedLandmark === 'instructions' ? (
-        <div className="tester-layout">
-          <Section title="Protocol Rules" icon={BookOpen}>
-            <div className="markdown-body text-sm" dangerouslySetInnerHTML={{ __html: renderFormattedText(instructions) }} />
+      <div className="mi-details-content">
+        {selectedLandmark === 'instructions' ? (
+          <Section title="Protocol Instructions" icon={BookOpen}>
+            <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderFormattedText(instructions) }} />
           </Section>
-          {memoryBank && (
-            <Section title="Memory Bank" icon={Database}>
-              <div className="markdown-body text-sm font-mono text-purple-300" dangerouslySetInnerHTML={{ __html: renderFormattedText(memoryBank) }} />
-            </Section>
-          )}
-        </div>
-      ) : (
-        <div className="tester-layout">
-          {/* Technical Signature */}
-          {signature && (
-            <Section title="Technical Signature" icon={Code}>
-              <pre className="signature-display">{signature}</pre>
-            </Section>
-          )}
+        ) : (
+          <>
+            {signature && (
+              <Section title="Technical Signature" icon={Code}>
+                <pre className="signature-box">{signature}</pre>
+              </Section>
+            )}
 
-          {/* Discovery Grid */}
-          <Section title="Technical Discovery" icon={Layers}>
-            <div className="param-grid">
-              {normalParams.map(p => <ParameterCard key={p.name} param={p} />)}
-              {combinedHygiene.map(p => <ParameterCard key={p.name} param={p} isHygiene />)}
-            </div>
-          </Section>
-
-          {/* Live Execution */}
-          {landmarkData?.isTool && (
-            <Section 
-              title="Live Test Execution" 
-              icon={Terminal} 
-              action={
-                <button className="btn-action-pill" onClick={handleExecute} disabled={executing}>
-                  {executing ? <RefreshCw size={14} className="spin" /> : <Play size={14} />}
-                  <span>{executing ? 'Executing...' : 'Run Tool'}</span>
-                </button>
-              }
-            >
-              <div className="tester-layout">
-                <div className="tester-grid">
-                  {normalParams.map(p => (
-                    <TesterField 
-                      key={p.name} 
-                      param={p} 
-                      value={testerParams[p.name]} 
-                      onChange={(val) => setTesterParams(prev => ({...prev, [p.name]: val}))} 
-                    />
-                  ))}
+            {(normalParams.length > 0 || combinedHygiene.length > 0) && (
+              <Section title="Parameter Grid" icon={Layers}>
+                <div className="param-grid">
+                  {normalParams.map(p => <ParameterCard key={p.name} param={p} />)}
+                  {combinedHygiene.map(p => <ParameterCard key={p.name} param={p} isHygiene />)}
                 </div>
-                
-                <div className="mt-4 pt-4 border-t border-white/5">
-                  <label className="tester-label mb-4 opacity-50">Hygiene Parameters</label>
-                  <div className="tester-grid">
-                    {combinedHygiene.map(p => (
-                      <TesterField 
-                        key={p.name} 
-                        param={p} 
-                        value={testerParams[p.name]} 
-                        onChange={(val) => setTesterParams(prev => ({...prev, [p.name]: val}))} 
-                      />
-                    ))}
-                  </div>
-                </div>
+              </Section>
+            )}
 
-                {executionResult && (
-                  <div className="tester-result-card animate-fade-in">
-                    <div className="tester-result-header">
-                      <div className={`status-dot-pulse ${executionResult.error ? 'error' : 'success'}`} />
-                      <span className="tester-label">Result</span>
+            {(landmarkData?.returns || landmarkData?.remedy) && (
+              <Section title="Returns & Remedy" icon={Info}>
+                 <div className="returns-remedy-box" style={{ background: 'rgba(255,255,255,0.05)', padding: '12px', borderRadius: '6px', fontSize: '13px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {landmarkData?.returns && <div><strong style={{color: '#94a3b8'}}>Returns:</strong> <code style={{ color: '#34d399', marginLeft: '8px' }}>{landmarkData.returns}</code></div>}
+                    {landmarkData?.remedy && <div><strong style={{color: '#94a3b8'}}>Remedy:</strong> <span style={{ color: '#f472b6', marginLeft: '8px' }}>{landmarkData.remedy}</span></div>}
+                 </div>
+              </Section>
+            )}
+
+            {(landmarkData?.isTool || landmarkData?.is_tool) && (
+              <Section 
+                title="Live Execution" 
+                icon={Terminal}
+                action={
+                  <button className="btn-action-pill" onClick={() => {
+                    const parsedParams = {};
+                    const allParams = [...normalParams, ...combinedHygiene];
+                    Object.entries(testerParams).forEach(([key, val]) => {
+                      const pDef = allParams.find(p => p.name === key);
+                      const casted = castValue(val, pDef ? pDef.type : 'string');
+                      if (casted !== undefined) {
+                        parsedParams[key] = casted;
+                      }
+                    });
+                    onExecute(selectedLandmark, parsedParams);
+                  }} disabled={executing}>
+                    {executing ? <RefreshCw className="spin" size={14} /> : <Play size={14} />}
+                    <span>{executing ? 'Running...' : 'Execute'}</span>
+                  </button>
+                }
+              >
+                {normalParams.length > 0 && (
+                  <>
+                    <h4 style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'uppercase', marginBottom: '12px', marginTop: '0' }}>Tool Parameters</h4>
+                    <div className="tester-grid" style={{ marginBottom: '24px' }}>
+                      {normalParams.map(p => (
+                        <div key={p.name} className="tester-field">
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {p.name}
+                            {p.required && <span className="badge-micro" style={{ background: '#ef4444', padding: '2px 4px', fontSize: '8px', color: '#fff' }}>REQ</span>}
+                          </label>
+                          <input 
+                            type="text" 
+                            className="tester-input" 
+                            placeholder={p.type} 
+                            onChange={e => setTesterParams(prev => ({...prev, [p.name]: e.target.value}))} 
+                          />
+                        </div>
+                      ))}
                     </div>
-                    <pre className="tt-result-pre">
-                      {typeof executionResult === 'object' ? JSON.stringify(executionResult, null, 2) : executionResult}
-                    </pre>
+                  </>
+                )}
+
+                {combinedHygiene.length > 0 && (
+                  <>
+                    <h4 style={{ fontSize: '11px', color: '#6366f1', textTransform: 'uppercase', marginBottom: '12px', marginTop: '0' }}>Elemm Protocol Hygiene</h4>
+                    <div className="tester-grid">
+                      {combinedHygiene.map(p => (
+                        <div key={p.name} className="tester-field">
+                          <label>{p.name}</label>
+                          <input 
+                            type="text" 
+                            className="tester-input" 
+                            placeholder={p.type} 
+                            onChange={e => setTesterParams(prev => ({...prev, [p.name]: e.target.value}))} 
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+                {executionResult && (
+                  <div className="execution-result custom-scrollbar">
+                    {executionResult.status === 'error' || executionResult.error || executionResult.detail ? (
+                      <div className="execution-error-box">
+                        <div className="error-header"><AlertCircle size={16}/> Execution Failed</div>
+                        {executionResult._PROTOCOL_ERROR && <div className="error-protocol-code">[{executionResult._PROTOCOL_ERROR}]</div>}
+                        <div className="error-message">
+                          {executionResult.message || executionResult.error || executionResult.detail || executionResult.remote_response || "An unknown error occurred during execution."}
+                        </div>
+                        {executionResult.remedy && (
+                          <div className="error-remedy">
+                            <strong style={{color: '#f472b6', marginRight: '6px'}}>REMEDY:</strong> 
+                            {executionResult.remedy}
+                          </div>
+                        )}
+                        {(executionResult._DEBUG_ECHO || (typeof executionResult === 'object' && !executionResult.message && !executionResult.error && !executionResult.detail)) && (
+                          <details className="error-debug">
+                            <summary>Debug Info</summary>
+                            <pre>{JSON.stringify(executionResult._DEBUG_ECHO || executionResult, null, 2)}</pre>
+                          </details>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="execution-success-box">
+                        {executionResult._HYGIENE_NOTICE && (
+                          <div className="execution-hygiene-notice" style={{ marginBottom: '12px', padding: '12px', background: 'rgba(99, 102, 241, 0.1)', borderLeft: '2px solid #6366f1', borderRadius: '0 4px 4px 0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#818cf8', fontWeight: 'bold', marginBottom: '4px' }}>
+                              <AlertCircle size={14}/> Protocol Hygiene Notice
+                            </div>
+                            <div style={{ color: '#c7d2fe' }}>{executionResult._HYGIENE_NOTICE}</div>
+                            {executionResult.remedy && <div style={{marginTop:'8px', color:'#f472b6'}}><strong>Remedy:</strong> {executionResult.remedy}</div>}
+                          </div>
+                        )}
+                        <pre>{JSON.stringify(executionResult.data || executionResult, null, 2)}</pre>
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            </Section>
-          )}
-        </div>
-      )}
+              </Section>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 };
