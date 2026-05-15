@@ -96,23 +96,32 @@ class ManifestService:
     async def inspect_url(url: str, landmark_id: Optional[str] = None, vault_manager=None, limit: int = 5000, output_format: str = "markdown") -> Dict[str, Any]:
         """Probes a URL for various Elemm interfaces and returns data in requested format."""
         
-        async with httpx.AsyncClient() as client:
-            headers = {}
-            if vault_manager:
-                headers = vault_manager.get_headers(url)
+        headers = {"User-Agent": "ElemmGateway/1.0 (Autonomous Agent)"}
+        if vault_manager:
+            vault_headers = vault_manager.get_headers(url)
+            headers.update(vault_headers)
 
-            # 1. PRIORITY: Check for Native Elemm
+        async with httpx.AsyncClient(headers=headers) as client:
+            # 1. PRIORITY: Check for Native Elemm (Only if NOT a direct spec file)
+            is_spec_file = any(url.lower().endswith(ext) for ext in [".json", ".yaml", ".yml"])
+            
             try:
-                inspect_url = f"{url.rstrip('/')}/.well-known/elemm-manifest.md"
-                params = {"technical": "true", "limit": limit, "full": "true"}
-                if landmark_id: params["landmark_id"] = landmark_id
-                if output_format == "json": params["format"] = "json"
-                
-                resp = await client.get(inspect_url, params=params, headers=headers, follow_redirects=True, timeout=5.0)
-                if resp.status_code == 200:
-                    if output_format == "json":
-                        return {"status": "success", "type": "native", "data": resp.json()}
-                    return {"status": "success", "type": "native", "manifest": resp.text}
+                if not is_spec_file:
+                    inspect_url = f"{url.rstrip('/')}/.well-known/elemm-manifest.md"
+                    params = {"technical": "true", "limit": limit, "full": "true"}
+                    if landmark_id: params["landmark_id"] = landmark_id
+                    if output_format == "json": params["format"] = "json"
+                    
+                    resp = await client.get(inspect_url, params=params, follow_redirects=True, timeout=5.0)
+                    if resp.status_code == 200:
+                        # HEURISTIC: Prevent HTML error pages from being treated as manifests
+                        body_sample = resp.text[:500].lower()
+                        if "<html" in body_sample or "<!doctype" in body_sample:
+                            logger.debug(f"Native probe at {inspect_url} returned HTML, skipping.")
+                        else:
+                            if output_format == "json":
+                                return {"status": "success", "type": "native", "data": resp.json()}
+                            return {"status": "success", "type": "native", "manifest": resp.text}
             except: pass
 
             # 2. Check for GraphQL
@@ -122,7 +131,6 @@ class ManifestService:
                 if probe_resp.status_code == 200 and "data" in probe_resp.json():
                     schema_data = probe_resp.json().get("data")
                     parsed = GraphQLBridge.parse_schema(schema_data, gql_url)
-                    # Unified Rendering via Service Logic
                     site_data = {
                         "landmarks": parsed.get("landmarks", []), 
                         "tools": parsed.get("tools", []),
@@ -137,40 +145,38 @@ class ManifestService:
                         "landmarks": parsed.get("landmarks", []),
                         "tools": parsed.get("tools", [])
                     }
-            except Exception:
-                logger.exception(f"GraphQL probe failed at {gql_url}")
+            except Exception: pass
 
             # 3. Check for OpenAPI
             try:
                 spec_urls = [f"{url.rstrip('/')}{p}" for p in ["/openapi.json", "/swagger.json", "/api-docs"]]
-                if any(url.lower().endswith(ext) for ext in [".json", ".yaml", ".yml"]):
+                if is_spec_file:
                     spec_urls.insert(0, url)
                 
                 for spec_url in spec_urls:
                     try:
                         resp = await client.get(spec_url, timeout=5.0)
                         if resp.status_code == 200:
+                            # Verify it's actually JSON/YAML and not an HTML error page
+                            content_sample = resp.text[:500].lower()
+                            if "<html" in content_sample or "<!doctype" in content_sample:
+                                continue
+
                             try: spec = resp.json()
                             except: spec = yaml.safe_load(resp.text)
                             
                             if isinstance(spec, dict) and (spec.get("openapi") or spec.get("swagger")):
-                                try:
-                                    parsed = OpenAPIBridge.parse_spec(spec, url)
-                                    manager = ManifestService._get_transient_manager(parsed)
-                                    
-                                    return {
-                                        "status": "success", "type": "openapi", "url": spec_url, 
-                                        "manifest": manager.get_manifest(landmark_ids=landmark_id, limit=limit), 
-                                        "data": ManifestService.normalize_bridge_to_elemm(parsed),
-                                        "landmarks": parsed.get("landmarks", []),
-                                        "tools": parsed.get("tools", [])
-                                    }
-                                except Exception:
-                                    logger.exception(f"OpenAPI parsing failed for {spec_url}")
-                    except Exception:
-                        logger.debug(f"OpenAPI spec probe failed at {spec_url}")
-            except Exception:
-                logger.exception("OpenAPI discovery error")
+                                parsed = OpenAPIBridge.parse_spec(spec, url)
+                                manager = ManifestService._get_transient_manager(parsed)
+                                return {
+                                    "status": "success", "type": "openapi", "url": spec_url, 
+                                    "manifest": manager.get_manifest(landmark_ids=landmark_id, limit=limit), 
+                                    "data": ManifestService.normalize_bridge_to_elemm(parsed),
+                                    "landmarks": parsed.get("landmarks", []),
+                                    "tools": parsed.get("tools", [])
+                                }
+                    except Exception: continue
+            except Exception: pass
 
             return {"status": "error", "message": f"Could not find a supported interface at {url}"}
 

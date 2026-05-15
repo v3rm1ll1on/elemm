@@ -42,13 +42,43 @@ class GraphQLBridge:
               type {
                 kind
                 name
-                ofType { kind name ofType { kind name } }
+                ofType { 
+                  kind name 
+                  ofType { 
+                    kind name 
+                    ofType { 
+                      kind name 
+                      ofType { 
+                        kind name 
+                        ofType { 
+                          kind name 
+                          ofType { kind name } 
+                        }
+                      }
+                    }
+                  } 
+                }
               }
             }
             type {
               kind
               name
-              ofType { kind name ofType { kind name } }
+              ofType { 
+                kind name 
+                ofType { 
+                  kind name 
+                  ofType { 
+                    kind name 
+                    ofType { 
+                      kind name 
+                      ofType { 
+                        kind name 
+                        ofType { kind name } 
+                      }
+                    }
+                  } 
+                }
+              }
             }
           }
         }
@@ -152,24 +182,27 @@ class GraphQLBridge:
     def _get_type_info(type_obj: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Recursive helper to extract type information."""
         if not type_obj:
-            return {"json_type": "string", "is_required": False}
+            return {"json_type": "string", "is_required": False, "gql_type": ""}
             
         kind = type_obj.get("kind")
         name = type_obj.get("name")
         
         if kind == "NON_NULL":
             inner = GraphQLBridge._get_type_info(type_obj.get("ofType"))
-            if inner.get("gql_type"):
+            if inner.get("gql_type") is not None:
                 inner["gql_type"] = f"{inner['gql_type']}!"
             inner["is_required"] = True
             return inner
             
         if kind == "LIST":
             inner = GraphQLBridge._get_type_info(type_obj.get("ofType"))
+            # is_required aus dem inneren Typ propagieren, damit der äußere NON_NULL-Wrapper
+            # (falls vorhanden) korrekt das '!' anhängen kann — z.B. [ID!]! statt [ID!]
+            g_inner = inner.get("gql_type") or "String"
             return {
-                "json_type": "array", 
-                "is_required": False, 
-                "gql_type": f"[{inner.get('gql_type', 'String')}]"
+                "json_type": "array",
+                "is_required": inner.get("is_required", False),
+                "gql_type": f"[{g_inner}]"
             }
             
         # Basic Scalar Mapping

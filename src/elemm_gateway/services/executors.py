@@ -35,6 +35,9 @@ class GraphQLExecutor:
         
         # Extract hygiene params
         select = arguments.pop("_select", "id") # Default to 'id' if nothing selected
+        if isinstance(select, list):
+            select = ",".join(select)
+            
         limit = arguments.pop("_limit", None)
         offset = arguments.pop("_offset", None)
         
@@ -51,11 +54,23 @@ class GraphQLExecutor:
             prop_meta = tool_data.get("inputSchema", {}).get("properties", {}).get(k, {})
             g_type = prop_meta.get("gql_type")
             
+            # Fallback: gql_type direkt aus der parameters-Liste lesen (wenn inputSchema fehlt,
+            # z.B. wenn tool_data vom Pydantic-Konvertierungsblock ohne inputSchema gebaut wurde)
             if not g_type:
-                if isinstance(v, bool): g_type = "Boolean!"
-                elif isinstance(v, int): g_type = "Int!"
+                for p in tool_data.get("parameters", []):
+                    p_name = p.get('name') if isinstance(p, dict) else getattr(p, 'name', None)
+                    if p_name == k:
+                        p_meta = p.get('meta', {}) if isinstance(p, dict) else getattr(p, 'meta', {})
+                        g_type = p_meta.get('gql_type') if p_meta else None
+                        break
+            
+            if not g_type:
+                # Letzter Fallback: Typ aus dem Python-Wert ableiten
+                if isinstance(v, bool):   g_type = "Boolean!"
+                elif isinstance(v, int):  g_type = "Int!"
                 elif isinstance(v, float): g_type = "Float!"
-                else: g_type = "String!"
+                elif isinstance(v, list): g_type = "[String]!"  # Besserer Default für Arrays
+                else:                     g_type = "String!"
             
             var_defs.append(f"${var_name}: {g_type}")
             var_values[var_name] = v
@@ -87,7 +102,14 @@ class GraphQLExecutor:
                 except: pass
 
                 if "errors" in res_json or resp.status_code != 200:
-                    debug_echo = {"url": base_url, "query": query, "variables": var_values}
+                    debug_echo = {
+                        "url": base_url, 
+                        "query": query, 
+                        "variables": var_values,
+                        "available_props": list(tool_data.get("inputSchema", {}).get("properties", {}).keys()),
+                        "prop_meta_for_ids": tool_data.get("inputSchema", {}).get("properties", {}).get("ids", {}),
+                        "tool_parameters_count": len(tool_data.get("parameters", []))
+                    }
                     errors = res_json.get("errors", [])
                     error_msg = errors[0].get("message", "") if errors else resp.text
                     repair = SmartRepairEngine.handle_remote_error(resp.status_code, error_msg)
@@ -102,7 +124,7 @@ class GraphQLExecutor:
                         remedy = f"Field '{target}' is an object/interface. You MUST specify sub-fields in '_select' using dot-notation (e.g. '{target}.id' or '{target}.name')."
                         protocol_error = "NESTING_REQUIRED"
                     elif "Variable" in error_msg and "expecting type" in error_msg:
-                        remedy = "Type mismatch in variables. Ensure IDs are strings and follow the technical signature exactly."
+                        remedy = f"Type mismatch in variables. Expected GQL type not found or inferred incorrectly. Tool has {len(tool_data.get('parameters', []))} params defined."
                         protocol_error = "TYPE_MISMATCH"
 
                     return json.dumps({
@@ -189,8 +211,10 @@ class OpenAPIExecutor:
         json_body = None
 
         for param in tool_data.get("parameters", []):
-            p_name = getattr(param, 'name', None) or (param.get('name') if isinstance(param, dict) else None)
-            p_in = getattr(param, 'location', 'query') or (param.get('location', 'query') if isinstance(param, dict) else 'query')
+            p_name = param.get('name') if isinstance(param, dict) else getattr(param, 'name', None)
+            # BUGFIX: getattr auf Dicts liefert immer den Default ('query'), weil Dicts keine
+            # .location-Attribute haben. Deshalb isinstance-Check priorisieren.
+            p_in = param.get('location', 'query') if isinstance(param, dict) else getattr(param, 'location', 'query')
             
             if not p_name:
                 continue
@@ -198,6 +222,8 @@ class OpenAPIExecutor:
             if p_name in arguments:
                 val = arguments[p_name]
                 if p_in == "path":
+                    # Path-Parameter: in die URL interpolieren UND aus arguments entfernen,
+                    # damit er nicht zusätzlich als Query-Parameter landet
                     full_url = full_url.replace(f"{{{p_name}}}", str(val))
                 elif p_in == "query":
                     params[p_name] = val
@@ -217,7 +243,7 @@ class OpenAPIExecutor:
                 resp = await client.request(method, full_url, params=params, headers=headers, json=json_body, follow_redirects=True, timeout=30.0)
                 
                 if resp.status_code != 200:
-                    debug_echo = {"method": method, "url": str(resp.url), "sent_params": params}
+                    debug_echo = {"method": method, "url": str(resp.url), "constructed_url": full_url, "sent_params": params}
                     error_data = {}
                     try: error_data = resp.json()
                     except: pass

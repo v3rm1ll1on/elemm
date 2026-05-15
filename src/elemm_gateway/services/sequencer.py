@@ -72,6 +72,11 @@ class SequenceEngine:
         for i, step in enumerate(actions):
             action_id = step.get("action")
             params = step.get("parameters", {})
+            # Hygiene params can be sibling to 'parameters' in the action dict
+            for hp in ["_select", "_filter", "_limit", "_offset"]:
+                if hp in step and hp not in params:
+                    params[hp] = step[hp]
+            
             alias = step.get("alias")
             on_error = step.get("on_error", "stop")
             
