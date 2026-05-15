@@ -45,7 +45,7 @@ def test_response_squisher_string_pagination():
     assert truncated is True
 
 def test_smart_truncate_preserves_valid_json():
-    """Ensure smart truncation keeps objects parseable."""
+    """Ensure smart truncation keeps objects parseable and reports truncation."""
     data = {
         "status": "success",
         "giant_list": [{"id": i} for i in range(1000)],
@@ -53,9 +53,10 @@ def test_smart_truncate_preserves_valid_json():
     }
     
     # Apply smart truncation with aggressive limits for testing
-    truncated = ResponseSquisher.smart_truncate(data, max_list_items=5, max_string_length=100)
+    truncated, was_trunc = ResponseSquisher.smart_truncate(data, max_list_items=5, max_string_length=100)
     
     # Verify structure
+    assert was_trunc is True
     assert truncated["status"] == "success"
     assert len(truncated["giant_list"]) == 6 # 5 items + info object
     assert "_elemm_info" in truncated["giant_list"][-1]
@@ -130,3 +131,46 @@ async def test_virtual_pagination_with_offset(gateway, monkeypatch):
     assert len(res["data"]) == 5
     assert res["data"][0]["id"] == 10
     assert res["data"][4]["id"] == 14
+
+@pytest.mark.asyncio
+async def test_sequencer_reports_truncation(gateway, monkeypatch):
+    """Test that execute_sequence correctly reports _truncated: true when smart_truncate triggers."""
+    from elemm_gateway.services.sequencer import SequenceEngine
+    from unittest.mock import AsyncMock, MagicMock
+    
+    # Mock sequence engine with gateway
+    engine = SequenceEngine(gateway)
+    
+    # Mock a tool that returns a giant list
+    giant_data = [{"id": i} for i in range(100)]
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = giant_data
+    
+    mock_client = MagicMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+    mock_client.post = AsyncMock(return_value=mock_resp)
+    
+    monkeypatch.setattr("httpx.AsyncClient", MagicMock(return_value=mock_client))
+    gateway.active_site_url = "http://mock-site"
+    gateway.manifest_loaded = True
+    gateway.limit_standard = 5000 # Small limit for testing
+    
+    # Execute a simple 1-step sequence
+    actions = [{"action": "city:get_big_data", "alias": "big"}]
+    mcp_results = await engine.execute(actions)
+    
+    # Parse the JSON from the TextContent
+    full_json = json.loads(mcp_results[0].text)
+    step_res = full_json[0]
+    
+    # Verify the step result
+    assert step_res["_truncated"] is True
+    
+    # Check if the result contains the truncation info
+    res_content = step_res["result"]
+    if isinstance(res_content, str):
+        assert "_elemm_info" in res_content
+    else:
+        assert "_elemm_info" in res_content[-1]

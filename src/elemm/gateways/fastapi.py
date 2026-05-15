@@ -89,7 +89,8 @@ class FastAPIGateway:
             landmark_id: Optional[str] = Query(None),
             technical: bool = Query(False),
             full: bool = Query(False),
-            limit: Optional[int] = Query(None)
+            limit: Optional[int] = Query(None),
+            offset: Optional[int] = Query(0)
         ):
             """Manifest-Discovery im v1-Format."""
             response.headers["Link"] = '</.well-known/elemm-manifest.md>; rel="elemm-manifest"'
@@ -111,10 +112,30 @@ class FastAPIGateway:
                 # Case-insensitive Lookup
                 lms = []
                 all_lms_lower = {lid.lower(): lm for lid, lm in self.manager.landmarks.items()}
-                manifest_md = self.manager.get_manifest(query_ids, technical=technical)
+                
+                # If limit is small (e.g. < 500), treat it as an item limit (max_landmarks)
+                # otherwise treat as character limit.
+                p_kwargs = {"offset": offset}
+                if offset is not None: p_kwargs["offset"] = offset
+                if limit is not None:
+                    if limit < 500:
+                        p_kwargs["max_landmarks"] = limit
+                    else:
+                        p_kwargs["limit"] = limit
+
+                manifest_md = self.manager.get_manifest(query_ids, technical=technical, **p_kwargs)
             else:
                 # Standard-Manifest mit v1-Logik (Summary)
-                manifest_md = self.manager.get_manifest(technical=technical or full, limit=ctx_limit)
+                p_kwargs = {"technical": technical or full, "offset": offset}
+                if limit is not None:
+                    if limit < 500:
+                        p_kwargs["max_landmarks"] = limit
+                    else:
+                        p_kwargs["limit"] = limit
+                else:
+                    p_kwargs["limit"] = ctx_limit
+                    
+                manifest_md = self.manager.get_manifest(**p_kwargs)
             
             return Response(content=manifest_md, media_type="text/markdown")
 

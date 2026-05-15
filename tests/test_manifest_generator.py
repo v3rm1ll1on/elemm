@@ -21,7 +21,7 @@ def test_manifest_builder_structure():
     header = ManifestBuilder.build_header("Test API", "1.2.3")
     
     assert "# ELEMM v2 INTERFACE: Test API (v1.2.3)" in header
-    assert "### CRITICAL RULES" in header
+    assert "### OPERATIONAL HYGIENE" in header
     assert "### SESSION GOVERNANCE" in header
     assert "list_aliases" in header
     assert "HYGIENE" in header # Check for the new operational hygiene rule

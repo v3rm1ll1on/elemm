@@ -49,19 +49,34 @@ class ManifestPresenter:
         lines.append("### LANDMARK TOPOLOGY\n")
         
         discovery_data = []
-        max_landmarks = kwargs.get("max_landmarks", 20)
-        max_tools = kwargs.get("max_tools", 5)
+        offset = kwargs.get("offset", 0)
+        limit_chars = kwargs.get("limit", 20000)
+        
+        # Calculate dynamic item limits based on char budget
+        dyn_max_lm = max(20, limit_chars // 150) if limit_chars else 20
+        dyn_max_tools = max(5, limit_chars // 500) if limit_chars else 5
+        
+        max_landmarks = kwargs.get("max_landmarks", dyn_max_lm)
+        max_tools = kwargs.get("max_tools", dyn_max_tools)
+        
+        # Total item budget (if limit was passed, use it as a hard stop)
+        item_budget = kwargs.get("max_landmarks", 99999) 
+        items_rendered = 0
 
         if not landmarks:
             lines.append("_No landmarks discovered in this scope._")
         else:
-            visible_landmarks = landmarks[:max_landmarks]
-            remaining_landmarks = len(landmarks) - max_landmarks
+            visible_landmarks = landmarks[offset:offset+max_landmarks]
+            remaining_landmarks = len(landmarks) - (offset + max_landmarks)
 
             for lm in visible_landmarks:
+                if items_rendered >= item_budget:
+                    break
+                    
                 # Landmark Header
                 desc = lm.description if getattr(lm, 'description', None) else f"Area: {lm.id}"
                 lines.append(f"- **`{lm.id}`**: {desc}")
+                items_rendered += 1
                 
                 # Render signature if it's an executable tool
                 if getattr(lm, 'handler', None):
@@ -70,20 +85,27 @@ class ManifestPresenter:
                 # Render children if it's a container area
                 if hasattr(lm, 'tools') and lm.tools:
                     all_tools = lm.tools
-                    visible_tools = all_tools[:max_tools]
-                    remaining_tools = len(all_tools) - max_tools
-
-                    for t in visible_tools:
-                        t_desc = t.description or "No description"
-                        if getattr(t, 'handler', None):
-                            req_params = self._get_required_params_str(t)
-                            lines.append(f"  - Tool: `{t.id}` ({req_params}) -> Returns: {t.returns or 'any'}")
-                            lines.append(f"    > {t_desc}")
-                        else:
-                            lines.append(f"  - Landmark: `{t.id}` (Area/Namespace) - {t_desc}")
+                    # Sub-tools also count towards the budget
+                    current_max_tools = min(max_tools, item_budget - items_rendered)
                     
-                    if remaining_tools > 0:
-                        lines.append(f"  - (... and {remaining_tools} more tools. Use `inspect_landmark(landmark_id=\"{lm.id}\")` for full signatures.)")
+                    if current_max_tools > 0:
+                        visible_tools = all_tools[:current_max_tools]
+                        remaining_tools = len(all_tools) - current_max_tools
+
+                        for t in visible_tools:
+                            t_desc = t.description or "No description"
+                            if getattr(t, 'handler', None):
+                                req_params = self._get_required_params_str(t)
+                                lines.append(f"  - Tool: `{t.id}` ({req_params}) -> Returns: {t.returns or 'any'}")
+                                lines.append(f"    > {t_desc}")
+                            else:
+                                lines.append(f"  - Landmark: `{t.id}` (Area/Namespace) - {t_desc}")
+                            items_rendered += 1
+                        
+                        if remaining_tools > 0:
+                            lines.append(f"  - (... and {remaining_tools} more tools. Use `inspect_landmark(landmark_id=\"{lm.id}\")` for full signatures.)")
+                    else:
+                        lines.append(f"  - (... tools hidden due to budget limit. Use `inspect_landmark(landmark_id=\"{lm.id}\")`.)")
 
                 # Collect technical metadata
                 if show_technical:
@@ -95,7 +117,8 @@ class ManifestPresenter:
                     })
             
             if remaining_landmarks > 0:
-                lines.append(f"\n- (... and {remaining_landmarks} more landmarks available. Use `get_manifest(landmark_id=\"...\")` with a specific ID to explore other areas.)")
+                next_offset = offset + max_landmarks
+                lines.append(f"\n- (... and {remaining_landmarks} more items available. **ACTION REQUIRED**: Use `_offset={next_offset}` in your next `inspect_landmark` call to fetch the next page of results.)")
 
         # 4. Technical Discovery Block (Nur für System-Tools)
         if show_technical and discovery_data:

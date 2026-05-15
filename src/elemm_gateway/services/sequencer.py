@@ -123,28 +123,35 @@ class SequenceEngine:
             from elemm_gateway.services.hygiene import ResponseSquisher
             limit = getattr(self.gateway, "limit_standard", 30000)
             
+            # Dynamically scale smart limits based on the configured limit_standard
+            max_str_len = limit // 2  # E.g. 15,000 chars for a single string block
+            max_list_items = max(20, limit // 500) # E.g. 60 items if limit is 30k
+            
             # 1. Semantic Squish
-            squished_res = ResponseSquisher.smart_truncate(final_res)
+            squished_res, was_truncated = ResponseSquisher.smart_truncate(
+                final_res, 
+                max_list_items=max_list_items, 
+                max_string_length=max_str_len
+            )
             aliases[f"step{i}"] = squished_res
             if alias: aliases[alias] = squished_res
 
             # 2. Stringify for final check
             res_str = json.dumps(squished_res, indent=2) if not isinstance(squished_res, str) else squished_res
-            is_truncated = False
             
             # 3. Last resort safety cut
             if len(res_str) > limit:
                 hint = f"\n\n(Note: Result too large. Truncated to {limit} chars.)"
                 res_str = res_str[:limit - len(hint) - 10] + "..." + hint
-                is_truncated = True
+                was_truncated = True
 
             results.append({
                 "step": i, 
                 "action": action_id, 
                 "alias": alias or f"step{i}",
                 "duration_ms": duration_ms, 
-                "result": squished_res if not is_truncated else res_str,
-                "_truncated": is_truncated
+                "result": squished_res if not was_truncated else res_str,
+                "_truncated": was_truncated
             })
 
             if isinstance(final_res, dict) and (final_res.get("status") == "error" or "_PROTOCOL_ERROR" in final_res) and on_error == "stop":

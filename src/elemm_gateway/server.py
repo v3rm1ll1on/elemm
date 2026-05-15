@@ -168,8 +168,15 @@ class ElemmGateway:
 
     def _format_result(self, raw_res):
         """Markdown-friendly formatting with semantic squishing."""
+        max_str_len = self.limit_standard // 2
+        max_list_items = max(20, self.limit_standard // 500)
+        
         # 1. Smart Semantic Truncation (Maintains valid JSON)
-        squished_res = ResponseSquisher.smart_truncate(raw_res)
+        squished_res, _ = ResponseSquisher.smart_truncate(
+            raw_res,
+            max_list_items=max_list_items,
+            max_string_length=max_str_len
+        )
         
         # 2. Stringify
         res_text = json.dumps(squished_res, indent=2) if not isinstance(squished_res, str) else squished_res
@@ -221,12 +228,15 @@ class ElemmGateway:
 
         if name == "inspect_landmark":
             lm_id = arguments.get("landmark_id")
+            offset = arguments.get("_offset", 0)
+            limit = arguments.get("_limit")
+            
             ids = [lm_id] if isinstance(lm_id, str) else lm_id
             allowed_ids = [tid for tid in ids if self.security_policy.is_action_allowed(f"{tid}_inspect")["allowed"]]
             if not allowed_ids:
                 return [types.TextContent(type="text", text="Error: Access restricted by security policy.")]
             
-            res = await ManifestService.inspect_landmark(url, site_data, allowed_ids, limit=self.limit_inspect)
+            res = await ManifestService.inspect_landmark(url, site_data, allowed_ids, limit=limit or self.limit_inspect, offset=offset)
             return self._format_result(res)
             
         return [types.TextContent(type="text", text=f"Error: Core tool '{name}' not supported by gateway.")]

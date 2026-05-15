@@ -66,26 +66,44 @@ class ResponseSquisher:
         return data, was_truncated, total_count
 
     @staticmethod
-    def smart_truncate(data: Any, max_list_items: int = 20, max_string_length: int = 10000) -> Any:
+    def smart_truncate(data: Any, max_list_items: int = 20, max_string_length: int = 10000) -> tuple[Any, bool]:
         """
-        Recursively truncates large data structures to keep them context-friendly 
-        while maintaining valid JSON structure.
+        Recursively truncates large data structures while tracking if truncation happened.
+        Returns (truncated_data, was_truncated).
         """
+        was_truncated = False
+
         if isinstance(data, list):
+            new_list = []
             if len(data) > max_list_items:
-                truncated = [ResponseSquisher.smart_truncate(item, max_list_items, max_string_length) for item in data[:max_list_items]]
-                truncated.append({"_elemm_info": f"Truncated: {len(data) - max_list_items} more items hidden. Use '_limit' or '_filter' to see more."})
-                return truncated
-            return [ResponseSquisher.smart_truncate(item, max_list_items, max_string_length) for item in data]
+                was_truncated = True
+                items_to_process = data[:max_list_items]
+            else:
+                items_to_process = data
+
+            for item in items_to_process:
+                item_data, item_trunc = ResponseSquisher.smart_truncate(item, max_list_items, max_string_length)
+                new_list.append(item_data)
+                if item_trunc: was_truncated = True
+            
+            if len(data) > max_list_items:
+                new_list.append({"_elemm_info": f"Truncated: {len(data) - max_list_items} more items hidden. Use '_limit' or '_filter' to see more."})
+            
+            return new_list, was_truncated
             
         if isinstance(data, dict):
-            return {k: ResponseSquisher.smart_truncate(v, max_list_items, max_string_length) for k, v in data.items()}
+            new_dict = {}
+            for k, v in data.items():
+                val_data, val_trunc = ResponseSquisher.smart_truncate(v, max_list_items, max_string_length)
+                new_dict[k] = val_data
+                if val_trunc: was_truncated = True
+            return new_dict, was_truncated
             
         if isinstance(data, str):
             if len(data) > max_string_length:
-                return data[:max_string_length] + f"... [TRUNCATED: {len(data) - max_string_length} more characters]"
+                return data[:max_string_length] + f"... [TRUNCATED: {len(data) - max_string_length} more characters]", True
                 
-        return data
+        return data, was_truncated
 
     @staticmethod
     def _pick_fields(obj: Any, fields: List[str]) -> Dict[str, Any]:

@@ -288,7 +288,7 @@ async def get_config():
                 return json.load(f)
         return {
             "security": {"disallowed_patterns": [], "disallowed_landmarks": [], "allowed_methods": []},
-            "limit_standard": 5000, "limit_inspect": 20000, "timeout_seconds": 30,
+            "limit_standard": 30000, "limit_inspect": 20000, "timeout_seconds": 30,
             "retry_attempts": 3, "retry_delay_ms": 1000,
             "ui": {"display_mode": "tokens", "char_to_token_ratio": 4.0}
         }

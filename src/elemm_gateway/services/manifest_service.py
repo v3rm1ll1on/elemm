@@ -83,7 +83,7 @@ class ManifestService:
             # 3. Native Elemm
             manifest_url = f"{url.rstrip('/')}/.well-known/elemm-manifest.md"
             try:
-                resp = await client.get(manifest_url, timeout=10.0, follow_redirects=True)
+                resp = await client.get(manifest_url, timeout=10.0, follow_redirects=True, params={"limit": limit})
                 if resp.status_code == 200:
                     return {
                         "type": "native",
@@ -137,7 +137,7 @@ class ManifestService:
         return ManifestBuilder.inject_globals(res)
 
     @staticmethod
-    async def inspect_landmark(site_url: str, site_data: Dict[str, Any], landmark_ids: List[str], limit: int = 20) -> str:
+    async def inspect_landmark(site_url: str, site_data: Dict[str, Any], landmark_ids: List[str], limit: int = 20, offset: int = 0) -> str:
         """Generates technical signatures for specific landmarks."""
         m_type = site_data.get("type")
         tools = site_data.get("tools", [])
@@ -149,7 +149,7 @@ class ManifestService:
                 for tid in landmark_ids:
                     inspect_url = f"{site_url.rstrip('/')}/.well-known/elemm-manifest.md"
                     try:
-                        resp = await client.get(inspect_url, params={"landmark_id": tid, "technical": "true", "limit": limit}, follow_redirects=True)
+                        resp = await client.get(inspect_url, params={"landmark_id": tid, "technical": "true", "limit": limit, "offset": offset}, follow_redirects=True)
                         if resp.status_code == 200:
                             content = resp.text
                             if "```json-elemm" in content:

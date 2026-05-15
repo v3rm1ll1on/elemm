@@ -96,7 +96,7 @@ class MCPToolFactory:
     def inspect_landmark_tool() -> types.Tool:
         return types.Tool(
             name="inspect_landmark",
-            description="Returns technical TypeScript signatures for one or more landmarks. Use this BEFORE calling an action to see required parameters.",
+            description="Returns technical TypeScript signatures for one or more landmarks. Use this BEFORE calling an action to see required parameters. Supports virtual pagination (_offset, _limit) for large namespaces.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -105,7 +105,9 @@ class MCPToolFactory:
                             {"type": "string", "description": "A single landmark ID (e.g. 'repos')"},
                             {"type": "array", "items": {"type": "string"}, "description": "A list of landmark IDs"}
                         ]
-                    }
+                    },
+                    "_offset": {"type": "integer", "description": "Pagination offset to skip a number of tools/landmarks."},
+                    "_limit": {"type": "integer", "description": "Pagination limit to restrict the number of tools returned."}
                 },
                 "required": ["landmark_id"]
             }
