@@ -138,6 +138,7 @@ class GraphQLBridge:
                 id=f"{category}:{name}",
                 description=description,
                 parameters=params_list,
+                type="action",
                 meta={
                     "type": "graphql",
                     "operation_type": category.lower(),

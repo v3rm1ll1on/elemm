@@ -115,6 +115,7 @@ class AIProtocolManager:
                     lm.returns = returns
                     lm.remedy = remedy
                     lm.instructions = instructions
+                    lm.type = "action"
                     
                     # Set extra fields (excluding already handled ones)
                     skip_keys = {"description", "parameters", "returns", "response_schema", "remedy", "instructions"}
@@ -365,7 +366,8 @@ class AIProtocolManager:
                 if parent_id not in self.landmarks:
                     self.landmarks[parent_id] = Landmark(
                         id=parent_id,
-                        description=f"Area: {parent_id}"
+                        description=f"Area: {parent_id}",
+                        type="navigation"
                     )
                 
                 parent = self.landmarks[parent_id]
@@ -385,6 +387,9 @@ class AIProtocolManager:
 
     def get_manifest(self, landmark_ids: Optional[Union[str, List[str]]] = None, technical: bool = False, **kwargs) -> str:
         """Generiert ein dynamisches Manifest basierend auf dem Kontext."""
+        if landmark_ids is None and "landmark_id" in kwargs:
+            landmark_ids = kwargs.pop("landmark_id")
+            
         all_landmarks = []
         
         # Normalize landmark_ids to a list

@@ -31,7 +31,7 @@ class Parameter(BaseModel):
 class LandmarkMetadata(BaseModel):
     """Die rein deklarativen Metadaten aus der YAML."""
     description: str
-    type: str = "action"  # action, tool, navigation
+    type: str = "navigation"  # action, tool, navigation
     instructions: Optional[str] = None
     remedy: Optional[str] = None
     parameters: Optional[List[Parameter]] = None

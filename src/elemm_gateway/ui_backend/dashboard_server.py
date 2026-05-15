@@ -106,8 +106,10 @@ async def inspect_site(url: str, landmark_id: str = None, session_id: str = "def
             session["active_url"] = url
             session["site_type"] = result.get("type", "native")
             
-            if "bridge_tools" in result:
-                session["tools"] = result["bridge_tools"]
+            if "tools" in result:
+                session["tools"] = result["tools"]
+            elif "landmarks" in result:
+                session["tools"] = result["landmarks"]
             elif "data" in result:
                 # Store parsed tools from native if available
                 session["tools"] = result["data"].get("landmarks", [])

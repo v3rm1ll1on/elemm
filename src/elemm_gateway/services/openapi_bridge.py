@@ -145,6 +145,7 @@ class OpenAPIBridge:
                     parameters=params_list,
                     returns=output_schema.get("type", "any") if isinstance(output_schema, dict) else "any",
                     response_schema=output_schema,
+                    type="action",
                     meta={
                         "path": path,
                         "method": method.upper(),

@@ -89,11 +89,11 @@ class ManifestService:
     def normalize_bridge_to_elemm(bridge_data: Dict[str, Any]) -> Dict[str, Any]:
         """Nutzt den Core-Presenter für die Normalisierung."""
         manager = ManifestService._get_transient_manager(bridge_data)
-        manifest_json = manager.get_manifest(output_format="json", full=True)
+        manifest_json = manager.get_manifest(output_format="json", full=True, max_landmarks=10000)
         return json.loads(manifest_json)
 
     @staticmethod
-    async def inspect_url(url: str, landmark_id: Optional[str] = None, vault_manager=None, limit: int = 100, output_format: str = "markdown") -> Dict[str, Any]:
+    async def inspect_url(url: str, landmark_id: Optional[str] = None, vault_manager=None, limit: int = 5000, output_format: str = "markdown") -> Dict[str, Any]:
         """Probes a URL for various Elemm interfaces and returns data in requested format."""
         
         async with httpx.AsyncClient() as client:
@@ -132,7 +132,7 @@ class ManifestService:
                     
                     return {
                         "status": "success", "type": "graphql", "url": gql_url, 
-                        "manifest": manager.get_manifest(), 
+                        "manifest": manager.get_manifest(landmark_ids=landmark_id, limit=limit), 
                         "data": ManifestService.normalize_bridge_to_elemm(site_data),
                         "landmarks": parsed.get("landmarks", []),
                         "tools": parsed.get("tools", [])
@@ -160,7 +160,7 @@ class ManifestService:
                                     
                                     return {
                                         "status": "success", "type": "openapi", "url": spec_url, 
-                                        "manifest": manager.get_manifest(), 
+                                        "manifest": manager.get_manifest(landmark_ids=landmark_id, limit=limit), 
                                         "data": ManifestService.normalize_bridge_to_elemm(parsed),
                                         "landmarks": parsed.get("landmarks", []),
                                         "tools": parsed.get("tools", [])
@@ -191,7 +191,7 @@ class ManifestService:
         return json.loads(res) if output_format == "json" else res
 
     @staticmethod
-    async def inspect_landmark(site_url: str, landmark_id: str, vault_manager=None, limit: int = 100, offset: int = 0, output_format: str = "markdown", site_type: str = "native", site_data: dict = None) -> Dict[str, Any]:
+    async def inspect_landmark(site_url: str, landmark_id: str, vault_manager=None, limit: int = 5000, offset: int = 0, output_format: str = "markdown", site_type: str = "native", site_data: dict = None) -> Dict[str, Any]:
         """Technische Einsicht via Core-Manager."""
         
         if site_type == "native":
@@ -205,7 +205,7 @@ class ManifestService:
         # Bridge Inspection
         if not site_data: return {"status": "error", "message": "Missing site_data for bridge inspection"}
         manager = ManifestService._get_transient_manager(site_data)
-        manifest = manager.get_manifest(landmark_id=landmark_id, technical=True, output_format=output_format)
+        manifest = manager.get_manifest(landmark_ids=landmark_id, technical=True, output_format=output_format)
         
         if output_format == "json":
             return {"status": "success", "type": site_type, "data": json.loads(manifest)}

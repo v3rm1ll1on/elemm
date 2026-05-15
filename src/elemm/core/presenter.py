@@ -45,7 +45,7 @@ class ManifestPresenter:
                 parent_id = None
 
             offset = kwargs.get("offset", 0)
-            max_landmarks = kwargs.get("max_landmarks", 100) 
+            max_landmarks = kwargs.get("max_landmarks", 5000) 
             
             total_count = len(effective_lms)
             paginated_lms = effective_lms[offset : offset + max_landmarks]
@@ -60,7 +60,7 @@ class ManifestPresenter:
                     "outputSchema": getattr(lm, 'response_schema', {}),
                     "remedy": getattr(lm, 'remedy', None),
                     "instructions": getattr(lm, 'instructions', None),
-                    "is_tool": bool(lm.handler),
+                    "is_tool": bool(lm.handler) or lm.type in ["action", "tool"],
                     "meta": getattr(lm, 'meta', {})
                 }
                 
