@@ -76,8 +76,8 @@ class ElemmGateway:
         self.manifest_loaded = False
         
         # Global Settings
-        self.limit_standard = self.config_manager.get("limit_standard", 50000)
-        self.limit_inspect = self.config_manager.get("limit_inspect", 100)
+        self.limit_standard = self.config_manager.get("limit_standard", 30000)
+        self.limit_inspect = self.config_manager.get("limit_inspect", 20000)
         
         self._setup_handlers()
 
@@ -167,10 +167,18 @@ class ElemmGateway:
             return [types.TextContent(type="text", text=f"Critical Gateway Error: {str(fatal_err)}")]
 
     def _format_result(self, raw_res):
-        """Markdown-friendly formatting with anti-bomb truncation."""
-        res_text = json.dumps(raw_res, indent=2) if not isinstance(raw_res, str) else raw_res
+        """Markdown-friendly formatting with semantic squishing."""
+        # 1. Smart Semantic Truncation (Maintains valid JSON)
+        squished_res = ResponseSquisher.smart_truncate(raw_res)
+        
+        # 2. Stringify
+        res_text = json.dumps(squished_res, indent=2) if not isinstance(squished_res, str) else squished_res
+        
+        # 3. Final safety cut (only as last resort)
         if len(res_text) > self.limit_standard:
-            res_text = res_text[:self.limit_standard-3] + "...\n\n(Note: Result truncated.)"
+            hint = f"\n\n(Note: Result too large. Truncated to {self.limit_standard} chars.)"
+            res_text = res_text[:self.limit_standard - len(hint) - 10] + "..." + hint
+            
         return [types.TextContent(type="text", text=res_text)]
 
     async def _proxy_core_tool(self, name: str, arguments: Dict, session_id: str = "default") -> List[types.TextContent]:
@@ -202,7 +210,8 @@ class ElemmGateway:
             return self._format_result(res_text)
         
         if name == "get_landmarks":
-            return self._format_result(ManifestService.get_landmarks_summary(site_data, security_policy=self.security_policy))
+            limit = self.config_manager.get("max_landmarks_per_view", 20)
+            return self._format_result(ManifestService.get_landmarks_summary(site_data, security_policy=self.security_policy, limit=limit))
 
         if name == "call_action":
             action = arguments.get("action")
@@ -283,11 +292,33 @@ class ElemmGateway:
 
         # Native Elemm Execution
         try:
+            # Extract hygiene params
+            select = arguments.pop("_select", None)
+            filter_str = arguments.pop("_filter", None)
+            limit = arguments.pop("_limit", None)
+            offset = arguments.pop("_offset", None)
+            
+            if limit: limit = int(limit)
+            if offset: offset = int(offset)
+
             async with httpx.AsyncClient() as client:
                 exec_url = f"{self.active_site_url}/.well-known/elemm/execute"
                 resp = await client.post(exec_url, json={"action": tool_name, "parameters": arguments}, timeout=60.0)
                 if resp.status_code != 200: return f"Execution Error: {resp.status_code}\n{resp.text}"
-                return json.dumps(resp.json(), indent=2)
+                
+                data = resp.json()
+                data, was_truncated, total = ResponseSquisher.squish(data, select, filter_str, limit, offset)
+                
+                if was_truncated:
+                    res_obj = {
+                        "status": "success",
+                        "data": data,
+                        "_HYGIENE_NOTICE": f"Output truncated for context hygiene. Showing {len(data)} of {total} items.",
+                        "remedy": f"The result is large. Use '_offset={offset + len(data) if offset else len(data)}' to fetch the next page of results."
+                    }
+                    return json.dumps(res_obj, indent=2)
+
+                return json.dumps(data, indent=2)
         except Exception as e:
             return f"Gateway Connection Error: {str(e)}"
 
@@ -299,7 +330,8 @@ class ElemmGateway:
         # Hot-reload vault for each connection (for UI/Dashboard consistency)
         self.vault_manager.vault = self.vault_manager.load()
         
-        res = await ManifestService.inspect_url(url, vault_manager=self.vault_manager)
+        limit = self.config_manager.get("max_tools_per_landmark", 5)
+        res = await ManifestService.inspect_url(url, vault_manager=self.vault_manager, limit=limit)
         if res.get("status") == "success":
             # ...
             self.connected_sites[url] = {

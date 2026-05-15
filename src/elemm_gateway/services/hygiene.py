@@ -18,10 +18,16 @@ from typing import Any, Dict, List, Optional
 class ResponseSquisher:
     """Handles context hygiene by filtering JSON responses."""
     @staticmethod
-    def squish(data: Any, select: Optional[Any] = None, filter_str: Optional[Any] = None) -> Any:
-        if not data:
-            return data
+    def squish(data: Any, select: Optional[Any] = None, filter_str: Optional[Any] = None, limit: Optional[int] = None, offset: Optional[int] = None) -> tuple[Any, bool, int]:
+        """
+        Filters and paginates data. Returns (squished_data, was_truncated, total_count).
+        """
+        if data is None:
+            return None, False, 0
             
+        was_truncated = False
+        total_count = 0
+
         # 1. Filter by key=val (or dict)
         if filter_str and isinstance(data, list):
             if isinstance(filter_str, str) and "=" in filter_str:
@@ -31,7 +37,18 @@ class ResponseSquisher:
                 for k, v in filter_str.items():
                     data = [item for item in data if str(item.get(k)) == str(v)]
         
-        # 2. Select fields (nested)
+        # 2. Virtual Pagination (Lists and Strings)
+        if isinstance(data, (list, str)):
+            total_count = len(data)
+            start = offset if offset is not None else 0
+            end = (start + limit) if limit is not None else None
+            
+            if (end is not None and total_count > end) or start > 0:
+                was_truncated = True
+                
+            data = data[start:end] if end is not None else data[start:]
+        
+        # 3. Select fields (nested)
         if select:
             if isinstance(select, str):
                 fields = [f.strip() for f in select.split(",")]
@@ -43,8 +60,30 @@ class ResponseSquisher:
             if fields:
                 if isinstance(data, list):
                     data = [ResponseSquisher._pick_fields(item, fields) for item in data]
-                else:
+                elif isinstance(data, dict):
                     data = ResponseSquisher._pick_fields(data, fields)
+                
+        return data, was_truncated, total_count
+
+    @staticmethod
+    def smart_truncate(data: Any, max_list_items: int = 20, max_string_length: int = 10000) -> Any:
+        """
+        Recursively truncates large data structures to keep them context-friendly 
+        while maintaining valid JSON structure.
+        """
+        if isinstance(data, list):
+            if len(data) > max_list_items:
+                truncated = [ResponseSquisher.smart_truncate(item, max_list_items, max_string_length) for item in data[:max_list_items]]
+                truncated.append({"_elemm_info": f"Truncated: {len(data) - max_list_items} more items hidden. Use '_limit' or '_filter' to see more."})
+                return truncated
+            return [ResponseSquisher.smart_truncate(item, max_list_items, max_string_length) for item in data]
+            
+        if isinstance(data, dict):
+            return {k: ResponseSquisher.smart_truncate(v, max_list_items, max_string_length) for k, v in data.items()}
+            
+        if isinstance(data, str):
+            if len(data) > max_string_length:
+                return data[:max_string_length] + f"... [TRUNCATED: {len(data) - max_string_length} more characters]"
                 
         return data
 

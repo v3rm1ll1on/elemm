@@ -28,8 +28,10 @@ class ConfigManager:
 
     def load(self) -> Dict[str, Any]:
         defaults = {
-            "limit_standard": 5000,
+            "limit_standard": 30000,
             "limit_inspect": 20000,
+            "max_landmarks_per_view": 20,
+            "max_tools_per_landmark": 5,
             "timeout_seconds": 30,
             "retry_attempts": 3,
             "retry_delay_ms": 1000,

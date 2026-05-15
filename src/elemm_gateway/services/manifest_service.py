@@ -39,7 +39,7 @@ class ManifestService:
         return ManifestBuilder.inject_globals(manifest, full, inject_metadata)
 
     @staticmethod
-    async def inspect_url(url: str, landmark_id: Optional[str] = None, vault_manager=None) -> Dict[str, Any]:
+    async def inspect_url(url: str, landmark_id: Optional[str] = None, vault_manager=None, limit: int = 20) -> Dict[str, Any]:
         """Probes a URL for various Elemm interfaces."""
         async with httpx.AsyncClient() as client:
             headers = {}
@@ -54,7 +54,7 @@ class ManifestService:
                     parsed = GraphQLBridge.parse_schema(schema_data, url)
                     return {
                         "type": "graphql",
-                        "manifest": GraphQLBridge.generate_virtual_manifest(parsed),
+                        "manifest": GraphQLBridge.generate_virtual_manifest(parsed, limit=limit),
                         "tools": parsed.get("tools", []),
                         "url": url,
                         "status": "success"
@@ -73,7 +73,7 @@ class ManifestService:
                             parsed = OpenAPIBridge.parse_spec(spec, url.rsplit("/", 1)[0])
                             return {
                                 "type": "openapi",
-                                "manifest": OpenAPIBridge.generate_virtual_manifest(parsed),
+                                "manifest": OpenAPIBridge.generate_virtual_manifest(parsed, limit=limit),
                                 "tools": parsed.get("tools", []),
                                 "url": url,
                                 "status": "success"
@@ -96,7 +96,7 @@ class ManifestService:
             return {"status": "error", "message": f"Could not find a supported interface at {url}"}
 
     @staticmethod
-    def get_landmarks_summary(site_data: Dict[str, Any], security_policy: Optional[Any] = None) -> str:
+    def get_landmarks_summary(site_data: Dict[str, Any], security_policy: Optional[Any] = None, limit: int = 20) -> str:
         """Returns a high-level summary of available landmarks for a site."""
         m_type = site_data.get("type")
         manifest = site_data.get("manifest", "")
@@ -104,6 +104,7 @@ class ManifestService:
         
         res = "### LANDMARK TOPOLOGY\n"
         
+        discovered = []
         if m_type == "native":
             # Extract from markdown manifest
             matches = re.findall(r"- \*\*`(.*?)`\*\*: (.*?)\n", manifest)
@@ -111,7 +112,7 @@ class ManifestService:
                 if lid == "elemm": continue
                 if security_policy and not security_policy.is_action_allowed(f"{lid}_inspect")["allowed"]:
                     continue
-                res += f"- **{lid}**: {desc}\n"
+                discovered.append((lid, desc))
         else:
             # Aggregate from OpenAPI/GraphQL tools
             landmarks = {}
@@ -121,7 +122,17 @@ class ManifestService:
                     continue
                 landmarks[lm] = landmarks.get(lm, 0) + 1
             for lm, count in sorted(landmarks.items()):
-                res += f"- **{lm}**: ({count} tools)\n"
+                discovered.append((lm, f"({count} tools)"))
+        
+        # Apply Structural Truncation
+        visible = discovered[:limit]
+        remaining = len(discovered) - limit
+        
+        for lid, info in visible:
+            res += f"- **{lid}**: {info}\n"
+            
+        if remaining > 0:
+            res += f"\n- (... and {remaining} more landmarks available. Use `get_manifest(landmark_id=\"...\")` with a specific ID to explore other areas.)"
         
         return ManifestBuilder.inject_globals(res)
 
@@ -149,9 +160,12 @@ class ManifestService:
             return ManifestBuilder.inject_globals(final_md, inject_metadata=False)
         else:
             # Generate TS signatures for OpenAPI/GraphQL
+            total_relevant = 0
             for tid in landmark_ids:
                 relevant_tools = [t for t in tools if t["name"] == tid or t["name"].startswith(f"{tid}:") or t["name"].startswith(f"{tid}_")]
-                for t in relevant_tools:
+                total_relevant += len(relevant_tools)
+                
+                for t in relevant_tools[:limit]:
                     props = t['inputSchema'].get('properties', {})
                     required = t['inputSchema'].get('required', [])
                     
@@ -173,4 +187,8 @@ class ManifestService:
                 return f"No tools found for landmark/id '{landmark_ids}'."
             
             content = "### TECHNICAL SIGNATURES\n```typescript\n" + "\n\n".join(signatures) + "\n```\n"
+            
+            if total_relevant > len(signatures):
+                content += f"\n\n(... and {total_relevant - len(signatures)} more tools in this area were truncated to fit the inspection limit. Use more specific filters if possible.)"
+
             return ManifestBuilder.inject_globals(content, inject_metadata=False)

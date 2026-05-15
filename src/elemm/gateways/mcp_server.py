@@ -124,8 +124,17 @@ class MCPGateway:
         if name == "get_landmarks":
             landmarks = self.manager.get_landmarks()
             res = "### AVAILABLE LANDMARKS\n"
-            for lm in landmarks:
+            
+            limit = 20 # Default for core MCP
+            visible = landmarks[:limit]
+            remaining = len(landmarks) - limit
+            
+            for lm in visible:
                 res += f"- **{lm.id}**: {lm.description or 'No description.'}\n"
+            
+            if remaining > 0:
+                res += f"\n- (... and {remaining} more landmarks available. Use `get_manifest(landmark_id=\"...\")` with a specific ID to explore other areas.)"
+                
             return [types.TextContent(type="text", text=res)]
 
         if name == "list_aliases":

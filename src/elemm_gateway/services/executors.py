@@ -35,8 +35,13 @@ class GraphQLExecutor:
         
         # Extract hygiene params
         select = arguments.pop("_select", "id") # Default to 'id' if nothing selected
+        limit = arguments.pop("_limit", None)
+        offset = arguments.pop("_offset", None)
         
-        # Construct GQL Query
+        if limit: limit = int(limit)
+        if offset: offset = int(offset)
+        
+        # ... (GQL construction logic) ...
         var_defs = []
         var_values = {}
         arg_calls = []
@@ -111,6 +116,17 @@ class GraphQLExecutor:
                     }, indent=2)
                 
                 data = res_json.get("data", {}).get(field_name, res_json.get("data"))
+                data, was_truncated, total = ResponseSquisher.squish(data, select, None, limit, offset)
+                
+                if was_truncated:
+                    res_obj = {
+                        "status": "success",
+                        "data": data,
+                        "_HYGIENE_NOTICE": f"Output truncated for context hygiene. Showing {len(data)} of {total} items.",
+                        "remedy": f"The result is large. Use '_offset={offset + len(data) if offset else len(data)}' to fetch the next page of results."
+                    }
+                    return json.dumps(res_obj, indent=2)
+
                 return json.dumps(data, indent=2)
         except Exception as e:
             return f"Error executing GraphQL call: {str(e)}"
@@ -148,8 +164,13 @@ class OpenAPIExecutor:
         select = arguments.pop("_select", None)
         filter_str = arguments.pop("_filter", None)
         limit = arguments.pop("_limit", None)
+        offset = arguments.pop("_offset", None)
+        
+        if limit: limit = int(limit)
+        if offset: offset = int(offset)
 
         required_fields = tool_data.get("inputSchema", {}).get("required", [])
+        # ... (rest of validation logic) ...
         host_key = urlparse(base_url).netloc
         vault_provided = self.vault.get_auth_param_names(host_key)
         
@@ -208,9 +229,18 @@ class OpenAPIExecutor:
                     }, indent=2)
 
                 data = resp.json()
-                data = ResponseSquisher.squish(data, select, filter_str)
-                if limit and isinstance(data, list): data = data[:int(limit)]
+                data, was_truncated, total = ResponseSquisher.squish(data, select, filter_str, limit, offset)
                 
+                if was_truncated:
+                    # Inject procedural remedy for pagination
+                    res_obj = {
+                        "status": "success",
+                        "data": data,
+                        "_HYGIENE_NOTICE": f"Output truncated for context hygiene. Showing {len(data)} of {total} items.",
+                        "remedy": f"The result is large. Use '_offset={offset + len(data) if offset else len(data)}' to fetch the next page of results."
+                    }
+                    return json.dumps(res_obj, indent=2)
+
                 if not data or (isinstance(data, list) and len(data) == 0):
                     return json.dumps({
                         "status": "success",

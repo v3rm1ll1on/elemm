@@ -49,12 +49,16 @@ class ManifestPresenter:
         lines.append("### LANDMARK TOPOLOGY\n")
         
         discovery_data = []
-        max_visible_items = kwargs.get("limit", 20)
+        max_landmarks = kwargs.get("max_landmarks", 20)
+        max_tools = kwargs.get("max_tools", 5)
 
         if not landmarks:
             lines.append("_No landmarks discovered in this scope._")
         else:
-            for lm in landmarks:
+            visible_landmarks = landmarks[:max_landmarks]
+            remaining_landmarks = len(landmarks) - max_landmarks
+
+            for lm in visible_landmarks:
                 # Landmark Header
                 desc = lm.description if getattr(lm, 'description', None) else f"Area: {lm.id}"
                 lines.append(f"- **`{lm.id}`**: {desc}")
@@ -65,8 +69,11 @@ class ManifestPresenter:
                 
                 # Render children if it's a container area
                 if hasattr(lm, 'tools') and lm.tools:
-                    visible_items = lm.tools[:max_visible_items]
-                    for t in visible_items:
+                    all_tools = lm.tools
+                    visible_tools = all_tools[:max_tools]
+                    remaining_tools = len(all_tools) - max_tools
+
+                    for t in visible_tools:
                         t_desc = t.description or "No description"
                         if getattr(t, 'handler', None):
                             req_params = self._get_required_params_str(t)
@@ -74,6 +81,9 @@ class ManifestPresenter:
                             lines.append(f"    > {t_desc}")
                         else:
                             lines.append(f"  - Landmark: `{t.id}` (Area/Namespace) - {t_desc}")
+                    
+                    if remaining_tools > 0:
+                        lines.append(f"  - (... and {remaining_tools} more tools. Use `inspect_landmark(landmark_id=\"{lm.id}\")` for full signatures.)")
 
                 # Collect technical metadata
                 if show_technical:
@@ -83,6 +93,9 @@ class ManifestPresenter:
                         "parameters": [p.model_dump() for p in getattr(lm, 'parameters', None)] if getattr(lm, 'parameters', None) else [],
                         "returns": getattr(lm, 'returns', 'any')
                     })
+            
+            if remaining_landmarks > 0:
+                lines.append(f"\n- (... and {remaining_landmarks} more landmarks available. Use `get_manifest(landmark_id=\"...\")` with a specific ID to explore other areas.)")
 
         # 4. Technical Discovery Block (Nur für System-Tools)
         if show_technical and discovery_data:

@@ -90,7 +90,7 @@ class GraphQLBridge:
         }
 
     @staticmethod
-    def generate_virtual_manifest(parsed_data: Dict[str, Any]) -> str:
+    def generate_virtual_manifest(parsed_data: Dict[str, Any], limit: int = 15) -> str:
         """Generates a virtual Elemm manifest from GQL schema data."""
         from elemm_gateway.components import ManifestBuilder
         title = parsed_data.get("title", "GraphQL API")
@@ -113,10 +113,14 @@ class GraphQLBridge:
         
         for cat, cat_tools in categories.items():
             lines.append(f"- Landmark: `{cat}` (Namespace) - {cat} operations.")
-            for t in cat_tools[:15]:
+            visible = cat_tools[:limit]
+            remaining = len(cat_tools) - limit
+            
+            for t in visible:
                 lines.append(f"  - Tool: `{t['name']}`")
-            if len(cat_tools) > 15:
-                lines.append(f"  - ... and {len(cat_tools)-15} more.")
+            
+            if remaining > 0:
+                lines.append(f"  - (... and {remaining} more tools. Use `inspect_landmark(landmark_id=\"{cat}\")` for full list)")
                 
         return "\n".join(lines)
 

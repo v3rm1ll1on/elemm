@@ -120,18 +120,30 @@ class SequenceEngine:
                         continue
                 break
 
-            aliases[f"step{i}"] = final_res
-            if alias: aliases[alias] = final_res
+            from elemm_gateway.services.hygiene import ResponseSquisher
+            limit = getattr(self.gateway, "limit_standard", 30000)
+            
+            # 1. Semantic Squish
+            squished_res = ResponseSquisher.smart_truncate(final_res)
+            aliases[f"step{i}"] = squished_res
+            if alias: aliases[alias] = squished_res
 
-            res_str = json.dumps(final_res, indent=2) if not isinstance(final_res, str) else final_res
+            # 2. Stringify for final check
+            res_str = json.dumps(squished_res, indent=2) if not isinstance(squished_res, str) else squished_res
             is_truncated = False
-            if len(res_str) > 5000:
-                res_str = res_str[:4997] + "\n\n(Note: Result truncated...)"
+            
+            # 3. Last resort safety cut
+            if len(res_str) > limit:
+                hint = f"\n\n(Note: Result too large. Truncated to {limit} chars.)"
+                res_str = res_str[:limit - len(hint) - 10] + "..." + hint
                 is_truncated = True
 
             results.append({
-                "step": i, "action": action_id, "alias": alias or f"step{i}",
-                "duration_ms": duration_ms, "result": json.loads(res_str) if not isinstance(final_res, str) and not is_truncated else res_str,
+                "step": i, 
+                "action": action_id, 
+                "alias": alias or f"step{i}",
+                "duration_ms": duration_ms, 
+                "result": squished_res if not is_truncated else res_str,
                 "_truncated": is_truncated
             })
 

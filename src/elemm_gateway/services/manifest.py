@@ -20,15 +20,10 @@ class ManifestBuilder:
         "### PROTOCOL WORKFLOW\n"
         "1. DISCOVER: Call 'get_landmarks' to find functional areas.\n"
         "2. INSPECT: Call 'inspect_landmark' to get technical signatures (REQUIRED before execution).\n"
-        "   - NOTE: You can inspect multiple areas at once: `landmark_id=['area1', 'area2']`.\n"
         "3. EXECUTE: Use 'execute_sequence' (batching) or action names directly.\n\n"
-        "### BATCHING & PIPING\n"
-        "- Use 'execute_sequence' to chain tools: `actions=[{'action': 'A', 'alias': 'res'}, {'action': 'B', 'parameters': {'id': '$res.id'}}]`.\n\n"
         "### OPERATIONAL HYGIENE\n"
-        "- HYGIENE: Use '_select', '_filter', and '_limit' in large requests to prevent context overflow.\n\n"
-        "### CRITICAL RULES\n"
-        "- ANTI-PATTERN: NEVER guess action names or parameter schemas from memory.\n"
-        "- FIDELITY: Signatures vary per site. Only 'inspect_landmark' is ground truth.\n"
+        "- HYGIENE: Use '_select', '_filter', '_limit', and '_offset' to manage context overflow.\n"
+        "- VIRTUAL PAGINATION: If results are truncated, use '_offset' to fetch the next page. This works on BOTH lists and large string content (logs).\n"
     )
 
     PROTOCOL_FULL = (
@@ -36,15 +31,9 @@ class ManifestBuilder:
         "- DISCOVER: Call 'get_landmarks' to find functional areas.\n"
         "- INSPECT: Call 'inspect_landmark' to get technical signatures (REQUIRED before execution).\n"
         "- EXECUTE: Use 'execute_sequence' (batching) or action names directly.\n\n"
-        "### BATCHING EXAMPLE\n"
-        "```json\n"
-        "execute_sequence(actions=[\n"
-        "  {\"action\": \"city:get_logs\", \"alias\": \"logs\", \"parameters\": {\"_limit\": 1}},\n"
-        "  {\"action\": \"city:analyze\", \"parameters\": {\"target\": \"$logs[0].id\"}}\n"
-        "])\n"
-        "```\n\n"
         "### OPERATIONAL HYGIENE\n"
-        "- HYGIENE: Use '_select', '_filter', and '_limit' in EVERY call to prevent context overflow.\n"
+        "- HYGIENE: Use '_select', '_filter', '_limit', and '_offset' in EVERY call to prevent context overflow.\n"
+        "- VIRTUAL PAGINATION: This gateway supports virtual pagination for ALL tools. If a response is truncated, increment '_offset' to see the remaining data.\n"
         "- PIPING: Chain results via '$alias.field' (e.g. '$step0.id') in any parameter.\n"
     )
 

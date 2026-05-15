@@ -189,7 +189,7 @@ class OpenAPIBridge:
         }
 
     @staticmethod
-    def generate_virtual_manifest(parsed_data: Dict[str, Any]) -> str:
+    def generate_virtual_manifest(parsed_data: Dict[str, Any], limit: int = 20) -> str:
         """
         Generates a High-Fidelity Elemm v2 manifest (Gold Standard).
         """
@@ -224,14 +224,17 @@ class OpenAPIBridge:
             lines.append(f"- Landmark: `{tag}` (Area/Namespace) - {desc}")
             
             # Use standard Elemm tool list format so the parser can find them
-            for t in tag_tools[:20]:
+            visible_tools = tag_tools[:limit]
+            remaining = len(tag_tools) - limit
+
+            for t in visible_tools:
                 req_params = t.get("inputSchema", {}).get("required", [])
                 display_params = [p for p in req_params if not p.startswith("_")]
                 hint = f" (Required: {', '.join(display_params)})" if display_params else ""
                 lines.append(f"  - Tool: `{t['name']}`{hint}")
                 
-            if len(tag_tools) > 20:
-                lines.append(f"  - ... and {len(tag_tools) - 20} more. (Use `inspect_landmark('{tag}')` for full list)")
+            if remaining > 0:
+                lines.append(f"  - (... and {remaining} more tools. Use `inspect_landmark(landmark_id=\"{tag}\")` for full list)")
 
         return "\n".join(lines)
 
