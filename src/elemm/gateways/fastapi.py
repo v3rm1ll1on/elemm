@@ -172,6 +172,17 @@ class FastAPIGateway:
             result = await self.manager.call_action(action_id, resolved_params)
             return result
 
+        @self.app.get("/.well-known/elemm/search")
+        async def search_landmarks(query: str, limit: int = None, offset: int = 0, technical: bool = False):
+            """Suche nach Landmarks."""
+            p_kwargs = {"offset": offset, "technical": technical}
+            if limit is not None:
+                if limit < 500: p_kwargs["max_landmarks"] = limit
+                else: p_kwargs["limit"] = limit
+                
+            res_md = self.manager.search_landmarks(query, **p_kwargs)
+            return Response(content=res_md, media_type="text/markdown")
+
         # Technisches Interface via Router
         router = self.get_router()
         app.include_router(router)

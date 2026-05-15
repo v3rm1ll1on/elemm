@@ -136,6 +136,24 @@ class ManifestService:
         
         return ManifestBuilder.inject_globals(res)
 
+    @classmethod
+    async def search_landmarks(cls, url: str, site_data: dict, query: str, limit: int = None, offset: int = 0) -> str:
+        """Durchsucht Landmarks auf dem nativen Server."""
+        async with httpx.AsyncClient() as client:
+            params = {
+                "query": query,
+                "technical": "true",
+                "limit": limit,
+                "offset": offset
+            }
+            try:
+                resp = await client.get(f"{url.rstrip('/')}/.well-known/elemm/search", params=params, timeout=15.0)
+                if resp.status_code == 200:
+                    return resp.text
+                return f"Search failed with status {resp.status_code}: {resp.text}"
+            except Exception as e:
+                return f"Error during search: {str(e)}"
+
     @staticmethod
     async def inspect_landmark(site_url: str, site_data: Dict[str, Any], landmark_ids: List[str], limit: int = 20, offset: int = 0) -> str:
         """Generates technical signatures for specific landmarks."""

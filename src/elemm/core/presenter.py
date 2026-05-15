@@ -120,12 +120,12 @@ class ManifestPresenter:
                 next_offset = offset + max_landmarks
                 lines.append(f"\n- (... and {remaining_landmarks} more items available. **ACTION REQUIRED**: Use `_offset={next_offset}` in your next `inspect_landmark` call to fetch the next page of results.)")
 
-        # 4. Technical Discovery Block (Nur für System-Tools)
-        if show_technical and discovery_data:
-            lines.append("\n---\n### Technical Discovery")
-            lines.append("```json")
-            lines.append(json.dumps(discovery_data, indent=2))
-            lines.append("```")
+        # 4. Technical Discovery Block (Removed in v2 to avoid Context Bloat. Use TS signatures instead.)
+        # if show_technical and discovery_data:
+        #     lines.append("\n---\n### Technical Discovery")
+        #     lines.append("```json")
+        #     lines.append(json.dumps(discovery_data, indent=2))
+        #     lines.append("```")
 
         return "\n".join(lines)
 

@@ -22,8 +22,8 @@ class GatewayToolRegistry:
 
     CORE_TOOL_NAMES = [
         "connect_to_site", "get_manifest", "get_landmarks", 
-        "inspect_landmark", "execute_sequence", "call_action", 
-        "list_aliases", "clear_session"
+        "inspect_landmark", "search_landmarks", "execute_sequence", 
+        "call_action", "list_aliases", "clear_session"
     ]
 
     @staticmethod

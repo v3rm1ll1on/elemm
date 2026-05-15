@@ -30,6 +30,7 @@ class ConfigManager:
         defaults = {
             "limit_standard": 30000,
             "limit_inspect": 20000,
+            "limit_search_items": 10,
             "max_landmarks_per_view": 20,
             "max_tools_per_landmark": 5,
             "timeout_seconds": 30,

@@ -121,6 +121,23 @@ class MCPToolFactory:
             inputSchema={"type": "object", "properties": {}}
         )
 
+    @staticmethod
+    def search_landmarks_tool() -> types.Tool:
+        """Returns the search_landmarks tool definition."""
+        return types.Tool(
+            name="search_landmarks",
+            description="Searches for landmarks and tools by ID or description (regex supported). Use for broad discovery in large registries.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query or regex (e.g. 'energy', '^Nord:.*:water$')"},
+                    "_limit": {"type": "integer", "description": "Maximum number of result items to show (Hygiene)."},
+                    "_offset": {"type": "integer", "description": "Starting index for results (Virtual Pagination)."}
+                },
+                "required": ["query"]
+            }
+        )
+
     @classmethod
     def get_core_tools(cls, with_session: bool = False) -> List[types.Tool]:
         """Returns the set of tools available in every Elemm implementation."""
@@ -130,5 +147,6 @@ class MCPToolFactory:
             cls.execute_sequence_tool(with_session=with_session),
             cls.list_aliases_tool(with_session=with_session),
             cls.get_landmarks_tool(),
-            cls.inspect_landmark_tool()
+            cls.inspect_landmark_tool(),
+            cls.search_landmarks_tool()
         ]

@@ -288,18 +288,57 @@ class AIProtocolManager:
             # Root-Ebene: Zeige alle Landmarks ohne Doppelpunkt (Distrikte/Hauptbereiche)
             all_landmarks = [l for l in self.landmarks.values() if ":" not in l.id]
 
-        if not all_landmarks and landmark_id:
-            return f"# Error: No landmarks found for IDs: {landmark_id}"
-
-        # Context-Hygiene: Header nur zeigen, wenn wir auf Root-Ebene sind (keine spezifische ID)
-        is_root = landmark_id is None
+    def get_manifest(self, landmark_ids: List[str] = None, technical: bool = False, **kwargs) -> str:
+        """Generiert ein Markdown-Manifest für die angeforderten Landmarks."""
+        lms = []
+        if not landmark_ids:
+            # Root discovery: Show only high-level categories
+            lms = [lm for lid, lm in self.landmarks.items() if ":" not in lid]
+        else:
+            for lid in landmark_ids:
+                lm = self.landmarks.get(lid)
+                if lm:
+                    lms.append(lm)
+        
+        # Context-Hygiene: Header nur zeigen, wenn wir auf Root-Ebene sind
+        is_root = landmark_ids is None
         
         return self.presenter.present_manifest(
-            all_landmarks, 
+            lms, 
             instructions=self.instructions if is_root else "",
             welcome_message=self.welcome_message if is_root else "",
-            show_technical=show_technical,
+            show_technical=technical,
             is_root=is_root,
+            **kwargs
+        )
+
+    def search_landmarks(self, query: Union[str, List[str]], technical: bool = False, **kwargs) -> str:
+        """Durchsucht alle Landmarks nach einem oder mehreren Suchbegriffen."""
+        import re
+        queries = [query] if isinstance(query, str) else query
+        
+        patterns = []
+        for q in queries:
+            try:
+                patterns.append(re.compile(q, re.IGNORECASE))
+            except re.error:
+                patterns.append(re.compile(re.escape(q), re.IGNORECASE))
+
+        matches_set = set()
+        matches = []
+        
+        for lid, lm in self.landmarks.items():
+            for pattern in patterns:
+                if pattern.search(lid) or (lm.description and pattern.search(lm.description)):
+                    if lid not in matches_set:
+                        matches_set.add(lid)
+                        matches.append(lm)
+                    break # One match is enough
+        
+        return self.presenter.present_manifest(
+            matches,
+            instructions=f"# SEARCH RESULTS FOR: {queries}",
+            show_technical=technical,
             **kwargs
         )
 

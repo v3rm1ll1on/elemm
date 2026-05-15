@@ -78,6 +78,7 @@ class ElemmGateway:
         # Global Settings
         self.limit_standard = self.config_manager.get("limit_standard", 30000)
         self.limit_inspect = self.config_manager.get("limit_inspect", 20000)
+        self.limit_search_items = self.config_manager.get("limit_search_items", 10)
         
         self._setup_handlers()
 
@@ -237,6 +238,14 @@ class ElemmGateway:
                 return [types.TextContent(type="text", text="Error: Access restricted by security policy.")]
             
             res = await ManifestService.inspect_landmark(url, site_data, allowed_ids, limit=limit or self.limit_inspect, offset=offset)
+            return self._format_result(res)
+
+        if name == "search_landmarks":
+            query = arguments.get("query")
+            limit = arguments.get("_limit")
+            offset = arguments.get("_offset", 0)
+            
+            res = await ManifestService.search_landmarks(url, site_data, query, limit=limit or self.limit_search_items, offset=offset)
             return self._format_result(res)
             
         return [types.TextContent(type="text", text=f"Error: Core tool '{name}' not supported by gateway.")]
