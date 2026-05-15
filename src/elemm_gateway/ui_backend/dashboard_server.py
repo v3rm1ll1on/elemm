@@ -180,6 +180,33 @@ async def inspect_landmark(landmark_id: str, url: str = None, session_id: str = 
         logger.error(f"Landmark inspect failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/v1/search")
+async def search_landmarks(query: str, url: str = None, session_id: str = "default", limit: int = 50, offset: int = 0):
+    """
+    Searches for landmarks across the protocol, utilizing hybrid (remote/local) search.
+    """
+    try:
+        session = GLOBAL_STATE["sessions"].get(session_id)
+        if not url and session:
+            url = session.get("active_url")
+        
+        if not url:
+            raise HTTPException(status_code=400, detail="No active URL found for search.")
+            
+        # We pass the full session data to allow local bridging search if needed
+        site_data = {
+            "type": session.get("site_type", "native") if session else "native",
+            "tools": session.get("tools", []) if session else []
+        }
+        
+        result = await ManifestService.search_landmarks(
+            url, site_data, query, limit=limit, offset=offset, output_format="json"
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/v1/execute")
 async def execute_action(payload: dict):
     """

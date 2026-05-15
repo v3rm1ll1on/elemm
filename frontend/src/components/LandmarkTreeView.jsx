@@ -12,7 +12,7 @@ import {
   BookOpen,
   Link as LinkIcon,
   Plus,
-  Zap,
+  Search,
   Activity
 } from 'lucide-react';
 
@@ -89,7 +89,10 @@ const LandmarkTreeView = ({
   onReload,
   onReset,
   probedLandmarks,
-  onManualConnect
+  onManualConnect,
+  searchQuery,
+  onSearch,
+  searchResults
 }) => {
   const [manualUrl, setManualUrl] = useState('');
 
@@ -174,6 +177,25 @@ const LandmarkTreeView = ({
           </button>
         </form>
 
+        {/* Search Bar */}
+        <div className="search-bar">
+          <div className="search-input-wrapper">
+            <Search size={12} className={`search-icon ${searchQuery ? 'active' : ''}`} />
+            <input 
+              type="text" 
+              className="search-input"
+              placeholder="Search landmarks (Regex)..."
+              value={searchQuery || ''}
+              onChange={(e) => onSearch(e.target.value)}
+            />
+            {searchQuery && (
+              <button className="clear-search" onClick={() => onSearch('')}>
+                <Plus size={14} style={{ transform: 'rotate(45deg)' }} />
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Session Selection */}
         <div className="active-session-card">
           <div className="flex justify-between items-center mb-1">
@@ -197,16 +219,47 @@ const LandmarkTreeView = ({
 
       {/* Tree Content */}
       <div className="tree-scroller custom-scrollbar">
-        <div 
-          className={`tree-node-row ${selectedLandmark === 'instructions' ? 'selected' : ''}`}
-          onClick={() => onSelectLandmark('instructions')}
-        >
-          <div className="chevron-icon invisible"><ChevronRight size={14} /></div>
-          <div className="node-icon rules"><BookOpen size={13} /></div>
-          <span className="node-text bold">Protocol Rules</span>
-        </div>
+        {!searchQuery && (
+          <div 
+            className={`tree-node-row ${selectedLandmark === 'instructions' ? 'selected' : ''}`}
+            onClick={() => onSelectLandmark('instructions')}
+          >
+            <div className="chevron-icon invisible"><ChevronRight size={14} /></div>
+            <div className="node-icon rules"><BookOpen size={13} /></div>
+            <span className="node-text bold">Protocol Rules</span>
+          </div>
+        )}
 
-        {renderNodes(treeData)}
+        {searchQuery ? (
+          <div className="search-results-list">
+            <div className="search-results-header">
+              Search Results ({searchResults?.length || 0})
+            </div>
+            {searchResults && searchResults.length > 0 ? (
+              searchResults.map(lm => (
+                <div 
+                  key={lm.id}
+                  className={`tree-node-row search-result ${selectedLandmark === lm.id ? 'selected' : ''}`}
+                  onClick={() => onSelectLandmark(lm.id)}
+                  style={{ paddingLeft: '12px' }}
+                >
+                  <div className="node-icon tool"><Terminal size={12} /></div>
+                  <div className="search-result-info">
+                    <div className="node-text">{lm.name || lm.id}</div>
+                    <div className="node-description-micro">{lm.description}</div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="empty-search">
+                <Search size={24} className="opacity-10 mb-2" />
+                <span>No landmarks matched your query</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          renderNodes(treeData)
+        )}
       </div>
     </div>
   );

@@ -18,6 +18,50 @@ const ManifestDebugger = () => {
   const [error, setError] = useState(null);
   const [executing, setExecuting] = useState(false);
   const [executionResult, setExecutionResult] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+
+  // --- Search Logic ---
+  const handleSearch = async (query) => {
+    setSearchQuery(query);
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    try {
+      const session = sessions[selectedSession];
+      const url = sniffUrl(session);
+      if (!url) return;
+
+      const resp = await fetch(`http://127.0.0.1:8090/api/v1/search?query=${encodeURIComponent(query)}&session_id=${selectedSession}`);
+      const data = await resp.json();
+      
+      if (data.status === 'success' || data.landmarks) {
+        setSearchResults(data.landmarks || []);
+        
+        // Also merge results into allLandmarks cache to ensure details can be loaded
+        if (data.landmarks) {
+          const newFound = {};
+          data.landmarks.forEach(lm => {
+            newFound[lm.id] = {
+              id: lm.id,
+              description: lm.description || "",
+              isTool: lm.is_tool || lm.isTool || true, // Search results are usually tools
+              parameters: lm.parameters || [],
+              returns: lm.returns || "any"
+            };
+          });
+          setAllLandmarks(prev => ({
+            ...prev,
+            [selectedSession]: { ...(prev[selectedSession] || {}), ...newFound }
+          }));
+        }
+      }
+    } catch (err) {
+      console.error("Search failed:", err);
+    }
+  };
 
   // --- Utilities ---
 
@@ -562,6 +606,9 @@ const ManifestDebugger = () => {
           }}
           onManualConnect={handleManualConnect}
           probedLandmarks={probedLandmarks}
+          searchQuery={searchQuery}
+          onSearch={handleSearch}
+          searchResults={searchResults}
         />
       </div>
 

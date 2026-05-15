@@ -19,7 +19,7 @@ import yaml
 import logging
 import re
 from urllib.parse import urlparse
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 
 from .openapi_bridge import OpenAPIBridge
 from .graphql_bridge import GraphQLBridge
@@ -186,22 +186,52 @@ class ManifestService:
             return {"status": "error", "message": f"Could not find a supported interface at {url}"}
 
     @classmethod
-    async def search_landmarks(cls, url: str, site_data: dict, query: str, limit: int = None, offset: int = 0) -> str:
-        """Durchsucht Landmarks auf dem nativen Server."""
-        async with httpx.AsyncClient() as client:
-            params = {
-                "query": query,
-                "limit": limit,
-                "offset": offset,
-                "format": "markdown"
+    async def search_landmarks(cls, url: str, site_data: dict, query: str, limit: int = 100, offset: int = 0, output_format: str = "markdown") -> Union[str, Dict[str, Any]]:
+        """Durchsucht Landmarks auf dem nativen Server oder in Brücken-Daten."""
+        site_type = site_data.get("type", "native")
+        
+        # 1. Native Search (Remote)
+        if site_type == "native":
+            async with httpx.AsyncClient() as client:
+                params = {
+                    "query": query, "limit": limit, "offset": offset,
+                    "format": "json" if output_format == "json" else "markdown"
+                }
+                try:
+                    resp = await client.get(f"{url.rstrip('/')}/.well-known/elemm/search", params=params, timeout=10.0)
+                    if resp.status_code == 200:
+                        return resp.json() if output_format == "json" else resp.text
+                    return {"status": "error", "message": f"Remote search failed: {resp.status_code}"}
+                except Exception as e:
+                    return {"status": "error", "message": f"Search error: {str(e)}"}
+
+        # 2. Bridge Search (Local in site_data)
+        import re
+        pattern = re.compile(re.escape(query), re.IGNORECASE)
+        tools = site_data.get("tools", [])
+        matches = []
+        for t in tools:
+            name = t.get("name", t.get("id", ""))
+            desc = t.get("description", "")
+            if pattern.search(name) or pattern.search(desc):
+                matches.append(t)
+        
+        # Pagination
+        total = len(matches)
+        paginated = matches[offset : offset + limit]
+        
+        if output_format == "json":
+            return {
+                "status": "success", "type": site_type, 
+                "landmarks": paginated,
+                "pagination": {"total": total, "offset": offset, "limit": limit, "has_more": (offset + limit) < total}
             }
-            try:
-                resp = await client.get(f"{url.rstrip('/')}/.well-known/elemm/search", params=params, timeout=15.0)
-                if resp.status_code == 200:
-                    return resp.text
-                return f"Search failed with status {resp.status_code}: {resp.text}"
-            except Exception as e:
-                return f"Error during search: {str(e)}"
+        
+        # Markdown Fallback for Bridges
+        lines = [f"### SEARCH RESULTS FOR: {query}\n"]
+        for m in paginated:
+            lines.append(f"- **{m.get('name', m.get('id'))}**: {m.get('description', '')}")
+        return "\n".join(lines)
 
     @staticmethod
     async def inspect_landmark(site_url: str, landmark_id: str, vault_manager=None, limit: int = 100, offset: int = 0, output_format: str = "markdown", site_type: str = "native") -> Dict[str, Any]:
