@@ -24,6 +24,7 @@ class ConfigManager:
     """Handles gateway configuration with persistence and sensible defaults."""
     def __init__(self, config_path: str):
         self.config_path = config_path
+        self.last_mtime = 0
         self.config = self.load()
 
     def load(self) -> Dict[str, Any]:
@@ -52,12 +53,14 @@ class ConfigManager:
             try:
                 with open(self.config_path, "w") as f:
                     json.dump(defaults, f, indent=2)
+                self.last_mtime = os.path.getmtime(self.config_path)
                 logger.info(f"Config: Created default configuration at {self.config_path}")
             except Exception as e:
                 logger.warning(f"Config: Could not create default config: {e}")
             return defaults
             
         try:
+            self.last_mtime = os.path.getmtime(self.config_path)
             with open(self.config_path, "r") as f:
                 data = json.load(f)
                 # Ensure all default keys are present (migration support)
@@ -73,6 +76,21 @@ class ConfigManager:
         except Exception as e:
             logger.error(f"Config: Failed to load from {self.config_path}: {e}")
             return defaults
+
+    def reload_if_changed(self) -> bool:
+        """Reloads the configuration if the file has been modified."""
+        if not os.path.exists(self.config_path):
+            return False
+            
+        try:
+            current_mtime = os.path.getmtime(self.config_path)
+            if current_mtime > self.last_mtime:
+                logger.info("Config: File change detected, reloading...")
+                self.config = self.load()
+                return True
+        except Exception as e:
+            logger.debug(f"Config: Periodic mtime check failed: {e}")
+        return False
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.config.get(key, default)

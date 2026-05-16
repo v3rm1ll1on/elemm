@@ -104,6 +104,14 @@ class ElemmGateway:
     async def _handle_call_tool(self, name: str, arguments: dict) -> List[types.TextContent]:
         """Main dispatcher with telemetry and session isolation."""
         try:
+            # On-the-fly config reload
+            if self.config_manager.reload_if_changed():
+                self.security_policy.refresh(self.config_manager.config)
+                # Sync other global settings that might have changed
+                self.limit_standard = self.config_manager.get("limit_standard", 30000)
+                self.limit_inspect = self.config_manager.get("limit_inspect", 20000)
+                self.limit_search_items = self.config_manager.get("limit_search_items", 10)
+
             if arguments is None: arguments = {}
             sid = arguments.get("session_id", self.session_id)
             request_id = str(uuid.uuid4())[:8]
@@ -219,7 +227,19 @@ class ElemmGateway:
 
         if name == "get_manifest":
             self.manifest_loaded = True
-            res_text = ManifestService.inject_globals(site_data["manifest"], full=arguments.get("full", False))
+            # Build a transient manager to filter the manifest before returning it
+            manager = ManifestService._get_transient_manager(site_data)
+            if self.security_policy:
+                manager.landmarks = {
+                    lid: lm for lid, lm in manager.landmarks.items() 
+                    if self.security_policy.is_action_allowed(lid)["allowed"]
+                }
+                manager._rebuild_hierarchy()
+            
+            # Use the filtered manager to generate the manifest string
+            res_text = manager.get_manifest(full=arguments.get("full", False))
+            # Inject globals (instructions, etc.)
+            res_text = ManifestService.inject_globals(res_text, full=arguments.get("full", False))
             return self._format_result(res_text)
         
         if name == "get_landmarks":
@@ -240,7 +260,16 @@ class ElemmGateway:
             limit = arguments.get("_limit")
             
             ids = [lm_id] if isinstance(lm_id, str) else lm_id
-            allowed_ids = [tid for tid in ids if self.security_policy.is_action_allowed(f"{tid}_inspect")["allowed"]]
+            # Security Check for each ID
+            for tid in ids:
+                check = self.security_policy.is_action_allowed(tid)
+                if not check["allowed"]:
+                    return [types.TextContent(type="text", text=json.dumps({
+                        "status": "error",
+                        "_PROTOCOL_ERROR": "ACCESS_DENIED",
+                        "message": f"Security Policy Violation: Access to '{tid}' is restricted."
+                    }, indent=2))]
+
             res = await ManifestService.inspect_landmark(
                 site_url=url, 
                 landmark_id=lm_id, 

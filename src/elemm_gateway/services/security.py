@@ -18,6 +18,10 @@ from typing import Any, Dict, Optional
 class SecurityPolicy:
     """Policy Engine to enforce security restrictions on landmarks and actions."""
     def __init__(self, config: Dict[str, Any]):
+        self.refresh(config)
+
+    def refresh(self, config: Dict[str, Any]):
+        """Updates the policy attributes from the given configuration."""
         self.policy = config.get("security", {})
         self.disallowed_patterns = [p.lower() for p in self.policy.get("disallowed_patterns", [])]
         self.allowed_methods = [m.upper() for m in self.policy.get("allowed_methods", [])]
@@ -45,22 +49,24 @@ class SecurityPolicy:
                     "remedy": f"Only the following methods are permitted: {', '.join(self.allowed_methods)}"
                 }
 
-        # 2. Check Explicit Action Blacklist
-        if action_lower in self.disallowed_actions:
+        # 2. Check Explicit Action Blacklist (Full ID or Short Name)
+        short_action = action_id.split(":", 1)[1].lower() if ":" in action_id else action_lower
+        if action_lower in self.disallowed_actions or short_action in self.disallowed_actions:
             return {
                 "allowed": False,
                 "reason": f"Action '{action_id}' is explicitly blacklisted.",
                 "remedy": "Contact your administrator to request access to this specific endpoint."
             }
 
-        # 3. Check Landmark Blacklist (Colon is primary separator, underscore is fallback)
-        landmark = action_id.split(":", 1)[0] if ":" in action_id else (action_id.split("_", 1)[0] if "_" in action_id else action_id)
-        if landmark.lower() in self.disallowed_landmarks:
-            return {
-                "allowed": False,
-                "reason": f"Landmark area '{landmark}' is restricted.",
-                "remedy": f"Access to the '{landmark}' functional area is disabled in this gateway instance."
-            }
+        # 3. Check Landmark Blacklist (Check every segment in a nested path)
+        segments = [s.lower() for s in action_id.replace("_", ":").split(":")]
+        for segment in segments:
+            if segment in self.disallowed_landmarks:
+                return {
+                    "allowed": False,
+                    "reason": f"Landmark area '{segment}' within path is restricted.",
+                    "remedy": f"Access to the '{segment}' functional area is disabled in this gateway instance."
+                }
 
         # 4. Check Patterns (e.g. 'delete')
         for pattern in self.disallowed_patterns:
