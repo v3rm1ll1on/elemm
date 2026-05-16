@@ -33,6 +33,24 @@ def gateway():
         }
     }
     gw = ElemmGateway()
+    # Reset to standard test defaults so user config overrides don't break tests
+    gw.config_manager.config = {
+        "security": {
+            "disallowed_patterns": [],
+            "disallowed_landmarks": [],
+            "allowed_methods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+            "disallowed_actions": [],
+            "allowed_landmarks": [],
+            "allowed_actions": [],
+            "custom_remedies": {},
+            "enforce_whitelist": False,
+            "prevent_key_leakage": True
+        },
+        "limit_standard": 30000,
+        "limit_inspect": 20000,
+        "max_landmarks_per_view": 20
+    }
+    gw.security_policy.refresh(gw.config_manager.config)
     gw.vault_manager.load = lambda: mock_vault # Direct override on component
     gw.vault_manager.vault = mock_vault
     gw.manifest_loaded = True # Authorize for tests

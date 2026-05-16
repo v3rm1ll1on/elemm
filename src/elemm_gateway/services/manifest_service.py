@@ -75,10 +75,13 @@ class ManifestService:
         manager = ManifestService._get_transient_manager(site_data)
         
         if security_policy:
-            # Filter landmarks based on security policy
+            # Filter landmarks based on security policy, including method checks
             manager.landmarks = {
                 lid: lm for lid, lm in manager.landmarks.items() 
-                if security_policy.is_action_allowed(lid)["allowed"]
+                if security_policy.is_action_allowed(
+                    lid, 
+                    method=lm.meta.get("method") if hasattr(lm, "meta") and isinstance(lm.meta, dict) else (lm.get("meta", {}).get("method") if isinstance(lm, dict) else None)
+                )["allowed"]
             }
             # Rebuild hierarchy to ensure tools lists are also filtered
             manager._rebuild_hierarchy()
