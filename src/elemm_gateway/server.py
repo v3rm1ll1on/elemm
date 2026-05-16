@@ -158,6 +158,13 @@ class ElemmGateway:
 
             duration_ms = int((time.perf_counter() - start_time) * 1000)
             
+            # --- GLOBAL KEY FILTER ---
+            # Scrub API keys from all responses before sending to agent
+            if self.config_manager.get("security", {}).get("prevent_key_leakage", True):
+                for item in res:
+                    if hasattr(item, 'text') and isinstance(item.text, str):
+                        item.text = self._redact_secrets(item.text)
+            
             # Post-Execution Reporting
             output_text = res[0].text if (res and hasattr(res[0], 'text')) else str(res)
             self.monitor.report_activity(
@@ -174,6 +181,23 @@ class ElemmGateway:
         except Exception as fatal_err:
             logger.critical(f"FATAL GATEWAY ERROR: {fatal_err}")
             return [types.TextContent(type="text", text=f"Critical Gateway Error: {str(fatal_err)}")]
+
+    def _redact_secrets(self, text: str) -> str:
+        """Globally scrubs known API keys from vault to prevent leakage to agents."""
+        if not text or not self.vault_manager.vault: return text
+        try:
+            for host, data in self.vault_manager.vault.items():
+                if isinstance(data, str) and len(data) > 6:
+                    text = text.replace(data, "[REDACTED_API_KEY]")
+                elif isinstance(data, dict):
+                    for k, v in data.items():
+                        # Redact ANY string in the vault that looks like a secret (length > 6)
+                        # We don't filter by key name anymore since 'value' is often used.
+                        if isinstance(v, str) and len(v) > 6:
+                            text = text.replace(v, f"[REDACTED_API_KEY]")
+        except Exception as e:
+            logger.error(f"Error during secret redaction: {e}")
+        return text
 
     def _format_result(self, raw_res):
         """Markdown-friendly formatting with semantic squishing."""
@@ -320,9 +344,16 @@ class ElemmGateway:
                 else:
                     method = getattr(tool_data, 'meta', {}).get("method")
 
-        check = self.security_policy.is_action_allowed(tool_name, method=method)
+        check = self.security_policy.is_action_allowed(tool_name, method=method, arguments=arguments)
         if not check["allowed"]:
-            return json.dumps({"status": "error", "_PROTOCOL_ERROR": "ACCESS_DENIED", "message": check["reason"]}, indent=2)
+            res_obj = {
+                "status": "error",
+                "_PROTOCOL_ERROR": "ACCESS_DENIED",
+                "message": check["reason"]
+            }
+            if "remedy" in check:
+                res_obj["remedy"] = check["remedy"]
+            return json.dumps(res_obj, indent=2)
 
         if not self.manifest_loaded and tool_name not in ["connect_to_site", "get_manifest", "clear_session"]:
             return json.dumps({"status": "error", "_PROTOCOL_ERROR": "PROTOCOL_VIOLATION", "message": "Call 'get_manifest' first."}, indent=2)

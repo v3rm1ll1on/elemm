@@ -90,62 +90,6 @@ const Settings = () => {
       </div>
       
       <div className="settings-grid">
-        {/* Security Section */}
-        <div className="settings-card glass">
-          <div className="card-header">
-            <Shield size={20} className="text-accent" />
-            <h3>Security Governance</h3>
-          </div>
-          <div className="card-body">
-            <div className="form-group">
-              <label>Disallowed Patterns <Tooltip text="Python RegEx or simple strings." /></label>
-              <textarea 
-                value={config.security.disallowed_patterns.join(', ')} 
-                onChange={(e) => handleArrayChange('security.disallowed_patterns', e.target.value)}
-                placeholder="e.g. delete, update, [0-9]{16}"
-              />
-            </div>
-            <div className="form-group">
-              <label>Disallowed Landmarks <Tooltip text="Functional areas to block completely." /></label>
-              <textarea 
-                value={config.security.disallowed_landmarks.join(', ')} 
-                onChange={(e) => handleArrayChange('security.disallowed_landmarks', e.target.value)}
-                placeholder="e.g. banking, admin"
-              />
-            </div>
-            <div className="form-group">
-              <label>Disallowed Actions <Tooltip text="Specific tool IDs to blacklist." /></label>
-              <textarea 
-                value={(config.security.disallowed_actions || []).join(', ')} 
-                onChange={(e) => handleArrayChange('security.disallowed_actions', e.target.value)}
-                placeholder="e.g. vault:get_master_key"
-              />
-            </div>
-            <div className="form-group">
-              <label>Allowed HTTP Methods <Tooltip text="Restrict outgoing API requests to these specific HTTP methods." /></label>
-              <div className="switch-group">
-                {['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(method => (
-                  <div key={method} className="switch-item">
-                    <span className="method-name">{method}</span>
-                    <label className="switch">
-                      <input 
-                        type="checkbox" 
-                        checked={(config.security.allowed_methods || []).includes(method)} 
-                        onChange={(e) => {
-                          const current = config.security.allowed_methods || [];
-                          const next = e.target.checked ? [...current, method] : current.filter(m => m !== method);
-                          updateNested('security.allowed_methods', next);
-                        }}
-                      />
-                      <span className="slider round"></span>
-                    </label>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Resource Limits */}
         <div className="settings-card glass">
           <div className="card-header">

@@ -6,6 +6,7 @@ import ObservabilityConsole from './components/ObservabilityConsole';
 import CallHistory from './components/CallHistory';
 import { Activity, Shield, Cpu, Zap } from 'lucide-react';
 import Settings from './components/Settings';
+import Security from './components/Security';
 import Vault from './components/Vault';
 import ManifestDebugger from './components/ManifestDebugger';
 import './App.css';
@@ -202,6 +203,12 @@ function App() {
         return (
           <div className="premium-page-container animate-slide-up" style={{ padding: '32px' }}>
             <Settings />
+          </div>
+        );
+      case 'security':
+        return (
+          <div className="premium-page-container animate-slide-up" style={{ padding: '32px' }}>
+            <Security />
           </div>
         );
       default:

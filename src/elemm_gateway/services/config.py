@@ -38,6 +38,7 @@ class ConfigManager:
             "retry_attempts": 3,
             "retry_delay_ms": 1000,
             "security": {
+                "prevent_key_leakage": True,
                 "disallowed_patterns": ["delete", "remove", "purge", "destroy"],
                 "allowed_methods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
                 "disallowed_landmarks": [],

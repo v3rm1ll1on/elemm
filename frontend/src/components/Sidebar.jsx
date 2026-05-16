@@ -6,6 +6,7 @@ import {
   History, 
   Settings, 
   Activity,
+  Shield,
   ChevronRight
 } from 'lucide-react';
 import './Sidebar.css';
@@ -28,6 +29,7 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
   const menuItems = [
     { id: 'dashboard', icon: <LayoutDashboard size={20} />, label: 'Dashboard' },
     { id: 'manifest', icon: <Search size={20} />, label: 'Manifest Debugger' },
+    { id: 'security', icon: <Shield size={20} />, label: 'Security' },
     { id: 'vault', icon: <Key size={20} />, label: 'Vault / Auth' },
     { id: 'history', icon: <History size={20} />, label: 'Call History' },
     { id: 'tokens', icon: <Activity size={20} />, label: 'Token Analysis' },

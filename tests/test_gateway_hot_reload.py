@@ -191,9 +191,117 @@ async def test_hot_reload_short_action_blocking(temp_config):
     # 2. Try to call 'Geo:get_secret'
     res = await gw._execute_single("Geo:get_secret", {})
     
-    # 3. Must be blocked because the short name matches
+    # 3. Must be blocked because it's blacklisted
     assert "ACCESS_DENIED" in res
-    assert "explicitly blacklisted" in res
+    assert "is explicitly blacklisted" in res
+
+@pytest.mark.asyncio
+async def test_security_regex_patterns(temp_config):
+    """Verify that regex patterns work for action blocking."""
+    gw = ElemmGateway()
+    gw.config_manager.config_path = temp_config
+    gw.config_manager.last_mtime = 0
+    gw.config_manager.config = gw.config_manager.load()
+    gw.security_policy.refresh(gw.config_manager.config)
+    gw.manifest_loaded = True
+    gw.active_site_url = "https://test-api.com"
+    
+    # 1. Block anything starting with 'private_' using regex
+    time.sleep(0.1)
+    with open(temp_config, "w") as f:
+        json.dump({"security": {"disallowed_patterns": [r"re:.*private_.*"]}}, f)
+    
+    await gw._handle_call_tool("call_action", {"action": "some_tool", "parameters": {}})
+    
+    # 2. Check blocking
+    assert "ACCESS_DENIED" in await gw._execute_single("private_data", {})
+    assert "ACCESS_DENIED" not in await gw._execute_single("public_data", {})
+    assert "ACCESS_DENIED" in await gw._execute_single("Service:private_tool", {})
+
+@pytest.mark.asyncio
+async def test_security_argument_inspection(temp_config):
+    """Verify that patterns are also checked within tool arguments."""
+    gw = ElemmGateway()
+    gw.config_manager.config_path = temp_config
+    gw.config_manager.last_mtime = 0
+    gw.config_manager.config = gw.config_manager.load()
+    gw.security_policy.refresh(gw.config_manager.config)
+    gw.manifest_loaded = True
+    gw.active_site_url = "https://test-api.com"
+    
+    # 1. Block the pattern 'rm -rf'
+    time.sleep(0.1)
+    with open(temp_config, "w") as f:
+        json.dump({"security": {"disallowed_patterns": ["rm -rf"]}}, f)
+    
+    await gw._handle_call_tool("call_action", {"action": "some_tool", "parameters": {}})
+    
+    # 2. Call a safe tool but with dangerous arguments
+    res = await gw._execute_single("Filesystem:write", {"path": "/tmp/test", "content": "rm -rf /"})
+    
+    # 3. Must be blocked due to argument inspection
+    assert "ACCESS_DENIED" in res
+    assert "Argument value contains restricted pattern" in res
+
+@pytest.mark.asyncio
+async def test_security_whitelist_mode(temp_config):
+    """Verify that whitelist mode (Zero Trust) works correctly."""
+    gw = ElemmGateway()
+    gw.config_manager.config_path = temp_config
+    gw.config_manager.last_mtime = 0
+    gw.config_manager.config = gw.config_manager.load()
+    gw.security_policy.refresh(gw.config_manager.config)
+    gw.manifest_loaded = True
+    gw.active_site_url = "https://test-api.com"
+    
+    # 1. Enable Whitelist mode and only allow 'Public' landmark
+    time.sleep(0.1)
+    with open(temp_config, "w") as f:
+        json.dump({
+            "security": {
+                "enforce_whitelist": True,
+                "allowed_landmarks": ["Public"]
+            }
+        }, f)
+    
+    await gw._handle_call_tool("call_action", {"action": "some_tool", "parameters": {}})
+    
+    # 2. 'Public' should work, 'Private' should be blocked
+    assert "ACCESS_DENIED" not in await gw._execute_single("Public:info", {})
+    assert "ACCESS_DENIED" in await gw._execute_single("Private:secret", {})
+    assert "is not in the whitelist" in await gw._execute_single("Private:secret", {})
+
+@pytest.mark.asyncio
+async def test_security_custom_remedies(temp_config):
+    """Verify that custom remediation messages are returned."""
+    gw = ElemmGateway()
+    gw.config_manager.config_path = temp_config
+    gw.config_manager.last_mtime = 0
+    gw.config_manager.config = gw.config_manager.load()
+    gw.security_policy.refresh(gw.config_manager.config)
+    gw.manifest_loaded = True
+    gw.active_site_url = "https://test-api.com"
+    
+    # 1. Add a custom remedy for a pattern
+    time.sleep(0.1)
+    with open(temp_config, "w") as f:
+        json.dump({
+            "security": {
+                "disallowed_patterns": ["secret_token"],
+                "custom_remedies": {
+                    "secret_token": "Call Team Red at ext 555 for token access."
+                }
+            }
+        }, f)
+    
+    await gw._handle_call_tool("call_action", {"action": "some_tool", "parameters": {}})
+    
+    # 2. Trigger the pattern
+    res = await gw._execute_single("Vault:get_secret_token", {})
+    
+    # 3. Check for custom remedy
+    assert "ACCESS_DENIED" in res
+    assert "Call Team Red at ext 555" in res
 
 @pytest.mark.asyncio
 async def test_hot_reload_nested_landmark_blocking(temp_config):
