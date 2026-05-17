@@ -278,7 +278,9 @@ class ElemmGateway:
 
         if name == "call_action":
             action = arguments.get("action")
-            params = arguments.get("parameters", {})
+            params = arguments.get("parameters", {}).copy()
+            for key in ["toolAction", "toolSummary", "waitForPreviousTools", "session_id"]:
+                params.pop(key, None)
             raw_res = await self._execute_single(action, params, session_id=sid)
             return self._format_result(raw_res)
 

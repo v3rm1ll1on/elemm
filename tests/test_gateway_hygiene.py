@@ -174,3 +174,58 @@ async def test_sequencer_reports_truncation(gateway, monkeypatch):
         assert "_elemm_info" in res_content
     else:
         assert "_elemm_info" in res_content[-1]
+
+def test_response_squisher_nested_list_merging():
+    """Verify that multiple nested selections on list items are merged correctly without overwriting."""
+    data = {
+        "countries": [
+            {"id": "AD", "name": "Andorra", "population": 77000},
+            {"id": "AL", "name": "Albania", "population": 2800000}
+        ]
+    }
+    
+    # Selecting multiple nested list fields
+    res, truncated, total = ResponseSquisher.squish(data, select="countries.name,countries.id")
+    
+    assert "countries" in res
+    assert len(res["countries"]) == 2
+    assert res["countries"][0] == {"id": "AD", "name": "Andorra"}
+    assert res["countries"][1] == {"id": "AL", "name": "Albania"}
+
+def test_response_squisher_space_separated():
+    """Verify that space-separated _select strings (common in GraphQL agents) are supported."""
+    data = {
+        "id": "DE",
+        "name": "Germany",
+        "capital": "Berlin",
+        "currency": "EUR"
+    }
+    
+    # Space-separated
+    res, truncated, total = ResponseSquisher.squish(data, select="name capital currency")
+    assert res == {"name": "Germany", "capital": "Berlin", "currency": "EUR"}
+
+def test_response_squisher_gql_selection_parsing():
+    """Verify that nested GraphQL curly braces syntax is parsed and squished correctly."""
+    data = {
+        "id": 1,
+        "name": "Rick",
+        "status": "Alive",
+        "origin": {
+            "name": "Earth",
+            "url": "https://earth.url"
+        }
+    }
+    
+    # GraphQL braces nested selection
+    res, truncated, total = ResponseSquisher.squish(data, select="id name origin { name }")
+    assert res == {
+        "id": 1,
+        "name": "Rick",
+        "origin": {
+            "name": "Earth"
+        }
+    }
+
+
+

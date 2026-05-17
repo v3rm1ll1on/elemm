@@ -44,19 +44,7 @@ class GraphQLBridge:
                 name
                 ofType { 
                   kind name 
-                  ofType { 
-                    kind name 
-                    ofType { 
-                      kind name 
-                      ofType { 
-                        kind name 
-                        ofType { 
-                          kind name 
-                          ofType { kind name } 
-                        }
-                      }
-                    }
-                  } 
+                  ofType { kind name }
                 }
               }
             }
@@ -65,19 +53,7 @@ class GraphQLBridge:
               name
               ofType { 
                 kind name 
-                ofType { 
-                  kind name 
-                  ofType { 
-                    kind name 
-                    ofType { 
-                      kind name 
-                      ofType { 
-                        kind name 
-                        ofType { kind name } 
-                      }
-                    }
-                  } 
-                }
+                ofType { kind name }
               }
             }
           }
@@ -147,18 +123,18 @@ class GraphQLBridge:
         landmarks = []
         for field in type_obj.get("fields", []):
             name = field["name"]
-            description = field.get("description", f"{category} operation: {name}")
+            description = field.get("description") or f"{category} operation: {name}"
             
             # Map Arguments to Parameter Models
             params_list = []
             for arg in field.get("args", []):
                 arg_name = arg["name"]
-                arg_type_info = GraphQLBridge._get_type_info(arg["type"])
+                arg_type_info = GraphQLBridge._get_type_info(arg["type"], arg_name)
                 
                 params_list.append(Parameter(
                     name=arg_name,
                     type=arg_type_info["json_type"],
-                    description=arg.get("description", ""),
+                    description=arg.get("description") or "",
                     required=arg_type_info["is_required"],
                     meta={"gql_type": arg_type_info.get("gql_type")}
                 ))
@@ -179,26 +155,25 @@ class GraphQLBridge:
         return landmarks
 
     @staticmethod
-    def _get_type_info(type_obj: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def _get_type_info(type_obj: Optional[Dict[str, Any]], field_name: str = "") -> Dict[str, Any]:
         """Recursive helper to extract type information."""
         if not type_obj:
-            return {"json_type": "string", "is_required": False, "gql_type": ""}
+            fallback_type = "ID" if ("id" in field_name.lower()) else "String"
+            return {"json_type": "string", "is_required": False, "gql_type": fallback_type}
             
         kind = type_obj.get("kind")
         name = type_obj.get("name")
         
         if kind == "NON_NULL":
-            inner = GraphQLBridge._get_type_info(type_obj.get("ofType"))
+            inner = GraphQLBridge._get_type_info(type_obj.get("ofType"), field_name)
             if inner.get("gql_type") is not None:
                 inner["gql_type"] = f"{inner['gql_type']}!"
             inner["is_required"] = True
             return inner
             
         if kind == "LIST":
-            inner = GraphQLBridge._get_type_info(type_obj.get("ofType"))
-            # is_required aus dem inneren Typ propagieren, damit der äußere NON_NULL-Wrapper
-            # (falls vorhanden) korrekt das '!' anhängen kann — z.B. [ID!]! statt [ID!]
-            g_inner = inner.get("gql_type") or "String"
+            inner = GraphQLBridge._get_type_info(type_obj.get("ofType"), field_name)
+            g_inner = inner.get("gql_type") or ("ID" if ("id" in field_name.lower()) else "String")
             return {
                 "json_type": "array",
                 "is_required": inner.get("is_required", False),
@@ -214,9 +189,13 @@ class GraphQLBridge:
             "ID": "string"
         }
         
+        gql_type = name
+        if not gql_type:
+            gql_type = "ID" if ("id" in field_name.lower()) else "String"
+            
         return {
-            "json_type": mapping.get(name, "object" if kind == "INPUT_OBJECT" else "string"),
-            "gql_type": name,
+            "json_type": mapping.get(gql_type, "object" if kind == "INPUT_OBJECT" else "string"),
+            "gql_type": gql_type,
             "is_required": False
         }
 

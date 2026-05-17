@@ -119,10 +119,40 @@ def test_selection_set_builder():
     assert "info { name, status }" in sel
     assert "id" in sel
 
+def test_graphql_bridge_type_fallback():
+    """Verify that deep nesting of types like [ID!]! that get truncated to [!]! are parsed using smart leaf fallback."""
+    # Truncated representation of [ID!]! where inner SCALAR is None due to depth limitation
+    truncated_type = {
+        "kind": "NON_NULL",
+        "name": None,
+        "ofType": {
+            "kind": "LIST",
+            "name": None,
+            "ofType": {
+                "kind": "NON_NULL",
+                "name": None,
+                "ofType": None # Truncated!
+            }
+        }
+    }
+    
+    # Passing field name "ids" to trigger "ID" fallback
+    info_ids = GraphQLBridge._get_type_info(truncated_type, "ids")
+    assert info_ids["gql_type"] == "[ID!]!"
+    assert info_ids["json_type"] == "array"
+    assert info_ids["is_required"] is True
+    
+    # Passing field name "names" to trigger "String" fallback
+    info_names = GraphQLBridge._get_type_info(truncated_type, "names")
+    assert info_names["gql_type"] == "[String!]!"
+    assert info_names["json_type"] == "array"
+    assert info_names["is_required"] is True
+
 if __name__ == "__main__":
     # Manual run support
     test_graphql_bridge_parsing()
-    print("Bridge parsing test passed!")
+    test_graphql_bridge_type_fallback()
+    print("Bridge parsing tests passed!")
     
     executor = GraphQLExecutor(None)
     print(f"Selection set: {executor._build_selection_set('id, info.name')}")

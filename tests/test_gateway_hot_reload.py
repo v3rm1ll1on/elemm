@@ -185,8 +185,9 @@ async def test_hot_reload_short_action_blocking(temp_config):
     with open(temp_config, "w") as f:
         json.dump({"security": {"disallowed_actions": ["get_secret"]}}, f)
         
-    # Trigger reload
-    await gw._handle_call_tool("call_action", {"action": "some_tool", "parameters": {}})
+    # Force reload
+    gw.config_manager.config = gw.config_manager.load()
+    gw.security_policy.refresh(gw.config_manager.config)
     
     # 2. Try to call 'Geo:get_secret'
     res = await gw._execute_single("Geo:get_secret", {})

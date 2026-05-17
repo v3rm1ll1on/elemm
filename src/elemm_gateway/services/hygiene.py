@@ -18,6 +18,35 @@ from typing import Any, Dict, List, Optional
 class ResponseSquisher:
     """Handles context hygiene by filtering JSON responses."""
     @staticmethod
+    def parse_gql_selection(s: str) -> List[str]:
+        """Parses a GraphQL/Elemm selection string, expanding nested brace constructs into dot-notation."""
+        s = s.replace("{", " { ").replace("}", " } ").replace(",", " ")
+        tokens = s.split()
+        results = []
+        
+        def parse(tokens_iter, prefix=""):
+            last_field = None
+            for t in tokens_iter:
+                if t == "{":
+                    if last_field:
+                        full_last = f"{prefix}.{last_field}" if prefix else last_field
+                        if full_last in results:
+                            results.remove(full_last)
+                        sub_prefix = full_last
+                        parse(tokens_iter, sub_prefix)
+                    else:
+                        parse(tokens_iter, prefix)
+                elif t == "}":
+                    return
+                else:
+                    last_field = t
+                    full_field = f"{prefix}.{t}" if prefix else t
+                    results.append(full_field)
+
+        parse(iter(tokens))
+        return results
+
+    @staticmethod
     def squish(data: Any, select: Optional[Any] = None, filter_str: Optional[Any] = None, limit: Optional[int] = None, offset: Optional[int] = None) -> tuple[Any, bool, int]:
         """
         Filters and paginates data. Returns (squished_data, was_truncated, total_count).
@@ -50,12 +79,12 @@ class ResponseSquisher:
         
         # 3. Select fields (nested)
         if select:
+            fields = []
             if isinstance(select, str):
-                fields = [f.strip() for f in select.split(",")]
+                fields = ResponseSquisher.parse_gql_selection(select)
             elif isinstance(select, list):
-                fields = [str(f).strip() for f in select]
-            else:
-                fields = []
+                for item in select:
+                    fields.extend(ResponseSquisher.parse_gql_selection(str(item)))
                 
             if fields:
                 if isinstance(data, list):
@@ -120,12 +149,26 @@ class ResponseSquisher:
                 if parts[0] in obj:
                     nested_val = ResponseSquisher._pick_fields(obj[parts[0]], [parts[1]])
                     if parts[0] not in res:
-                        res[parts[0]] = {}
-                    
-                    if isinstance(res[parts[0]], dict) and isinstance(nested_val, dict):
-                        res[parts[0]].update(nested_val)
-                    else:
                         res[parts[0]] = nested_val
+                    else:
+                        res[parts[0]] = ResponseSquisher._merge_objects(res[parts[0]], nested_val)
             elif f in obj:
-                res[f] = obj[f]
+                if f in res:
+                    res[f] = ResponseSquisher._merge_objects(res[f], obj[f])
+                else:
+                    res[f] = obj[f]
         return res
+
+    @staticmethod
+    def _merge_objects(old: Any, new: Any) -> Any:
+        if isinstance(old, dict) and isinstance(new, dict):
+            merged = old.copy()
+            for k, v in new.items():
+                if k in merged:
+                    merged[k] = ResponseSquisher._merge_objects(merged[k], v)
+                else:
+                    merged[k] = v
+            return merged
+        if isinstance(old, list) and isinstance(new, list) and len(old) == len(new):
+            return [ResponseSquisher._merge_objects(o, n) for o, n in zip(old, new)]
+        return new

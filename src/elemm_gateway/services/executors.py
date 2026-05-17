@@ -123,6 +123,11 @@ class GraphQLExecutor:
                         target = field_match.group(1) if field_match else "the field"
                         remedy = f"Field '{target}' is an object/interface. You MUST specify sub-fields in '_select' using dot-notation (e.g. '{target}.id' or '{target}.name')."
                         protocol_error = "NESTING_REQUIRED"
+                    elif 'Cannot query field "id"' in error_msg:
+                        type_match = re.search(r'on type "(.*?)"', error_msg)
+                        t_name = type_match.group(1) if type_match else "this type"
+                        remedy = f"Type '{t_name}' does not have an 'id' field. You MUST specify valid fields in '_select' (e.g. '_select': 'code,name')."
+                        protocol_error = "SELECTION_REQUIRED"
                     elif "Variable" in error_msg and "expecting type" in error_msg:
                         remedy = f"Type mismatch in variables. Expected GQL type not found or inferred incorrectly. Tool has {len(tool_data.get('parameters', []))} params defined."
                         protocol_error = "TYPE_MISMATCH"
@@ -154,7 +159,8 @@ class GraphQLExecutor:
             return f"Error executing GraphQL call: {str(e)}"
 
     def _build_selection_set(self, select: str) -> str:
-        fields = [f.strip() for f in select.split(",")]
+        from elemm_gateway.services.hygiene import ResponseSquisher
+        fields = ResponseSquisher.parse_gql_selection(select)
         root = {}
         for f in fields:
             parts = f.split(".")

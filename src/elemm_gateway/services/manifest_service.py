@@ -97,76 +97,122 @@ class ManifestService:
 
     @staticmethod
     async def inspect_url(url: str, landmark_id: Optional[str] = None, vault_manager=None, limit: int = 5000, output_format: str = "markdown") -> Dict[str, Any]:
-        """Probes a URL for various Elemm interfaces and returns data in requested format."""
-        
+        """Probes a URL for various Elemm interfaces with maximum precision."""
+        url = url.strip().rstrip("/")
         headers = {"User-Agent": "ElemmGateway/1.0 (Autonomous Agent)"}
         if vault_manager:
-            vault_headers = vault_manager.get_headers(url)
-            headers.update(vault_headers)
+            headers.update(vault_manager.get_headers(url))
 
-        async with httpx.AsyncClient(headers=headers) as client:
-            # 1. PRIORITY: Check for Native Elemm (Only if NOT a direct spec file)
-            is_spec_file = any(url.lower().endswith(ext) for ext in [".json", ".yaml", ".yml"])
-            
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
+            # --- 1. PRIORITY: TRY NATIVE ELEMM PROTOCOL ---
             try:
-                if not is_spec_file:
-                    inspect_url = f"{url.rstrip('/')}/.well-known/elemm-manifest.md"
-                    params = {"technical": "true", "limit": limit, "full": "true"}
-                    if landmark_id: params["landmark_id"] = landmark_id
-                    if output_format == "json": params["format"] = "json"
-                    
-                    resp = await client.get(inspect_url, params=params, follow_redirects=True, timeout=5.0)
-                    if resp.status_code == 200:
-                        # HEURISTIC: Prevent HTML error pages from being treated as manifests
-                        body_sample = resp.text[:500].lower()
-                        if "<html" in body_sample or "<!doctype" in body_sample:
-                            logger.debug(f"Native probe at {inspect_url} returned HTML, skipping.")
-                        else:
-                            if output_format == "json":
-                                return {"status": "success", "type": "native", "data": resp.json()}
-                            return {"status": "success", "type": "native", "manifest": resp.text}
+                inspect_url = f"{url}/.well-known/elemm-manifest.md"
+                params = {"technical": "true", "limit": limit, "full": "true"}
+                if landmark_id: params["landmark_id"] = landmark_id
+                if output_format == "json": params["format"] = "json"
+                
+                resp = await client.get(inspect_url, params=params, timeout=5.0)
+                if resp.status_code == 200:
+                    body_sample = resp.text[:500].lower()
+                    if not ("<html" in body_sample or "<!doctype" in body_sample):
+                        if output_format == "json":
+                            return {"status": "success", "type": "native", "data": resp.json()}
+                        return {"status": "success", "type": "native", "manifest": resp.text}
             except: pass
 
-            # 2. Check for GraphQL
+            # --- 2. PROBE THE EXACT USER-PROVIDED URL DIRECTLY ---
+            # A. Test if the exact URL is a GraphQL Endpoint (using lightweight query)
             try:
-                gql_url = url if url.rstrip('/').endswith('/graphql') else f"{url.rstrip('/')}/graphql"
-                probe_resp = await client.post(gql_url, json={"query": GraphQLBridge.INTROSPECTION_QUERY}, timeout=8.0)
-                if probe_resp.status_code == 200 and "data" in probe_resp.json():
-                    schema_data = probe_resp.json().get("data")
-                    parsed = GraphQLBridge.parse_schema(schema_data, gql_url)
-                    site_data = {
-                        "landmarks": parsed.get("landmarks", []), 
-                        "tools": parsed.get("tools", []),
-                        "title": f"GraphQL: {gql_url}"
-                    }
-                    manager = ManifestService._get_transient_manager(site_data)
-                    
-                    return {
-                        "status": "success", "type": "graphql", "url": gql_url, 
-                        "manifest": manager.get_manifest(landmark_ids=landmark_id, limit=limit), 
-                        "data": ManifestService.normalize_bridge_to_elemm(site_data),
-                        "landmarks": parsed.get("landmarks", []),
-                        "tools": parsed.get("tools", [])
-                    }
-            except Exception: pass
-
-            # 3. Check for OpenAPI
-            try:
-                spec_urls = [f"{url.rstrip('/')}{p}" for p in ["/openapi.json", "/swagger.json", "/api-docs"]]
-                if is_spec_file:
-                    spec_urls.insert(0, url)
-                
-                for spec_url in spec_urls:
+                probe_resp = await client.post(url, json={"query": "query { __typename }"}, timeout=5.0)
+                if probe_resp.status_code == 200:
                     try:
-                        resp = await client.get(spec_url, timeout=5.0)
-                        if resp.status_code == 200:
-                            # Verify it's actually JSON/YAML and not an HTML error page
-                            content_sample = resp.text[:500].lower()
-                            if "<html" in content_sample or "<!doctype" in content_sample:
-                                continue
+                        probe_json = probe_resp.json()
+                        if isinstance(probe_json, dict) and ("data" in probe_json or "errors" in probe_json):
+                            # YES! 100% GraphQL Endpoint! Now do the full introspection:
+                            full_resp = await client.post(url, json={"query": GraphQLBridge.INTROSPECTION_QUERY}, timeout=10.0)
+                            schema_data = full_resp.json().get("data")
+                            parsed = GraphQLBridge.parse_schema(schema_data, url)
+                            site_data = {
+                                "landmarks": parsed.get("landmarks", []), 
+                                "tools": parsed.get("tools", []),
+                                "title": f"GraphQL: {url}"
+                            }
+                            manager = ManifestService._get_transient_manager(site_data)
+                            return {
+                                "status": "success", "type": "graphql", "url": url, 
+                                "manifest": manager.get_manifest(landmark_ids=landmark_id, limit=limit), 
+                                "data": ManifestService.normalize_bridge_to_elemm(site_data),
+                                "landmarks": parsed.get("landmarks", []),
+                                "tools": parsed.get("tools", [])
+                            }
+                    except: pass
+            except: pass
 
+            # B. Test if the exact URL is an OpenAPI Spec (JSON or YAML)
+            try:
+                resp = await client.get(url, timeout=5.0)
+                if resp.status_code == 200:
+                    content_sample = resp.text[:500].lower()
+                    if not ("<html" in content_sample or "<!doctype" in content_sample):
+                        spec = None
+                        try: spec = resp.json()
+                        except:
+                            try: spec = yaml.safe_load(resp.text)
+                            except: pass
+                        
+                        if isinstance(spec, dict) and (spec.get("openapi") or spec.get("swagger")):
+                            # YES! 100% OpenAPI spec file!
+                            parsed = OpenAPIBridge.parse_spec(spec, url)
+                            manager = ManifestService._get_transient_manager(parsed)
+                            return {
+                                "status": "success", "type": "openapi", "url": url, 
+                                "manifest": manager.get_manifest(landmark_ids=landmark_id, limit=limit), 
+                                "data": ManifestService.normalize_bridge_to_elemm(parsed),
+                                "landmarks": parsed.get("landmarks", []),
+                                "tools": parsed.get("tools", [])
+                            }
+            except: pass
+
+            # --- 3. PATH SCANNING FALLBACKS (GraphQL /graphql) ---
+            try:
+                if not url.endswith("/graphql"):
+                    gql_url = f"{url}/graphql"
+                    probe_resp = await client.post(gql_url, json={"query": "query { __typename }"}, timeout=5.0)
+                    if probe_resp.status_code == 200:
+                        probe_json = probe_resp.json()
+                        if isinstance(probe_json, dict) and ("data" in probe_json or "errors" in probe_json):
+                            full_resp = await client.post(gql_url, json={"query": GraphQLBridge.INTROSPECTION_QUERY}, timeout=10.0)
+                            schema_data = full_resp.json().get("data")
+                            parsed = GraphQLBridge.parse_schema(schema_data, gql_url)
+                            site_data = {
+                                "landmarks": parsed.get("landmarks", []), 
+                                "tools": parsed.get("tools", []),
+                                "title": f"GraphQL: {gql_url}"
+                            }
+                            manager = ManifestService._get_transient_manager(site_data)
+                            return {
+                                "status": "success", "type": "graphql", "url": gql_url, 
+                                "manifest": manager.get_manifest(landmark_ids=landmark_id, limit=limit), 
+                                "data": ManifestService.normalize_bridge_to_elemm(site_data),
+                                "landmarks": parsed.get("landmarks", []),
+                                "tools": parsed.get("tools", [])
+                            }
+            except: pass
+
+            # --- 4. PATH SCANNING FALLBACKS (OpenAPI standard endpoints) ---
+            spec_paths = ["/openapi.json", "/swagger.json", "/api-docs"]
+            for path in spec_paths:
+                spec_url = f"{url}{path}"
+                try:
+                    resp = await client.get(spec_url, timeout=5.0)
+                    if resp.status_code == 200:
+                        content_sample = resp.text[:500].lower()
+                        if not ("<html" in content_sample or "<!doctype" in content_sample):
+                            spec = None
                             try: spec = resp.json()
-                            except: spec = yaml.safe_load(resp.text)
+                            except:
+                                try: spec = yaml.safe_load(resp.text)
+                                except: pass
                             
                             if isinstance(spec, dict) and (spec.get("openapi") or spec.get("swagger")):
                                 parsed = OpenAPIBridge.parse_spec(spec, url)
@@ -178,8 +224,7 @@ class ManifestService:
                                     "landmarks": parsed.get("landmarks", []),
                                     "tools": parsed.get("tools", [])
                                 }
-                    except Exception: continue
-            except Exception: pass
+                except: pass
 
             return {"status": "error", "message": f"Could not find a supported interface at {url}"}
 
