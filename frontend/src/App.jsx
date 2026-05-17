@@ -193,7 +193,7 @@ function App() {
         );
       case 'vault':
         return (
-          <div className="premium-page-container animate-slide-up" style={{ padding: '32px' }}>
+          <div className="premium-page-container animate-slide-up custom-scrollbar" style={{ padding: '32px', overflowY: 'auto' }}>
             <Vault />
           </div>
         );
@@ -201,13 +201,13 @@ function App() {
         return <ManifestDebugger />;
       case 'settings':
         return (
-          <div className="premium-page-container animate-slide-up" style={{ padding: '32px' }}>
+          <div className="premium-page-container animate-slide-up custom-scrollbar" style={{ padding: '32px', overflowY: 'auto' }}>
             <Settings />
           </div>
         );
       case 'security':
         return (
-          <div className="premium-page-container animate-slide-up" style={{ padding: '32px' }}>
+          <div className="premium-page-container animate-slide-up custom-scrollbar" style={{ padding: '32px', overflowY: 'auto' }}>
             <Security />
           </div>
         );

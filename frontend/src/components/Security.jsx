@@ -346,7 +346,7 @@ const Security = () => {
 
           {/* Quick Add Remedy */}
           <div className="remedy-quick-add-form">
-            <h4>Configure New Guidance</h4>
+            <h4><Plus size={16} className="text-accent" /> Configure New Guidance</h4>
             <div className="quick-add-row">
               <input 
                 type="text" 
