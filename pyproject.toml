@@ -48,3 +48,6 @@ elemm-gateway = "elemm_gateway.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 exclude = ["examples*", "tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

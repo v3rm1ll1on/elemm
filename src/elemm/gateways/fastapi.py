@@ -90,7 +90,7 @@ class FastAPIGateway:
         @self.app.get("/.well-known/elemm-inspect.md", tags=["discovery"], include_in_schema=False)
         async def well_known_manifest(
             response: Response, 
-            landmark_id: Optional[str] = Query(None),
+            landmark_id: Optional[Union[List[str], str]] = Query(None),
             full: bool = False,
             technical: bool = False,
             output_format: str = Query("markdown", alias="format"),
@@ -108,11 +108,11 @@ class FastAPIGateway:
             
             # Wenn landmark_id übergeben wird, zeigen wir Details (FOCUS)
             if landmark_id:
-                # Wir konvertieren zu Liste und splitten Kommas
-                if isinstance(landmark_id, str):
-                    query_ids = [id.strip().lower() for id in landmark_id.split(",")]
-                else:
-                    query_ids = [id.lower() for id in landmark_id]
+                query_ids = []
+                raw_ids = [landmark_id] if isinstance(landmark_id, str) else landmark_id
+                for r_id in raw_ids:
+                    for part in r_id.split(","):
+                        query_ids.append(part.strip().lower())
                 
                 # Case-insensitive Lookup: Resolve to original stored IDs
                 lms_to_query = []

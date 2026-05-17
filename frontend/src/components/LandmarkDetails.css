@@ -35,7 +35,7 @@
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 16px;
   margin-bottom: 32px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .section-header {
@@ -45,6 +45,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
 }
 
 .section-title {
@@ -197,8 +199,8 @@
 .execution-result {
   margin-top: 20px;
   font-size: 12px;
-  max-height: 400px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .execution-success-box {

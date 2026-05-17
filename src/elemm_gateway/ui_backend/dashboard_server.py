@@ -18,6 +18,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"
 from elemm_gateway.services.manifest_service import ManifestService
 from elemm_gateway.components import VaultManager
 from elemm_gateway import __version__
+from elemm.core.schema import SignatureGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,8 @@ async def inspect_site(url: str, landmark_id: str = None, session_id: str = "def
             return result
         else:
             raise HTTPException(status_code=400, detail=result["message"])
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Inspect failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -166,10 +169,15 @@ async def inspect_landmark(landmark_id: str, url: str = None, session_id: str = 
                 else:
                     frontend_tool = tool
 
-                # If it's a bridge, we might want to add a signature hint
+                # Generate or sync signature
                 res = {"status": "success", "type": site_type, "data": frontend_tool}
-                if site_type != "native" and not frontend_tool.get("signature"):
-                     res["signature"] = f"// {site_type.upper()} Tool: {landmark_id}\n// Parameters mapped to Elemm JSON."
+                if site_type == "native":
+                    try:
+                        res["signature"] = SignatureGenerator.to_typescript_signature(frontend_tool)
+                    except Exception as e:
+                        logger.warning(f"Failed to generate signature for native tool {landmark_id}: {e}")
+                elif site_type != "native" and not frontend_tool.get("signature"):
+                    res["signature"] = f"// {site_type.upper()} Tool: {landmark_id}\n// Parameters mapped to Elemm JSON."
                 return res
 
         # 2. Fallback to ManifestService (For Native or if cache is cold)
@@ -179,7 +187,16 @@ async def inspect_landmark(landmark_id: str, url: str = None, session_id: str = 
         result = await ManifestService.inspect_landmark(
             url, landmark_id, vault_manager=vault_manager, output_format="json", site_type=site_type
         )
+        if isinstance(result, dict) and result.get("status") == "success":
+            data = result.get("data")
+            if data and site_type == "native" and not result.get("signature"):
+                try:
+                    result["signature"] = SignatureGenerator.to_typescript_signature(data)
+                except Exception as e:
+                    logger.warning(f"Failed to generate fallback signature for native tool {landmark_id}: {e}")
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Landmark inspect failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -207,6 +224,8 @@ async def search_landmarks(query: str, url: str = None, session_id: str = "defau
             url, site_data, query, limit=limit, offset=offset, output_format="json"
         )
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Search failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

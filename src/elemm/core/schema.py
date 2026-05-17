@@ -6,6 +6,7 @@
 # (at your option) any later version.
 
 from typing import Any, Dict, List, Optional, Union
+from .models import Parameter
 
 class SchemaResolver:
     """
@@ -83,19 +84,29 @@ class SignatureGenerator:
             # Handle Response Schema if available
             schema = getattr(tool, 'response_schema', None)
         else:
-            name = tool.get("name", "unknown_action")
+            name = tool.get("name") or tool.get("id") or "unknown_action"
             description = tool.get("description", "No description")
             input_schema = tool.get("inputSchema", {})
             required = input_schema.get("required", [])
             props = input_schema.get("properties", {})
             params_list = []
-            for p_name, p_info in props.items():
-                params_list.append(Parameter(
-                    name=p_name,
-                    type=p_info.get("type", "string"),
-                    description=p_info.get("description", ""),
-                    required=p_name in required
-                ))
+            
+            if "parameters" in tool and isinstance(tool["parameters"], list):
+                for p in tool["parameters"]:
+                    params_list.append(Parameter(
+                        name=p.get("name", ""),
+                        type=p.get("type", "string"),
+                        description=p.get("description", ""),
+                        required=p.get("required", False)
+                    ))
+            else:
+                for p_name, p_info in props.items():
+                    params_list.append(Parameter(
+                        name=p_name,
+                        type=p_info.get("type", "string"),
+                        description=p_info.get("description", ""),
+                        required=p_name in required
+                    ))
             returns = tool.get("returns", "any")
             schema = tool.get("outputSchema")
         

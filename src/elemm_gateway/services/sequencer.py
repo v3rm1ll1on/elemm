@@ -78,6 +78,15 @@ class SequenceEngine(CoreSequenceEngine):
         
         for i, step in enumerate(actions):
             action_id = step.get("action")
+            if not action_id:
+                error_res = {"status": "error", "message": "Missing 'action' field in step."}
+                results.append({"step": i, "action": None, "alias": step.get("alias") or f"step{i}", "result": error_res})
+                continue
+                
+            norm_action_id = action_id
+            if action_id.startswith("elemm-gateway:"):
+                norm_action_id = action_id[len("elemm-gateway:"):]
+                
             params = step.get("parameters", {})
             # Hygiene params can be sibling to 'parameters' in the action dict
             for hp in ["_select", "_filter", "_limit", "_offset"]:
@@ -109,13 +118,16 @@ class SequenceEngine(CoreSequenceEngine):
             while attempt <= retries:
                 attempt_start = time.perf_counter()
                 try:
-                    if action_id.startswith("elemm:"):
-                        result_val = await self.gateway._execute_single(action_id, resolved_params, session_id=session_id)
-                    elif action_id in ["get_manifest", "get_landmarks", "inspect_landmark", "search_landmarks", "list_aliases", "clear_session"]:
-                        tool_results = await self.gateway._proxy_core_tool(action_id, resolved_params, session_id=session_id)
+                    if norm_action_id.startswith("elemm:"):
+                        result_val = await self.gateway._execute_single(norm_action_id, resolved_params, session_id=session_id)
+                    elif norm_action_id in ["get_manifest", "get_landmarks", "inspect_landmark", "search_landmarks", "list_aliases", "clear_session"]:
+                        # Convert 'landmark' to 'landmark_id' for inspect_landmark if they used the alias
+                        if norm_action_id == "inspect_landmark" and "landmark" in resolved_params and "landmark_id" not in resolved_params:
+                            resolved_params["landmark_id"] = resolved_params["landmark"]
+                        tool_results = await self.gateway._proxy_core_tool(norm_action_id, resolved_params, session_id=session_id)
                         result_val = tool_results[0].text
                     else:
-                        result_val = await self.gateway._execute_single(action_id, resolved_params, session_id=session_id)
+                        result_val = await self.gateway._execute_single(norm_action_id, resolved_params, session_id=session_id)
                 except Exception as e:
                     result_val = json.dumps({"status": "error", "message": f"Internal Execution Error: {str(e)}"})
 

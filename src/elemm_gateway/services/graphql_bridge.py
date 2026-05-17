@@ -81,12 +81,12 @@ class GraphQLBridge:
         # Process Queries
         query_type = types.get(query_type_name)
         if query_type:
-            landmarks.extend(GraphQLBridge._process_fields(query_type, "Query", url))
+            landmarks.extend(GraphQLBridge._process_fields(query_type, "Query", url, types))
             
         # Process Mutations
         mutation_type = types.get(mutation_type_name)
         if mutation_type:
-            landmarks.extend(GraphQLBridge._process_fields(mutation_type, "Mutation", url))
+            landmarks.extend(GraphQLBridge._process_fields(mutation_type, "Mutation", url, types))
             
         # Convert to dicts for backward compatibility with tests and services
         dict_landmarks = []
@@ -119,7 +119,8 @@ class GraphQLBridge:
         }
 
     @staticmethod
-    def _process_fields(type_obj: Dict[str, Any], category: str, url: str) -> List[Landmark]:
+    def _process_fields(type_obj: Dict[str, Any], category: str, url: str, types: Dict[str, Any] = None) -> List[Landmark]:
+        import re
         landmarks = []
         for field in type_obj.get("fields", []):
             name = field["name"]
@@ -139,11 +140,34 @@ class GraphQLBridge:
                     meta={"gql_type": arg_type_info.get("gql_type")}
                 ))
 
+            ret_info = GraphQLBridge._get_type_info(field.get("type"), name)
+            gql_type_raw = ret_info.get("gql_type", "")
+            base_type_name = re.sub(r'[^a-zA-Z0-9_]', '', gql_type_raw)
+
+            response_schema = None
+            if types and base_type_name in types:
+                target_type = types[base_type_name]
+                if target_type.get("kind") == "OBJECT":
+                    properties = {}
+                    for f in target_type.get("fields", []) or []:
+                        f_name = f["name"]
+                        f_type_info = GraphQLBridge._get_type_info(f["type"], f_name)
+                        properties[f_name] = {
+                            "type": f_type_info["json_type"],
+                            "description": f.get("description") or ""
+                        }
+                    response_schema = {
+                        "type": "object",
+                        "properties": properties
+                    }
+
             # Create Official Landmark
             landmarks.append(Landmark(
                 id=f"{category}:{name}",
                 description=description,
                 parameters=params_list,
+                returns=ret_info.get("gql_type") or "any",
+                response_schema=response_schema,
                 type="action",
                 meta={
                     "type": "graphql",

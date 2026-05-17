@@ -52,7 +52,7 @@ class SecurityPolicy:
         Checks: Whitelist -> Blacklist -> Patterns -> Argument Inspection.
         """
         # Exempt Core Tools from Security Checks
-        if action_id.startswith("elemm:") or action_id in ["connect_to_site", "get_manifest", "get_landmarks", "inspect_landmark", "list_aliases", "clear_session"]:
+        if action_id.startswith("elemm:") or action_id in ["connect_to_site", "get_manifest", "get_landmarks", "inspect_landmark", "list_aliases", "clear_session", "_elemm-help", "_elemm_help"]:
             return {"allowed": True}
 
         action_lower = action_id.lower()
@@ -236,7 +236,7 @@ class SecurityPolicy:
                 if not check["allowed"]:
                     return check
 
-        elif tool_name not in ["connect_to_site", "list_aliases", "clear_session", "get_landmarks"]:
+        elif tool_name not in ["connect_to_site", "list_aliases", "clear_session", "get_landmarks", "_elemm-help", "_elemm_help"]:
             # Direkter API-Aufruf (nicht-Core Tools)
             check = self.is_action_allowed(tool_name, method=method, arguments=arguments)
             if not check["allowed"]:

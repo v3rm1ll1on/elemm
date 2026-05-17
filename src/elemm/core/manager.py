@@ -115,7 +115,7 @@ class AIProtocolManager:
                     lm.returns = returns
                     lm.remedy = remedy
                     lm.instructions = instructions
-                    lm.type = "action"
+                    lm.type = "action" if func else "navigation"
                     
                     # Set extra fields (excluding already handled ones)
                     skip_keys = {"description", "parameters", "returns", "response_schema", "remedy", "instructions"}
@@ -412,11 +412,14 @@ class AIProtocolManager:
                 # for JSON and hierarchical rendering for Markdown.
                 all_landmarks.append(landmark)
         else:
-            if full:
-                # Wenn 'full' angefordert wird, zeigen wir ALLES (Flache Liste aller Ebenen)
+            # Smart Scale Protection: Falls die Anzahl der Landmarks extrem hoch ist,
+            # verhindern wir ein blindes Flachklopfen, da dies das Budget/Limit sprengt
+            # und andere Regionen abschneidet.
+            if full and len(self.landmarks) < 1000:
+                # Wenn 'full' angefordert wird und das System klein ist, zeigen wir alles
                 all_landmarks = list(self.landmarks.values())
             else:
-                # Root-Ebene: Zeige alle Landmarks ohne Doppelpunkt (Distrikte/Hauptbereiche)
+                # Root-Ebene: Zeige alle Landmarks ohne Doppelpunkt (Hauptbereiche/Regionen)
                 all_landmarks = [l for l in self.landmarks.values() if ":" not in l.id]
 
         # Context-Hygiene: Header nur zeigen, wenn wir auf Root-Ebene sind

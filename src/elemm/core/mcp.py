@@ -73,7 +73,7 @@ class MCPToolFactory:
 
         return types.Tool(
             name="execute_sequence",
-            description="Batch execute tools. Piping: Use '$step0.field' or '$step0[0].field'. IMPORTANT: $stepN is ephemeral and relative to this call. Use 'alias' in a step to persist data globally (e.g. alias: 'my_data'). Do NOT use '.result' in paths.",
+            description="Batch execute tools. Piping: Use '$step0.field' or '$step0[0].field'. IMPORTANT: $stepN is ephemeral and relative to this call. Use 'alias' in a step to persist data globally. Failures are isolated per step — other steps continue unless 'on_error': 'stop' is set. Safe to use even when step success is uncertain.",
             inputSchema={
                 "type": "object",
                 "properties": props
@@ -126,7 +126,7 @@ class MCPToolFactory:
         """Returns the search_landmarks tool definition."""
         return types.Tool(
             name="search_landmarks",
-            description="Searches for landmarks and tools by functional area. Supports Python REGEX. Use the pipe operator '|' for multiple terms (e.g. 'finance|bank'). DO NOT use natural language or 'OR' keywords.",
+            description="Global Python REGEX search over all landmarks and individual actions. Use the pipe operator '|' for multiple terms (e.g. 'noc|energy'). Returns executable actions directly. Bypass structural navigation to prevent context bloat. DO NOT use natural language or 'OR' keywords.",
             inputSchema={
                 "type": "object",
                 "properties": {

@@ -204,11 +204,14 @@ class OpenAPIExecutor:
         
         missing = [f for f in required_fields if f not in arguments and f not in vault_provided]
         if missing:
+            schema = tool_data.get("inputSchema", {}).get("properties", {})
+            repair = SmartRepairEngine.handle_invalid_params(tool_data.get("name"), missing, schema)
             return json.dumps({
                 "status": "error",
                 "_PROTOCOL_ERROR": "VALIDATION_FAILED",
-                "message": f"Local Validation Failed: Missing required parameters {missing}",
-                "remedy": f"The tool '{tool_data.get('name')}' requires these fields: {required_fields}. Check technical signatures with 'elemm:inspect_landmark'.",
+                "message": repair.message,
+                "remedy": f"The tool '{tool_data.get('name')}' requires these fields: {required_fields}. Check technical signatures with 'inspect_landmark'.",
+                "example": f"call_action(action='{tool_data.get('name')}', parameters={ {p: 'VALUE' for p in missing} })"
             }, indent=2)
 
         full_url = f"{base_url}{path}"

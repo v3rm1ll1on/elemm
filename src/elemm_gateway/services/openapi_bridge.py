@@ -139,11 +139,14 @@ class OpenAPIBridge:
                     output_schema = SchemaResolver.resolve(output_schema, spec)
 
                 # Create Official Landmark
+                ret_type = "any"
+                if isinstance(output_schema, dict) and output_schema:
+                    ret_type = SignatureGenerator._schema_to_ts_type(output_schema)
                 landmarks.append(Landmark(
                     id=landmark_id,
                     description=description,
                     parameters=params_list,
-                    returns=output_schema.get("type", "any") if isinstance(output_schema, dict) else "any",
+                    returns=ret_type,
                     response_schema=output_schema,
                     type="action",
                     meta={

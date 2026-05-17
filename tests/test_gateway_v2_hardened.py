@@ -188,3 +188,51 @@ async def test_landmark_discovery_grouping(gateway):
         summary = res[0].text
         
         assert "- **A**:" in summary
+
+@pytest.mark.asyncio
+async def test_sequencer_local_tool_alias_and_normalization(gateway):
+    """Verify that execute_sequence normalizes gateway prefix and maps 'landmark' alias."""
+    target_url = "https://api.grouped.com/openapi.json"
+    with respx.mock:
+        respx.get(target_url).respond(status_code=200, json={
+            "openapi": "3.0.0",
+            "paths": {
+                "/a": {"get": {"tags": ["A"], "operationId": "one"}}
+            }
+        })
+        await gateway._connect(target_url)
+        gateway.manifest_loaded = True
+
+        # Call inspect_landmark with elemm-gateway prefix and 'landmark' parameter inside sequence
+        actions = [{
+            "action": "elemm-gateway:inspect_landmark",
+            "parameters": {
+                "landmark": "A"
+            }
+        }]
+        res = await gateway._handle_execute_sequence(actions)
+        results = json.loads(res[0].text)
+        assert results[0]["result"] is not None
+        assert "A" in json.dumps(results[0]["result"])
+
+@pytest.mark.asyncio
+async def test_core_tool_parameter_validation_errors(gateway):
+    """Verify that inspect_landmark and search_landmarks return descriptive errors if arguments are missing."""
+    target_url = "https://api.grouped.com/openapi.json"
+    with respx.mock:
+        respx.get(target_url).respond(status_code=200, json={
+            "openapi": "3.0.0",
+            "paths": {
+                "/a": {"get": {"tags": ["A"], "operationId": "one"}}
+            }
+        })
+        await gateway._connect(target_url)
+        gateway.manifest_loaded = True
+
+        # Calling inspect_landmark without landmark_id / landmark
+        res = await gateway._proxy_core_tool("inspect_landmark", {})
+        assert "Error: 'landmark_id' (or 'landmark') parameter is required" in res[0].text
+
+        # Calling search_landmarks without query
+        res = await gateway._proxy_core_tool("search_landmarks", {})
+        assert "Error: 'query' parameter is required" in res[0].text

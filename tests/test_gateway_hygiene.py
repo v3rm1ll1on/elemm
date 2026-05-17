@@ -228,4 +228,27 @@ def test_response_squisher_gql_selection_parsing():
     }
 
 
+@pytest.mark.asyncio
+async def test_elemm_help_onboarding_interception(gateway):
+    """Verify that calling _elemm-help or _elemm_help directly returns the onboarding help JSON structure."""
+    res_str = await gateway._execute_single("_elemm-help", {})
+    res = json.loads(res_str)
+    
+    assert res["status"] == "success"
+    assert "onboarding" in res
+    assert "Quick Examples" in res["onboarding"]
+    assert "Discovery & Navigation" in res["onboarding"]
+    assert "1. Search Landmarks & Tools" in res["onboarding"]["Discovery & Navigation"]
+    assert "2. Inspect Specific Landmark" in res["onboarding"]["Discovery & Navigation"]
+    assert "When to use call_action vs execute_sequence" in res["onboarding"]
+    
+    # Check that '_elemm_help' alias works exactly the same
+    res_str2 = await gateway._execute_single("_elemm_help", {})
+    res2 = json.loads(res_str2)
+    assert res2["status"] == "success"
+    assert "onboarding" in res2
+    assert "Discovery & Navigation" in res2["onboarding"]
+
+
+
 

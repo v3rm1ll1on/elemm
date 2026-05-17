@@ -325,7 +325,9 @@ class ElemmGateway:
             return self._format_result(raw_res)
 
         if name == "inspect_landmark":
-            lm_id = arguments.get("landmark_id")
+            lm_id = arguments.get("landmark_id") or arguments.get("landmark")
+            if not lm_id:
+                return [types.TextContent(type="text", text="Error: 'landmark_id' (or 'landmark') parameter is required for inspect_landmark. Check your spelling (e.g. 'landmark_id' vs 'landmark').")]
             offset = arguments.get("_offset", 0)
             limit = arguments.get("_limit")
             
@@ -342,6 +344,8 @@ class ElemmGateway:
 
         if name == "search_landmarks":
             query = arguments.get("query")
+            if not query:
+                return [types.TextContent(type="text", text="Error: 'query' parameter is required for search_landmarks.")]
             limit = arguments.get("_limit")
             offset = arguments.get("_offset", 0)
             
@@ -418,6 +422,68 @@ class ElemmGateway:
 
     async def _execute_single(self, tool_name: str, arguments: Dict, session_id: str = "default") -> str:
         """Universal dispatcher for tool execution (Native/OpenAPI/GraphQL)."""
+        if tool_name in ["_elemm-help", "_elemm_help"]:
+            help_data = {
+                "status": "success",
+                "message": "Welcome to the Elemm Onboarding System!",
+                "onboarding": {
+                    "Quick Examples": {
+                        "1. Parallel Independent Actions (Isolating Failures)": {
+                            "description": "Failures are isolated per step. Steps are safe to use even if success is uncertain.",
+                            "example": {
+                                "action": "execute_sequence",
+                                "arguments": {
+                                    "actions": [
+                                        {"action": "city:status_summary", "on_error": "continue"},
+                                        {"action": "non_existent_tool_to_demonstrate_isolation", "on_error": "continue"}
+                                    ]
+                                }
+                            }
+                        },
+                        "2. Sequential Piping (Data Flow)": {
+                            "description": "Pipe results from a step into the next using the '$stepN.field' syntax.",
+                            "example": {
+                                "action": "execute_sequence",
+                                "arguments": {
+                                    "actions": [
+                                        {"action": "city:status_summary", "alias": "summary"},
+                                        {"action": "city:get_security_logs", "parameters": {"since_timestamp": "$summary.timestamp"}}
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "Discovery & Navigation": {
+                        "1. Search Landmarks & Tools": {
+                            "description": "Quickly locate specific tools/landmarks using Python REGEX patterns. Use the pipe operator '|' for multiple terms.",
+                            "example": {
+                                "action": "search_landmarks",
+                                "arguments": {
+                                    "query": "energy|water",
+                                    "_limit": 10
+                                }
+                            }
+                        },
+                        "2. Inspect Specific Landmark": {
+                            "description": "Fetch technical TypeScript signatures and details for a specific region/district. Paginates using '_offset' if too large.",
+                            "example": {
+                                "action": "inspect_landmark",
+                                "arguments": {
+                                    "landmark_id": "suedost",
+                                    "_limit": 25,
+                                    "_offset": 0
+                                }
+                            }
+                        }
+                    },
+                    "When to use call_action vs execute_sequence": {
+                        "call_action": "Ideal for a single, isolated, exploratory command.",
+                        "execute_sequence": "ALWAYS prefer execute_sequence for multiple independent or sequential operations. It batches execution, minimizes agent turns, is extremely performant, and isolates errors dynamically."
+                    }
+                }
+            }
+            return json.dumps(help_data, indent=2)
+
         site_data = self.connected_sites.get(self.active_site_url) if self.active_site_url else None
         
         # Determine method for security check
@@ -446,11 +512,23 @@ class ElemmGateway:
                 res_obj["remedy"] = check["remedy"]
             return json.dumps(res_obj, indent=2)
 
-        if not self.manifest_loaded and tool_name not in ["connect_to_site", "get_manifest", "clear_session"]:
-            return json.dumps({"status": "error", "_PROTOCOL_ERROR": "PROTOCOL_VIOLATION", "message": "Call 'get_manifest' first."}, indent=2)
-
         if not self.active_site_url and tool_name != "connect_to_site":
-            return "Error: Gateway not connected to a remote site."
+            return json.dumps({
+                "status": "error",
+                "_PROTOCOL_ERROR": "DISCONNECTED",
+                "message": "Gateway not connected to a remote site.",
+                "remedy": "You must connect to an Elemm-compliant website, OpenAPI, or GraphQL API first.",
+                "example": "connect_to_site(url='https://api.example.com/openapi.json')"
+            }, indent=2)
+
+        if not self.manifest_loaded and tool_name not in ["connect_to_site", "get_manifest", "clear_session"]:
+            return json.dumps({
+                "status": "error",
+                "_PROTOCOL_ERROR": "PROTOCOL_VIOLATION",
+                "message": "Call 'get_manifest' first.",
+                "remedy": "You must discover the manifest before executing tools. Please call 'get_manifest' or 'get_landmarks' first.",
+                "example": "call_action(action='get_manifest')"
+            }, indent=2)
 
         # Handle internal tool calls routed via execute_single
         if tool_name in GatewayToolRegistry.CORE_TOOL_NAMES:
@@ -487,7 +565,17 @@ class ElemmGateway:
                         "message": f"STRUCTURAL ERROR: Landmark Namespace Call Detected. You called '{tool_name}', but that is a functional area (Landmark), not an executable tool.",
                         "remedy": f"Check technical signatures with 'inspect_landmark(landmark_id=\"{tool_name}\")'. Available tools in this area: {potential_tools[:5]}"
                     }, indent=2)
-                return f"Error: Tool '{tool_name}' not found."
+                
+                # Fetch fuzzy matches via SmartRepairEngine
+                available_ids = [getattr(t, 'id', t.get('name', '')) if not isinstance(t, dict) else t.get('name', '') for t in landmarks]
+                from elemm.core.repair import SmartRepairEngine
+                repair = SmartRepairEngine.handle_missing_action(tool_name, available_ids)
+                return json.dumps({
+                    "status": "error",
+                    "_PROTOCOL_ERROR": "NOT_FOUND",
+                    "message": repair.message,
+                    "remedy": repair.remedy
+                }, indent=2)
             
             # Convert Landmark object to dict for executors if needed
             if not isinstance(tool_data, dict):
@@ -529,7 +617,12 @@ class ElemmGateway:
 
                 return json.dumps(data, indent=2)
         except Exception as e:
-            return f"Gateway Connection Error: {str(e)}"
+            return json.dumps({
+                "status": "error",
+                "_PROTOCOL_ERROR": "CONNECTION_FAILED",
+                "message": f"Gateway Connection Error: {str(e)}",
+                "remedy": "Ensure the target API is online and the URL is correct. If the endpoint requires authentication, verify your credentials in ~/.elemm/vault.json."
+            }, indent=2)
 
     async def _connect(self, url: str, session_id: str = "default") -> List[types.TextContent]:
         """Delegates connection probing to ManifestService."""

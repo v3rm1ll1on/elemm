@@ -99,6 +99,8 @@ class ManifestService:
     async def fetch_native_manifest(url: str, params: Optional[Dict[str, Any]] = None, vault_manager=None) -> str:
         """Fetches the raw native manifest file from a URL with proper headers and parameters."""
         url = url.strip().rstrip("/")
+        if url.endswith("/.well-known/elemm-manifest.md"):
+            url = url[:-len("/.well-known/elemm-manifest.md")]
         if vault_manager:
             headers = vault_manager.get_headers(url)
         else:
@@ -114,6 +116,8 @@ class ManifestService:
     async def inspect_url(url: str, landmark_id: Optional[str] = None, vault_manager=None, limit: int = 5000, output_format: str = "markdown") -> Dict[str, Any]:
         """Probes a URL for various Elemm interfaces with maximum precision."""
         url = url.strip().rstrip("/")
+        if url.endswith("/.well-known/elemm-manifest.md"):
+            url = url[:-len("/.well-known/elemm-manifest.md")]
         if vault_manager:
             headers = vault_manager.get_headers(url)
         else:
@@ -250,9 +254,12 @@ class ManifestService:
         site_type = site_data.get("type", "native")
         
         if site_type == "native":
+            url = url.strip().rstrip("/")
+            if url.endswith("/.well-known/elemm-manifest.md"):
+                url = url[:-len("/.well-known/elemm-manifest.md")]
             async with httpx.AsyncClient() as client:
                 params = {"query": query, "limit": limit, "offset": offset, "format": "json" if output_format == "json" else "markdown"}
-                resp = await client.get(f"{url.rstrip('/')}/.well-known/elemm/search", params=params, timeout=10.0)
+                resp = await client.get(f"{url}/.well-known/elemm/search", params=params, timeout=10.0)
                 return resp.json() if output_format == "json" else resp.text
 
         # Bridge Search via Transient Manager
@@ -265,9 +272,12 @@ class ManifestService:
         """Technische Einsicht via Core-Manager."""
         
         if site_type == "native":
+            url = site_url.strip().rstrip("/")
+            if url.endswith("/.well-known/elemm-manifest.md"):
+                url = url[:-len("/.well-known/elemm-manifest.md")]
             async with httpx.AsyncClient() as client:
                 params = {"landmark_id": landmark_id, "technical": "true", "format": "json" if output_format == "json" else "markdown"}
-                resp = await client.get(f"{site_url.rstrip('/')}/.well-known/elemm-manifest.md", params=params)
+                resp = await client.get(f"{url}/.well-known/elemm-manifest.md", params=params)
                 if output_format == "json":
                     return {"status": "success", "type": "native", "data": resp.json()}
                 return {"status": "success", "type": "native", "manifest": resp.text}

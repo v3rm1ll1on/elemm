@@ -91,3 +91,47 @@ def test_fastapi_limit_interpretation():
     assert "limit" in args
     assert args["limit"] == 20000
     assert "max_landmarks" not in args
+
+
+def test_presenter_summary_and_single_landmark_inspection():
+    """Verify the summary metrics footer, description refinement, and single landmark inspect override."""
+    presenter = ManifestPresenter()
+    
+    # 1. Create a parent with 30 child tools (above the 25 threshold)
+    landmark_id = "Zentrum:Sector_042:energy"
+    tools = []
+    for i in range(30):
+        t = Landmark(
+            id=f"{landmark_id}:tool_{i}",
+            description=f"Tool number {i}",
+            handler=lambda x: x
+        )
+        tools.append(t)
+    
+    parent = Landmark(id=landmark_id, description="Energy Area")
+    parent.tools = tools
+    
+    # Also create a second parent to avoid len(landmarks) == 1 when we want to test pruning
+    another_parent = Landmark(id="Nord:Sector_09", description="Nord Area")
+    another_parent.tools = [
+        Landmark(id="Nord:Sector_09:tool_1", description="Some tool", handler=lambda x: x)
+    ]
+    
+    # Case A: len(landmarks) == 2, so Zentrum gets pruned (since 30 > 25)
+    md_pruned = presenter.present_manifest([parent, another_parent], max_landmarks=100)
+    assert f"({len(tools)} tools available in this landmark)" in md_pruned
+    assert "tools available in this landmark" in md_pruned
+    assert "Summary" in md_pruned
+    
+    # Case B: len(landmarks) == 1, so it bypasses pruning and renders the children!
+    md_expanded = presenter.present_manifest([parent], max_landmarks=100)
+    assert f"({len(tools)} tools available in this landmark)" not in md_expanded
+    # Check that children tools are expanded and listed
+    assert "tool_0" in md_expanded
+    assert "tool_29" in md_expanded
+    
+    # Verify the exact footer Summary format
+    assert "**Summary**:" in md_expanded
+    # Should say e.g. "1 landmarks | 30 tools on this page."
+    assert "1 landmarks | 30 tools on this page" in md_expanded
+

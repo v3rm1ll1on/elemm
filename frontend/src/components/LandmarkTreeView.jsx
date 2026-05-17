@@ -109,7 +109,8 @@ const LandmarkTreeView = ({
     const styles = {
       openapi: { label: 'OpenAPI', color: '#34d399' },
       graphql: { label: 'GraphQL', color: '#f472b6' },
-      elemm: { label: 'Elemm Native', color: '#7dd3fc' }
+      elemm: { label: 'Elemm Native', color: '#7dd3fc' },
+      native: { label: 'Elemm Native', color: '#7dd3fc' }
     };
     const config = styles[type] || { label: 'Unknown', color: '#94a3b8' };
     return <span className="badge-micro" style={{ color: config.color }}>{config.label}</span>;

@@ -86,7 +86,7 @@ class ConfigManager:
             
         try:
             current_mtime = os.path.getmtime(self.config_path)
-            if current_mtime > self.last_mtime:
+            if current_mtime != self.last_mtime:
                 logger.info("Config: File change detected, reloading...")
                 self.config = self.load()
                 return True

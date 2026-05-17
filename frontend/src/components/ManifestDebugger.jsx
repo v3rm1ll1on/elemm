@@ -110,6 +110,7 @@ const ManifestDebugger = () => {
           isTruncated: lm.is_truncated,
           parameters: lm.parameters || [],
           returns: lm.returns || "any",
+          outputSchema: lm.outputSchema || lm.response_schema || {},
           remedy: lm.remedy,
           signature: lm.signature || ""
         };
@@ -188,7 +189,7 @@ const ManifestDebugger = () => {
       else if (header.includes('LANDMARK TOPOLOGY')) {
         content.split('\n').forEach(line => {
           // Allow leading whitespace for indented sub-landmarks
-          const lmMatch = line.match(/^\s*- (?:\*\*`|Landmark: `|Tool: `)(.*?)(?:`\*\*: |` - |`|: )(.*?)(?:\n|$)/);
+          const lmMatch = line.match(/^\s*-\s*(?:Action:\s*`|Tool:\s*`|Landmark:\s*`|\*\*`?|`?\*\*|`)([^`*:]+)(?:`?\*\*`?|`|:|\s+-)\s*(.*)$/);
           if (lmMatch) {
             const id = lmMatch[1];
             // Don't overwrite if JSON already provided more detail, but ensure it exists
@@ -196,7 +197,7 @@ const ManifestDebugger = () => {
               sections.landmarks[id] = {
                 id,
                 description: lmMatch[2]?.trim() || "",
-                isTool: line.includes('Tool: `'),
+                isTool: line.includes('Tool: `') || line.includes('Action: `'),
                 isTruncated: false,
                 parameters: []
               };
@@ -341,6 +342,7 @@ const ManifestDebugger = () => {
             isTruncated: lm.is_truncated || false,
             parameters: lm.parameters || [],
             returns: lm.returns || "any",
+            outputSchema: lm.outputSchema || lm.response_schema || {},
             remedy: lm.remedy
           };
 
@@ -475,14 +477,14 @@ const ManifestDebugger = () => {
               isTruncated: lm.is_truncated || false,
               parameters: lm.parameters || [],
               returns: lm.returns || "any",
-              outputSchema: lm.outputSchema || {},
+              outputSchema: lm.outputSchema || lm.response_schema || {},
               remedy: lm.remedy
             };
-            newSignatures[id] = `// Structured Profile for ${id}`;
+            newSignatures[id] = data.signature || `// Structured Profile for ${id}`;
           });
 
           // Ensure our target lid is at least marked as loaded
-          if (!newSignatures[lid]) newSignatures[lid] = "// Loaded via JSON (No Signature)";
+          if (!newSignatures[lid]) newSignatures[lid] = data.signature || "// Loaded via JSON (No Signature)";
         } 
         // Case B: Markdown Manifest/Signature
         else if (data.signature || data.manifest) {
@@ -575,6 +577,19 @@ const ManifestDebugger = () => {
     ...(allLandmarks[selectedSession] || {})
   };
 
+  useEffect(() => {
+    if (selectedLandmark && selectedLandmark !== 'instructions' && selectedSession) {
+      const cacheKey = `${selectedSession}_${selectedLandmark}`;
+      if (!probedLandmarks[cacheKey]) {
+        const lm = sessionLandmarks[selectedLandmark];
+        if (lm && !lm.isTool && !lm.is_tool) {
+          handleInspect(selectedLandmark);
+          setProbedLandmarks(prev => ({ ...prev, [cacheKey]: true }));
+        }
+      }
+    }
+  }, [selectedLandmark, selectedSession]);
+
   const treeData = buildTree(sessionLandmarks);
   const selectedLandmarkData = sessionLandmarks[selectedLandmark];
 
@@ -620,6 +635,8 @@ const ManifestDebugger = () => {
           key={selectedLandmark}
           selectedLandmark={selectedLandmark}
           landmarkData={selectedLandmarkData}
+          allLandmarks={sessionLandmarks}
+          onSelectLandmark={setSelectedLandmark}
           signature={landmarkSignatures[selectedSession]?.[selectedLandmark]}
           instructions={parsedData.instructions}
           memoryBank={parsedData.memoryBank}

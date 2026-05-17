@@ -76,6 +76,7 @@ class ManifestPresenter:
                 "parent_id": parent_id,
                 "is_root": is_root,
                 "welcome_message": welcome_message if is_root else None,
+                "instructions": instructions,
                 "landmarks": items,
                 "pagination": {
                     "total": total_count,
@@ -108,6 +109,9 @@ class ManifestPresenter:
         dyn_max_lm = max(20, limit_chars // 150) if limit_chars else 20
         max_landmarks = kwargs.get("max_landmarks", dyn_max_lm)
 
+        rendered_landmarks = 0
+        rendered_tools = 0
+
         if not landmarks:
             lines.append("_No landmarks discovered in this scope._")
         else:
@@ -118,29 +122,57 @@ class ManifestPresenter:
                     break
                     
                 if hasattr(lm, 'tools') and lm.tools:
-                    lines.append(f"- **{lm.id}**:")
-                    items_rendered += 1
+                    total_tools = len(lm.tools)
+                    estimated_cost = total_tools * 150
+                    current_length = sum(len(line) for line in lines)
                     
-                    # Show tools but respect remaining budget
-                    remaining_budget = max_landmarks - items_rendered
-                    visible_tools = lm.tools[:remaining_budget]
-                    hidden_tools = len(lm.tools) - len(visible_tools)
-                    
-                    for t in visible_tools:
-                        t_desc = t.description or "No description."
-                        remedy_str = f" | Remedy: {t.remedy}" if getattr(t, 'remedy', None) else ""
-                        lines.append(f"  - Tool: `{t.id}` ({self._get_required_params_str(t)} | Returns: {t.returns or 'any'}{remedy_str})")
-                        lines.append(f"    > {t_desc}")
-                        if show_technical:
-                            lines.append(self._render_ts_signature(t))
+                    # Wenn wir die Obergruppe gezielt inspizieren (len(landmarks) == 1) oder genug Budget haben und die Liste handlich ist (<= 25), blenden wir sie ein
+                    if len(landmarks) == 1 or (total_tools <= 25 and (current_length + estimated_cost < limit_chars)):
+                        lines.append(f"- **{lm.id}**:")
                         items_rendered += 1
+                        rendered_landmarks += 1
                         
-                    if hidden_tools > 0:
-                        lines.append(f"  - (... and {hidden_tools} more tools. Use `inspect_landmark(landmark_id=\"{lm.id}\")` for full signatures.)")
+                        # Show tools but respect remaining budget
+                        remaining_budget = max_landmarks - items_rendered
+                        visible_tools = lm.tools[:remaining_budget]
+                        hidden_tools = len(lm.tools) - len(visible_tools)
+                        
+                        for t in visible_tools:
+                            t_desc = t.description or "No description."
+                            is_tool = bool(t.handler) or t.type in ["action", "tool"]
+                            
+                            if is_tool:
+                                remedy_str = f" | Remedy: {t.remedy}" if getattr(t, 'remedy', None) else ""
+                                lines.append(f"  - Action: `{t.id}` ({self._get_required_params_str(t)} | Returns: {t.returns or 'any'}{remedy_str})")
+                                rendered_tools += 1
+                            else:
+                                child_info = f" ({len(t.tools)} tools available in this landmark)" if hasattr(t, 'tools') and t.tools else ""
+                                lines.append(f"  - Landmark: `{t.id}`{child_info}")
+                                rendered_landmarks += 1
+                                
+                            lines.append(f"    > {t_desc}")
+                            if is_tool and show_technical:
+                                lines.append(self._render_ts_signature(t))
+                            items_rendered += 1
+                            
+                        if hidden_tools > 0:
+                            lines.append(f"  - (... and {hidden_tools} more tools.)")
+                    else:
+                        # Budget ueberschritten oder Gruppe zu gross -> nur Obergruppe listen mit Info
+                        lines.append(f"- **{lm.id}** ({total_tools} tools available in this landmark)")
+                        items_rendered += 1
+                        rendered_landmarks += 1
                 else:
                     desc = lm.description if getattr(lm, 'description', None) else f"Area: {lm.id}"
                     lines.append(f"- **`{lm.id}`**: {desc}")
                     items_rendered += 1
+                    
+                    is_tool = bool(lm.handler) or lm.type in ["action", "tool"]
+                    if is_tool:
+                        rendered_tools += 1
+                    else:
+                        rendered_landmarks += 1
+                        
                     if hasattr(lm, 'handler') and lm.handler:
                         lines.append(self._render_ts_signature(lm))
 
@@ -151,6 +183,9 @@ class ManifestPresenter:
                 if total_remaining > 0:
                     next_offset = offset + items_rendered
                     lines.append(f"\n- (... and {total_remaining} more items available. **ACTION REQUIRED**: Use `_offset={next_offset}` in your next `inspect_landmark` call to fetch the next page of results.)")
+
+        # Summary footer for the agent (Guidance & Metrics)
+        lines.append(f"\n**Summary**: {rendered_landmarks} landmarks | {rendered_tools} tools on this page. Use `inspect_landmark`, `call_action` or `execute_sequence` to interact.")
 
         return "\n".join(lines)
 
