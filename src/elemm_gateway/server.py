@@ -182,17 +182,20 @@ class ElemmGateway:
                     if hasattr(item, 'text') and isinstance(item.text, str):
                         item.text = self._redact_secrets(item.text)
             
-            # Post-Execution Reporting
-            output_text = res[0].text if (res and hasattr(res[0], 'text')) else str(res)
-            self.monitor.report_activity(
-                last_action=f"RETURN: {display_name}",
-                output_data=output_text,
-                status=status,
-                session_id=sid,
-                request_id=request_id,
-                duration_ms=duration_ms,
-                manifest=output_text if name == "get_manifest" and status == "success" else None
-            )
+            # Post-Execution Reporting (only if not already reported by untruncated sequence layer)
+            already_reported = getattr(res[0], "_dashboard_reported", False) if res else False
+            if not already_reported:
+                # Use raw_res (untruncated) for single executions if available!
+                output_to_monitor = raw_res if 'raw_res' in locals() else (res[0].text if (res and hasattr(res[0], 'text')) else str(res))
+                self.monitor.report_activity(
+                    last_action=f"RETURN: {display_name}",
+                    output_data=output_to_monitor,
+                    status=status,
+                    session_id=sid,
+                    request_id=request_id,
+                    duration_ms=duration_ms,
+                    manifest=output_to_monitor if name == "get_manifest" and status == "success" else None
+                )
             
             return res
         except Exception as fatal_err:

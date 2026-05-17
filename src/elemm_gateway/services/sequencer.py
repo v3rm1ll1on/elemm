@@ -75,6 +75,9 @@ class SequenceEngine(CoreSequenceEngine):
             
         aliases = self.get_session_aliases(session_id)
         results = []
+        raw_results = []
+        import time
+        sequence_start_time = time.perf_counter()
         
         for i, step in enumerate(actions):
             action_id = step.get("action")
@@ -178,10 +181,43 @@ class SequenceEngine(CoreSequenceEngine):
                 "_truncated": was_truncated
             })
 
+            raw_results.append({
+                "step": i,
+                "action": action_id,
+                "alias": alias or f"step{i}",
+                "duration_ms": duration_ms,
+                "result": final_res, # The raw untruncated result!
+                "_truncated": False
+            })
+
             if isinstance(final_res, dict) and (final_res.get("status") == "error" or "_PROTOCOL_ERROR" in final_res) and on_error == "stop":
                 break
 
-        return [types.TextContent(type="text", text=json.dumps(results, indent=2))]
+        # Determine if there's any step error in the sequence
+        has_any_error = False
+        for r in results:
+            res_val = r.get("result")
+            if isinstance(res_val, dict) and (res_val.get("status") == "error" or "_PROTOCOL_ERROR" in res_val or res_val.get("status") == "fail"):
+                has_any_error = True
+                break
+
+        # Broadcast the raw, completely untruncated sequence results to the telemetry layer!
+        seq_duration_ms = int((time.perf_counter() - sequence_start_time) * 1000)
+        monitor.report_activity(
+            last_action=f"RETURN: execute_sequence({len(actions)} steps)",
+            input_data={"steps": actions},
+            output_data=raw_results,
+            status="error" if has_any_error else "success",
+            session_id=session_id,
+            request_id=kwargs.get("request_id"),
+            parent_request_id=kwargs.get("parent_request_id"),
+            duration_ms=seq_duration_ms
+        )
+
+        # Flag the returned TextContent object to bypass redundant reporting in server.py
+        text_res = types.TextContent(type="text", text=json.dumps(results, indent=2))
+        setattr(text_res, "_dashboard_reported", True)
+        return [text_res]
 
     def _navigate(self, data: Any, path: str, aliases: Dict[str, Any]) -> Any:
         """Navigates through a data structure using a dot-notated path (for backward compatibility)."""

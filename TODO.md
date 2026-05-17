@@ -23,6 +23,8 @@
 - [ ] **Elemm MCP Client (Hub)**: Internal `mcp_registry` to mount pre-configured external MCP servers seamlessly into the Elemm protocol without adding new root tools. Includes full support for Vault keys and Guardian WAF filtering.
 - [ ] **OAuth2 Integration**: Support secure OAuth2 flows for APIs requiring interactive authentication.
 - [ ] **Conditional Branching**: `condition` field in `execute_sequence` steps for if/else logic.
+- [x] **Dashboard Telemetry Intermediate Layer**: Built a high-performance un-truncated telemetry layer that pushes raw, un-squished logs and JSON payloads to the Observability Console before gateway context-hygiene limits kick in.
+
 
 
 ## Phase 4: Ecosystem and Tooling (Future)

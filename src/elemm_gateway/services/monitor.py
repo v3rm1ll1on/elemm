@@ -99,8 +99,8 @@ class DashboardMonitor:
         if tokens_out is None and output_data is not None:
             tokens_out = self.estimate_tokens(output_data, is_input=False)
 
-        # Safety: Truncate large data for the UI
-        def truncate(data, limit=10000):
+        # Safety: Truncate large data for the UI (increased to 500k for high-fidelity developer console)
+        def truncate(data, limit=500000):
             try:
                 s = json.dumps(data, indent=None) if not isinstance(data, str) else data
             except:
