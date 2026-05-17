@@ -17,6 +17,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"
 # Internal Elemm Imports
 from elemm_gateway.services.manifest_service import ManifestService
 from elemm_gateway.components import VaultManager
+from elemm_gateway import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ GLOBAL_STATE = {
     "tokens_out": 0,
     "chars_in": 0,
     "chars_out": 0,
-    "version": "1.2.0-alpha",
+    "version": __version__,
     "status": "online",
     "sessions": {}, # Session-specific stats
     "manifests": {} # session_id -> manifest string
@@ -94,7 +95,7 @@ async def inspect_site(url: str, landmark_id: str = None, session_id: str = "def
                 GLOBAL_STATE["sessions"][session_id] = {
                     "tokens_in": 0, "tokens_out": 0, "total_tokens": 0,
                     "chars_in": 0, "chars_out": 0, "total_chars": 0,
-                    "landmark_count": 0, "version": "1.2.0",
+                    "landmark_count": 0, "version": __version__,
                     "last_action": "Manual Inspection",
                     "last_seen": time.time(),
                     "history": [],
@@ -405,7 +406,7 @@ async def publish_event(event: Dict[str, Any]):
             "chars_out": 0,
             "total_chars": 0,
             "landmark_count": 0,
-            "version": "1.0.0",
+            "version": __version__,
             "last_action": "Session started",
             "last_seen": time.time(),
             "history": []

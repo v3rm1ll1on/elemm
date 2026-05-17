@@ -82,7 +82,7 @@ class GraphQLExecutor:
         selection_set = self._build_selection_set(select)
         query = f"{operation_type} ElemmQuery{var_def_str} {{ {field_name}{arg_str} {selection_set} }}"
         
-        headers = {"User-Agent": "Elemm-Gateway/2.0", "Content-Type": "application/json"}
+        headers = {"User-Agent": self.vault.user_agent, "Content-Type": "application/json"}
         params = {}
         host_key = urlparse(base_url).netloc
         self.vault.apply_auth(host_key, params, headers)
@@ -213,7 +213,7 @@ class OpenAPIExecutor:
 
         full_url = f"{base_url}{path}"
         params = {}
-        headers = {"User-Agent": "Elemm-Gateway/1.1"}
+        headers = {"User-Agent": self.vault.user_agent}
         json_body = None
 
         for param in tool_data.get("parameters", []):

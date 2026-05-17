@@ -103,7 +103,11 @@ def run_synth_shop():
 
     # 2. Launch Gateway
     import sys
-    if "--fastapi" in sys.argv:
+    if "--mcp" in sys.argv:
+        # Native MCP Server
+        server = MCPGateway(manager, server_name="Synth-Genesis-v2")
+        server.run_stdio()
+    else:
         from fastapi import FastAPI
         app = FastAPI(title="Synth-Genesis-v2")
         gateway = FastAPIGateway(manager)
@@ -112,10 +116,6 @@ def run_synth_shop():
         print("Starting Synth Shop v2 on http://localhost:8004")
         import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8004)
-    else:
-        # Native MCP Server
-        server = MCPGateway(manager, server_name="Synth-Genesis-v2")
-        asyncio.run(server.run_stdio())
 
 if __name__ == "__main__":
     run_synth_shop()

@@ -22,9 +22,13 @@ logger = logging.getLogger("elemm-gateway")
 
 class VaultManager:
     """Handles API key management and injection."""
-    def __init__(self, vault_path: str):
+    DEFAULT_USER_AGENT = "ElemmGateway/1.0 (Autonomous Agent)"
+    user_agent: str = DEFAULT_USER_AGENT
+
+    def __init__(self, vault_path: str, user_agent: Optional[str] = None):
         self.vault_path = vault_path
         self.vault = self.load()
+        self.user_agent = user_agent or self.DEFAULT_USER_AGENT
 
     def load(self) -> Dict[str, Any]:
         if not os.path.exists(self.vault_path):
@@ -76,7 +80,7 @@ class VaultManager:
         """Returns headers for a given URL/host."""
         from urllib.parse import urlparse
         host = urlparse(url).netloc
-        headers = {}
+        headers = {"User-Agent": self.user_agent}
         self.apply_auth(host, {}, headers)
         return headers
 

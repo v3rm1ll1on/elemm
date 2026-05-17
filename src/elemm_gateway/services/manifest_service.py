@@ -96,12 +96,28 @@ class ManifestService:
         return json.loads(manifest_json)
 
     @staticmethod
+    async def fetch_native_manifest(url: str, params: Optional[Dict[str, Any]] = None, vault_manager=None) -> str:
+        """Fetches the raw native manifest file from a URL with proper headers and parameters."""
+        url = url.strip().rstrip("/")
+        if vault_manager:
+            headers = vault_manager.get_headers(url)
+        else:
+            headers = {"User-Agent": "ElemmGateway/1.0 (Autonomous Agent)"}
+
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
+            resp = await client.get(f"{url}/.well-known/elemm-manifest.md", params=params, timeout=10.0)
+            if resp.status_code == 200:
+                return resp.text
+            raise Exception(f"Error fetching manifest: {resp.text}")
+
+    @staticmethod
     async def inspect_url(url: str, landmark_id: Optional[str] = None, vault_manager=None, limit: int = 5000, output_format: str = "markdown") -> Dict[str, Any]:
         """Probes a URL for various Elemm interfaces with maximum precision."""
         url = url.strip().rstrip("/")
-        headers = {"User-Agent": "ElemmGateway/1.0 (Autonomous Agent)"}
         if vault_manager:
-            headers.update(vault_manager.get_headers(url))
+            headers = vault_manager.get_headers(url)
+        else:
+            headers = {"User-Agent": "ElemmGateway/1.0 (Autonomous Agent)"}
 
         async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
             # --- 1. PRIORITY: TRY NATIVE ELEMM PROTOCOL ---

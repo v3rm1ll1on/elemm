@@ -131,7 +131,13 @@ def run_mansion():
 
     # Launch
     import sys
-    if "--fastapi" in sys.argv:
+    if "--mcp" in sys.argv:
+        # Native MCP Server
+        from elemm.gateways.mcp_server import MCPGateway
+        server = MCPGateway(manager, server_name="SmartHome-v2")
+        print("Starting SmartHome v2 (Native MCP) via STDIO", file=sys.stderr)
+        server.run_stdio()
+    else:
         from fastapi import FastAPI
         import uvicorn
         app = FastAPI(title="Vigilix-Ultra-Mansion-Final-v2")
@@ -141,12 +147,6 @@ def run_mansion():
         port = 8002
         print(f"Starting MEGA PIPE READY MANSION (FastAPI) on http://localhost:{port}")
         uvicorn.run(app, host="0.0.0.0", port=port)
-    else:
-        # Native MCP Server
-        from elemm.gateways.mcp_server import MCPGateway
-        server = MCPGateway(manager, server_name="SmartHome-v2")
-        print("Starting SmartHome v2 (Native MCP) via STDIO", file=sys.stderr)
-        asyncio.run(server.run_stdio())
 
 if __name__ == "__main__":
     run_mansion()

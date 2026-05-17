@@ -262,7 +262,7 @@ class AIProtocolManager:
             
             # --- PROTOCOL HYGIENE ---
             try:
-                from elemm_gateway.services.hygiene import ResponseSquisher
+                from elemm.core.hygiene import ResponseSquisher
                 select = arguments.get("_select")
                 filter_str = arguments.get("_filter")
                 limit = arguments.get("_limit")

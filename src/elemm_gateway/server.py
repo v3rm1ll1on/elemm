@@ -41,6 +41,7 @@ from elemm_gateway.services.hygiene import ResponseSquisher
 from elemm_gateway.services.sequencer import SequenceEngine
 from elemm_gateway.services.tool_registry import GatewayToolRegistry
 from elemm_gateway.services.telemetry import MonitoredReadStream, MonitoredWriteStream
+from elemm_gateway import __version__
 
 logger = logging.getLogger("elemm-gateway")
 
@@ -61,7 +62,10 @@ class ElemmGateway:
 
         # Core Services
         self.config_manager = ConfigManager(config_path)
-        self.vault_manager = VaultManager(vault_path)
+        self.vault_manager = VaultManager(
+            vault_path,
+            user_agent=self.config_manager.get("user_agent", "ElemmGateway/1.0 (Autonomous Agent)")
+        )
         self.security_policy = SecurityPolicy(self.config_manager.config)
         self.squisher = ResponseSquisher()
         self.sequence_engine = SequenceEngine(self)
@@ -111,9 +115,22 @@ class ElemmGateway:
                 self.limit_standard = self.config_manager.get("limit_standard", 30000)
                 self.limit_inspect = self.config_manager.get("limit_inspect", 20000)
                 self.limit_search_items = self.config_manager.get("limit_search_items", 10)
+                self.vault_manager.user_agent = self.config_manager.get("user_agent", "ElemmGateway/1.0 (Autonomous Agent)")
 
             if arguments is None: arguments = {}
             sid = arguments.get("session_id", self.session_id)
+            
+            # Security Check: Validate the entire tool call against the security policy
+            if self.security_policy:
+                sec_check = self.security_policy.validate_tool_call(name, arguments)
+                if not sec_check["allowed"]:
+                    return [types.TextContent(type="text", text=json.dumps({
+                        "status": "error",
+                        "_PROTOCOL_ERROR": "ACCESS_DENIED",
+                        "message": f"Security Policy Violation: {sec_check['reason']}",
+                        "remedy": sec_check.get("remedy", "Access to this operation is restricted by security policy.")
+                    }, indent=2))]
+
             request_id = str(uuid.uuid4())[:8]
             
             # Determine descriptive action name
@@ -251,6 +268,21 @@ class ElemmGateway:
 
         if name == "get_manifest":
             self.manifest_loaded = True
+            if site_data.get("type") == "native":
+                try:
+                    params = {}
+                    if arguments.get("full"):
+                        params["full"] = "true"
+                    if arguments.get("landmark_id"):
+                        params["landmark_id"] = arguments.get("landmark_id")
+                    
+                    res_text = await ManifestService.fetch_native_manifest(url, params=params, vault_manager=self.vault_manager)
+                except Exception as e:
+                    res_text = f"Error fetching manifest: {str(e)}"
+                
+                res_text = ManifestService.inject_globals(res_text, full=arguments.get("full", False))
+                return self._format_result(res_text)
+
             # Build a transient manager to filter the manifest before returning it
             manager = ManifestService._get_transient_manager(site_data)
             if self.security_policy:
@@ -273,6 +305,14 @@ class ElemmGateway:
         if name == "get_landmarks":
             # For discovery, we also imply manifest is known
             self.manifest_loaded = True
+            if site_data.get("type") == "native":
+                try:
+                    res_text = await ManifestService.fetch_native_manifest(url, vault_manager=self.vault_manager)
+                except Exception as e:
+                    res_text = f"Error fetching landmarks: {str(e)}"
+                
+                return self._format_result(res_text)
+
             limit = self.config_manager.get("max_landmarks_per_view", 20)
             return self._format_result(ManifestService.get_landmarks_summary(site_data, security_policy=self.security_policy, limit=limit))
 
@@ -289,17 +329,6 @@ class ElemmGateway:
             offset = arguments.get("_offset", 0)
             limit = arguments.get("_limit")
             
-            ids = [lm_id] if isinstance(lm_id, str) else lm_id
-            # Security Check for each ID
-            for tid in ids:
-                check = self.security_policy.is_action_allowed(tid)
-                if not check["allowed"]:
-                    return [types.TextContent(type="text", text=json.dumps({
-                        "status": "error",
-                        "_PROTOCOL_ERROR": "ACCESS_DENIED",
-                        "message": f"Security Policy Violation: Access to '{tid}' is restricted."
-                    }, indent=2))]
-
             res = await ManifestService.inspect_landmark(
                 site_url=url, 
                 landmark_id=lm_id, 
@@ -316,8 +345,64 @@ class ElemmGateway:
             limit = arguments.get("_limit")
             offset = arguments.get("_offset", 0)
             
-            res = await ManifestService.search_landmarks(url, site_data, query, limit=limit or self.limit_search_items, offset=offset)
-            return self._format_result(res)
+            # 2. Fetch search results in JSON format
+            res_json = await ManifestService.search_landmarks(
+                url, site_data, query, 
+                limit=limit or self.limit_search_items, 
+                offset=offset, 
+                output_format="json"
+            )
+            
+            # 3. Filter JSON search results using the security policy
+            if self.security_policy and isinstance(res_json, dict) and "landmarks" in res_json:
+                filtered_landmarks = []
+                for lm in res_json["landmarks"]:
+                    # Support both dict and object
+                    lm_id = lm.get("id", lm.get("name")) if isinstance(lm, dict) else getattr(lm, "id", getattr(lm, "name", None))
+                    if not lm_id:
+                        continue
+                    
+                    # Check if action is allowed
+                    check = self.security_policy.is_action_allowed(lm_id)
+                    if not check["allowed"]:
+                        continue
+                    
+                    # Check parameters of the action
+                    param_blocked = False
+                    params = lm.get("parameters", []) if isinstance(lm, dict) else getattr(lm, "parameters", [])
+                    for param in params:
+                        param_name = param.get("name", "") if isinstance(param, dict) else getattr(param, "name", "")
+                        if self.security_policy.is_pattern_blocked(param_name):
+                            param_blocked = True
+                            break
+                    
+                    if param_blocked:
+                        continue
+                    
+                    filtered_landmarks.append(lm)
+                res_json["landmarks"] = filtered_landmarks
+
+            # 4. Return result in correct format (markdown or JSON)
+            # Default of search_landmarks tool is markdown text
+            if isinstance(res_json, dict):
+                # Build a transient manager with only the filtered landmarks to format as markdown
+                manager = ManifestService._get_transient_manager({"landmarks": res_json.get("landmarks", [])})
+                
+                # Check for pagination info
+                pag = res_json.get("pagination", {})
+                res_text = manager.presenter.present_manifest(
+                    list(manager.landmarks.values()),
+                    instructions=f"# SEARCH RESULTS FOR: {query}",
+                    show_technical=True,
+                    output_format="markdown",
+                    limit=pag.get("limit", limit or self.limit_search_items),
+                    offset=pag.get("offset", offset),
+                    total=pag.get("total", len(filtered_landmarks)),
+                    has_more=pag.get("has_more", False)
+                )
+                return self._format_result(res_text)
+            
+            return self._format_result(res_json)
             
         return [types.TextContent(type="text", text=f"Error: Core tool '{name}' not supported by gateway.")]
 
@@ -350,12 +435,12 @@ class ElemmGateway:
                 else:
                     method = getattr(tool_data, 'meta', {}).get("method")
 
-        check = self.security_policy.is_action_allowed(tool_name, method=method, arguments=arguments)
+        check = self.security_policy.validate_tool_call(tool_name, arguments, method=method)
         if not check["allowed"]:
             res_obj = {
                 "status": "error",
                 "_PROTOCOL_ERROR": "ACCESS_DENIED",
-                "message": check["reason"]
+                "message": f"Security Policy Violation: {check['reason']}"
             }
             if "remedy" in check:
                 res_obj["remedy"] = check["remedy"]
@@ -478,7 +563,7 @@ class ElemmGateway:
                 write_stream,
                 InitializationOptions(
                     server_name="elemm-gateway",
-                    server_version="1.2.0",
+                    server_version=__version__,
                     capabilities=self.server.get_capabilities(
                         notification_options=NotificationOptions(),
                         experimental_capabilities={},

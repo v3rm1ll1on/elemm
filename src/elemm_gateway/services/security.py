@@ -121,13 +121,126 @@ class SecurityPolicy:
 
         # 2. Deep Argument Inspection (Recursive)
         if arguments:
-            violation = self._check_value_recursive(arguments)
-            if violation:
+            arg_check = self.are_arguments_allowed(arguments)
+            if not arg_check["allowed"]:
+                violation = arg_check["reason"].split("'")[1] if "'" in arg_check["reason"] else ""
                 return {
                     "allowed": False,
-                    "reason": f"Argument value contains restricted pattern '{violation}'.",
+                    "reason": arg_check["reason"],
                     "remedy": self._get_remedy(violation, "Input validation failed: One of the provided arguments contains restricted content.")
                 }
+
+        return {"allowed": True}
+
+    def are_arguments_allowed(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Validates a dictionary of arguments against the security policy."""
+        if not arguments:
+            return {"allowed": True}
+        violation = self._check_value_recursive(arguments)
+        if violation:
+            return {
+                "allowed": False,
+                "reason": f"Argument value contains restricted pattern '{violation}'."
+            }
+        return {"allowed": True}
+
+    def is_query_allowed(self, query: str) -> Dict[str, Any]:
+        """
+        Validates a search query against the security policy,
+        protecting against regex-injections and obfuscation.
+        """
+        if not query:
+            return {"allowed": True}
+            
+        blocked_terms = []
+        for p in self.patterns:
+            blocked_terms.append(p["raw"][3:] if p["raw"].startswith("re:") else p["raw"])
+        blocked_terms.extend(self.disallowed_landmarks)
+        blocked_terms.extend(self.disallowed_actions)
+        
+        branches = query.split("|")
+        for branch in branches:
+            branch_clean = branch.strip()
+            if not branch_clean:
+                continue
+            cleaned = branch_clean.replace(".*", "").replace(".+", "").replace("*", "").replace("?", "")
+            if not cleaned:
+                continue
+                
+            try:
+                branch_pat = re.compile(cleaned, re.IGNORECASE)
+            except re.error:
+                branch_pat = re.compile(re.escape(cleaned), re.IGNORECASE)
+                
+            for term in blocked_terms:
+                if branch_pat.search(term):
+                    return {
+                        "allowed": False,
+                        "reason": f"Search query targets restricted pattern/area '{term}'."
+                    }
+        return {"allowed": True}
+
+    def is_pattern_blocked(self, value: str) -> bool:
+        """Helper to check if a string matches any disallowed pattern."""
+        if not value:
+            return False
+        return self._check_value_recursive(value) is not None
+
+    def validate_tool_call(self, tool_name: str, arguments: Dict[str, Any], method: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Zentrales Sicherheits-Gate für alle Tool-Aufrufe.
+        Prüft:
+        1. Globale Argumenten-Muster (Hygiene- & Parameter-Schutz für alle Parameter)
+        2. Werkzeug-spezifische Regeln (inspect_landmark, search_landmarks, call_action, direkte Aktionen)
+        Gibt ein einheitliches Dict zurück: {"allowed": True} oder {"allowed": False, "reason": "...", "remedy": "..."}
+        """
+        if not arguments:
+            arguments = {}
+
+        # 1. Globaler Argumentenschutz (Deep Argument Inspection)
+        arg_check = self.are_arguments_allowed(arguments)
+        if not arg_check["allowed"]:
+            violation = arg_check["reason"].split("'")[1] if "'" in arg_check["reason"] else ""
+            return {
+                "allowed": False,
+                "reason": arg_check["reason"],
+                "remedy": self._get_remedy(violation, "Input validation failed: One of the provided arguments contains restricted content.")
+            }
+
+        # 2. Werkzeug-spezifische Validierung
+        if tool_name in ["inspect_landmark", "get_manifest"]:
+            lm_id = arguments.get("landmark_id")
+            if lm_id:
+                ids = [lm_id] if isinstance(lm_id, str) else lm_id
+                for tid in ids:
+                    check = self.is_action_allowed(tid)
+                    if not check["allowed"]:
+                        return {
+                            "allowed": False,
+                            "reason": f"Access to '{tid}' is restricted.",
+                            "remedy": check.get("remedy")
+                        }
+
+        elif tool_name == "search_landmarks":
+            query = arguments.get("query")
+            if query:
+                check = self.is_query_allowed(query)
+                if not check["allowed"]:
+                    return check
+
+        elif tool_name == "call_action":
+            action = arguments.get("action")
+            params = arguments.get("parameters", {})
+            if action:
+                check = self.is_action_allowed(action, method=method, arguments=params)
+                if not check["allowed"]:
+                    return check
+
+        elif tool_name not in ["connect_to_site", "list_aliases", "clear_session", "get_landmarks"]:
+            # Direkter API-Aufruf (nicht-Core Tools)
+            check = self.is_action_allowed(tool_name, method=method, arguments=arguments)
+            if not check["allowed"]:
+                return check
 
         return {"allowed": True}
 

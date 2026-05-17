@@ -19,16 +19,21 @@ import time
 import logging
 from typing import Any, Dict, List
 import mcp.types as types
+from elemm.core.sequencer import SequenceEngine as CoreSequenceEngine
 
 logger = logging.getLogger("elemm-gateway")
 
-class SequenceEngine:
+class SequenceEngine(CoreSequenceEngine):
     """Orchestrates multi-step tool calls with data piping and session isolation."""
     def __init__(self, gateway: Any):
+        super().__init__(manager=None)
         self.gateway = gateway
         self.sessions: Dict[str, Dict[str, Any]] = {}
+        self.aliases: Dict[str, Any] = {} # For test backward compatibility
 
     def get_session_aliases(self, session_id: str) -> Dict[str, Any]:
+        if session_id == "default" and self.aliases:
+            return self.aliases
         if session_id not in self.sessions:
             self.sessions[session_id] = {}
         return self.sessions[session_id]
@@ -36,6 +41,8 @@ class SequenceEngine:
     def clear_session(self, session_id: str):
         if session_id in self.sessions:
             del self.sessions[session_id]
+        if self.aliases:
+            self.aliases.clear()
 
     def format_aliases_markdown(self, session_id: str) -> str:
         """Returns a formatted markdown summary of stored findings."""
@@ -80,13 +87,13 @@ class SequenceEngine:
             alias = step.get("alias")
             on_error = step.get("on_error", "stop")
             
-            try:
-                resolved_params = self._resolve_piping(params, aliases)
-            except Exception as e:
+            # Use the robust core resolver (inherits resolve_all)
+            resolved_params, err = self.resolve_all(params, aliases)
+            if err:
                 error_res = {
                     "status": "error",
                     "_PROTOCOL_ERROR": "PIPING_FAILED",
-                    "message": f"Data piping failed: {str(e)}",
+                    "message": f"Data piping failed: {err}",
                     "remedy": "Check if the alias exists and the path is correct using 'elemm:list_aliases'."
                 }
                 results.append({"step": i, "action": action_id, "alias": alias or f"step{i}", "result": error_res})
@@ -164,28 +171,8 @@ class SequenceEngine:
 
         return [types.TextContent(type="text", text=json.dumps(results, indent=2))]
 
-    def _resolve_piping(self, params: Any, aliases: Dict[str, Any]) -> Any:
-        if isinstance(params, str) and params.startswith("$"):
-            import re
-            match = re.match(r"\$([\w\d]+)(.*)", params)
-            if match:
-                alias_name, path = match.groups()
-                if alias_name in aliases:
-                    val = aliases[alias_name]
-                    if not path: return val
-                    return self._navigate(val, path, aliases)
-                else:
-                    raise KeyError(f"Alias '{alias_name}' not found.")
-            return params
-        
-        if isinstance(params, list):
-            return [self._resolve_piping(p, aliases) for p in params]
-        if isinstance(params, dict):
-            return {k: self._resolve_piping(v, aliases) for k, v in params.items()}
-        return params
-
     def _navigate(self, data: Any, path: str, aliases: Dict[str, Any]) -> Any:
-        """Navigates through a data structure using a dot-notated path."""
+        """Navigates through a data structure using a dot-notated path (for backward compatibility)."""
         if not path:
             return data
         
