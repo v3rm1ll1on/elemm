@@ -1,6 +1,7 @@
 # Elemm: The Landmark Manifest Protocol
 
 [![PyPI version](https://img.shields.io/pypi/v/elemm?style=flat-square&color=blue)](https://pypi.org/project/elemm/)
+[![Downloads](https://img.shields.io/pypi/dm/elemm?style=flat-square&color=darkgreen)](https://pypi.org/project/elemm/)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/v3rm1ll1on/elemm/tests.yml?branch=main&style=flat-square)](https://github.com/v3rm1ll1on/elemm/actions/workflows/tests.yml)
 [![License](https://img.shields.io/github/license/v3rm1ll1on/elemm?style=flat-square&color=orange)](https://github.com/v3rm1ll1on/elemm/blob/main/LICENSE)
 [![Python versions](https://img.shields.io/badge/python-3.10+-blue?style=flat-square)](https://pypi.org/project/elemm/)
