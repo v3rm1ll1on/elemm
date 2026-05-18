@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2026-05-17
 
 ### Added
+- **Dockerization & CI/CD Automation**: Integrated multi-stage `Dockerfile` and production-ready `docker-compose.yml` for platform-independent, one-click deployment of the gateway. Standardized automated container builds, health-checks, and automatic image publishing targeting **GitHub Container Registry (GHCR)** upon new releases.
 - **Observability Dashboard (Frontend)**: Brand new, high-performance React frontend for gateway monitoring and real-time live debugging.
   - **TokenAnalyzer & TokenCalculator**: Live tracking, visualization, and calculation of token consumption, costs, and real savings achieved via Elemm response hygiene.
   - **ManifestDebugger & Live-Execution UI**: Full client to inspect landmarks and execute parameterized tool actions live.

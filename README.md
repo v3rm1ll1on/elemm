@@ -73,8 +73,8 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install elemm
 ```
 
-### 2. Connect your AI Agent (MCP Client)
-The fastest way to use Elemm is via the built-in **Gateway**. It acts as a universal MCP server that turns any OpenAPI or GraphQL API into a tool server.
+### 2. Option A: Connect your AI Agent (Local Setup)
+The fastest way to use Elemm locally is via the built-in **Gateway**. It acts as a universal MCP server that turns any OpenAPI or GraphQL API into a tool server.
 
 **Do not run this manually in your terminal.** Instead, configure your AI agent (like Claude Desktop or Cursor) to run the `elemm-gateway` command.
 
@@ -91,6 +91,33 @@ The fastest way to use Elemm is via the built-in **Gateway**. It acts as a unive
 ```
 
 *(Note: Use the absolute path to `elemm-gateway` if it is not in your system PATH).*
+
+### 2. Option B: Run via Docker (Recommended 2-Step Setup)
+To run the entire gateway stack (Visual Dashboard on port `8090` + MCP Gateway on port `8000`) warning-free with persistent storage, run:
+
+```bash
+docker run -d \
+  -p 8000:8000 \
+  -p 8090:8090 \
+  -v ~/.elemm:/root/.elemm \
+  --name elemm-gateway \
+  ghcr.io/v3rm1ll1on/elemm:latest
+```
+
+Then configure your Claude Desktop to connect via **Server-Sent Events (SSE)**:
+
+```json
+{
+  "mcpServers": {
+    "elemm-gateway": {
+      "type": "sse",
+      "url": "http://localhost:8000/sse"
+    }
+  }
+}
+```
+
+See [Getting Started in Docker](docs/GETTING_STARTED.md#2-option-b-run-in-docker-2-step-setup-recommended-for-cloud--dev) for details.
 
 ### 3. Start Discovering
 
