@@ -27,6 +27,7 @@ async def async_main():
     parser.add_argument("--transport", choices=["stdio", "sse"], default="stdio", help="Transport mechanism (default: stdio)")
     parser.add_argument("--host", default="0.0.0.0", help="Host for SSE server")
     parser.add_argument("--port", type=int, default=8000, help="Port for SSE server")
+    parser.add_argument("--bridge", help="SSE server URL to bridge to (runs in stdio <-> SSE proxy mode)")
 
     args = parser.parse_args()
 
@@ -40,6 +41,99 @@ async def async_main():
     )
     
     logger = logging.getLogger("elemm-cli")
+
+    # If running in bridge mode, intercept execution and run the stdio <-> SSE proxy
+    if args.bridge:
+        logger.info(f"Running in Bridge Mode. Tunneling stdio <-> {args.bridge}")
+        from mcp.client.sse import sse_client
+        from mcp.server.stdio import stdio_server
+        from mcp.shared.message import SessionMessage
+        import httpx
+        
+        try:
+            async with stdio_server() as (stdio_read, stdio_write):
+                stdin_queue = asyncio.Queue()
+                
+                async def read_stdin():
+                    try:
+                        async for session_message in stdio_read:
+                            if isinstance(session_message, Exception):
+                                logger.error(f"Error reading from stdin: {session_message}")
+                                continue
+                            await stdin_queue.put(session_message)
+                    except Exception as e:
+                        logger.error(f"Stdin reader stopped: {e}")
+                    finally:
+                        logger.info("Stdin reader finished. Stopping bridge.")
+
+                async def sse_worker():
+                    while True:
+                        try:
+                            logger.info(f"Connecting to SSE server at {args.bridge}...")
+                            async with sse_client(args.bridge) as (sse_read, sse_write):
+                                logger.info("SSE connection established. Tunnel active.")
+                                
+                                async def forward_stdin():
+                                    while True:
+                                        msg = await stdin_queue.get()
+                                        try:
+                                            await sse_write.send(msg)
+                                        except Exception as e:
+                                            logger.error(f"Failed to forward message to SSE: {e}")
+                                            # Put it back to retry
+                                            await stdin_queue.put(msg)
+                                            raise e
+                                        finally:
+                                            stdin_queue.task_done()
+
+                                async def forward_sse():
+                                    async for msg in sse_read:
+                                        await stdio_write.send(msg)
+
+                                forward_stdin_task = asyncio.create_task(forward_stdin())
+                                forward_sse_task = asyncio.create_task(forward_sse())
+                                
+                                try:
+                                    done, pending = await asyncio.wait(
+                                        [forward_stdin_task, forward_sse_task],
+                                        return_when=asyncio.FIRST_COMPLETED
+                                    )
+                                    for task in done:
+                                        task.result()
+                                finally:
+                                    for task in [forward_stdin_task, forward_sse_task]:
+                                        if not task.done():
+                                            task.cancel()
+                                            try:
+                                                await task
+                                            except asyncio.CancelledError:
+                                                pass
+                        except (httpx.HTTPError, Exception) as e:
+                            logger.error(f"SSE connection lost or failed: {e}. Retrying in 2 seconds...")
+                            await asyncio.sleep(2)
+                
+                stdin_task = asyncio.create_task(read_stdin())
+                sse_task = asyncio.create_task(sse_worker())
+                
+                try:
+                    done, pending = await asyncio.wait(
+                        [stdin_task, sse_task],
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for task in done:
+                        task.result()
+                finally:
+                    for task in [stdin_task, sse_task]:
+                        if not task.done():
+                            task.cancel()
+                            try:
+                                await task
+                            except asyncio.CancelledError:
+                                pass
+            return
+        except Exception as e:
+            logger.error(f"Bridge mode fatal error: {e}")
+            sys.exit(1)
 
     try:
         gateway = ElemmGateway(server_name=args.name)
@@ -59,12 +153,14 @@ async def async_main():
             logger.info(f"Transport: SSE (Webserver Mode)")
             logger.info(f"Listening on: http://{args.host}:{args.port}/sse")
             from starlette.applications import Starlette
-            from starlette.routing import Route
+            from starlette.routing import Route, Mount
             from mcp.server.sse import SseServerTransport
             import uvicorn
 
             sse = SseServerTransport("/messages")
             # ... rest of the sse logic (I will keep it as is from previous edit)
+
+            from starlette.responses import Response
 
             async def handle_sse(request):
                 async with sse.connect_sse(request.scope, request.receive, request._send) as (read, write):
@@ -73,15 +169,19 @@ async def async_main():
                         write,
                         gateway.server.create_initialization_options()
                     )
+                return Response()
 
-            async def handle_messages(request):
-                await sse.handle_post_message(request.scope, request.receive, request._send)
+            from starlette.middleware import Middleware
+            from starlette.middleware.cors import CORSMiddleware
 
             app = Starlette(
                 debug=True,
                 routes=[
                     Route("/sse", endpoint=handle_sse),
-                    Route("/messages", endpoint=handle_messages, methods=["POST"]),
+                    Mount("/messages", app=sse.handle_post_message),
+                ],
+                middleware=[
+                    Middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
                 ]
             )
 

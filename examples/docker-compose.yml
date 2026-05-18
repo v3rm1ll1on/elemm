@@ -1,16 +1,39 @@
 services:
-  elemm-gateway:
+  # Example 1: Vigilix Ultra-Mansion (Smart Home)
+  smarthome:
     image: ghcr.io/v3rm1ll1on/elemm:latest
-    container_name: elemm-gateway
+    container_name: elemm-example-smarthome
     restart: unless-stopped
-    ports:
-      - "8000:8000"  # MCP SSE Gateway
-      - "8090:8090"  # Visual Dashboard Telemetry
     volumes:
-      - elemm-config:/root/.elemm
-    environment:
-      - HOST=0.0.0.0
-      - PORT=8090
+      - .:/app/examples
+    ports:
+      - "8002:8002"
+    working_dir: /app/examples/smart_home
+    entrypoint: ["python", "smarthome_v2.py"]
+
+  # Example 2: Linux Guardian (Admin tools)
+  linux-guardian:
+    image: ghcr.io/v3rm1ll1on/elemm:latest
+    container_name: elemm-example-guardian
+    restart: unless-stopped
+    volumes:
+      - .:/app/examples
+    ports:
+      - "8003:8003"
+    working_dir: /app/examples/linux_admin
+    entrypoint: ["python", "guardian_v2.py", "--fastapi"]
+
+  # Example 3: Synth-Genesis Bio-Shop (Cyberpunk E-Commerce)
+  synth-shop:
+    image: ghcr.io/v3rm1ll1on/elemm:latest
+    container_name: elemm-example-synth
+    restart: unless-stopped
+    volumes:
+      - .:/app/examples
+    ports:
+      - "8004:8004"
+    working_dir: /app/examples/synth_shop
+    entrypoint: ["python", "synth_shop_v2.py"]
 
 volumes:
   elemm-config:

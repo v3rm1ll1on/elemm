@@ -73,6 +73,18 @@ Example for Claude Desktop (`claude_desktop_config.json`):
 python3 -m elemm_gateway.cli --transport sse --port 8000
 ```
 
+### Run (BRIDGE — Universal USB Cable Mode 🔌)
+
+To connect multiple stdio-only AI agents (e.g. Claude Desktop, Cursor, VS Code) to a single, central background Gateway (either running locally or containerized in Docker), you run the CLI in **Bridge Mode**. 
+
+The CLI acts as a pure, lightweight bidrectional proxy that forwards the agent's stdio to the central SSE Gateway:
+
+```bash
+python3 -m elemm_gateway.cli --bridge http://localhost:8000/sse
+```
+
+This guarantees seamless **Multi-Agent Session Isolation** (each agent gets a unique `session_id`) and lets you access the central telemetry and example sandbox natively!
+
 ### CLI Options
 
 | Flag | Default | Description |
@@ -83,6 +95,7 @@ python3 -m elemm_gateway.cli --transport sse --port 8000
 | `--transport` | `stdio` | Transport mechanism: `stdio` or `sse`. |
 | `--host` | `0.0.0.0` | Host address for the SSE server. |
 | `--port` | `8000` | Port for the SSE server. |
+| `--bridge` | — | Target SSE server URL to bridge to (stdio <-> SSE tunnel). |
 
 ---
 

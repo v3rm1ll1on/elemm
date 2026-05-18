@@ -6,9 +6,7 @@ services:
     image: ghcr.io/v3rm1ll1on/elemm:latest
     container_name: elemm-gateway
     restart: unless-stopped
-    ports:
-      - "8090:8090"
-      - "8000:8000"
+    network_mode: "host"
     volumes:
       - elemm-config:/root/.elemm
     environment:

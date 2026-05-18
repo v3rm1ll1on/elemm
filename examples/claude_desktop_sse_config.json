@@ -1,9 +1,0 @@
-{
-  "mcpServers": {
-    "elemm-gateway": {
-      "type": "sse",
-      "url": "http://localhost:8000/sse",
-      "NOTE": "Use this configuration to connect Claude Desktop to the Elemm Gateway running in a Docker container or remote server via SSE."
-    }
-  }
-}
