@@ -37,6 +37,20 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+    - name: Build React Frontend
+      run: |
+        cd frontend
+        npm ci
+        npm run build
+        cd ..
+    - name: Copy Frontend Build to Package
+      run: |
+        mkdir -p src/elemm_gateway/ui_backend/dist
+        cp -r frontend/dist/* src/elemm_gateway/ui_backend/dist/
     - name: Set up Python
       uses: actions/setup-python@v5
       with:

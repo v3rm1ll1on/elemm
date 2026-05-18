@@ -8,7 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2026-05-17
 
 ### Added
-- **Centralized Versioning**: Centralized the version number under `pyproject.toml` as the single source of truth, dynamically loaded by `elemm-gateway` and the Dashboard server to prevent manual synchronization errors.
+- **Observability Dashboard (Frontend)**: Brand new, high-performance React frontend for gateway monitoring and real-time live debugging.
+  - **TokenAnalyzer & TokenCalculator**: Live tracking, visualization, and calculation of token consumption, costs, and real savings achieved via Elemm response hygiene.
+  - **ManifestDebugger & Live-Execution UI**: Full client to inspect landmarks and execute parameterized tool actions live.
+  - **LandmarkTreeView & LandmarkDetails**: Hierarchical tree-based visualization of landmarks and real-time tool signatures.
+  - **Security Control Panel**: Browser-based configuration of Guardian security policies, whitelists, and filters.
+  - **Vault Manager**: UI-driven API credential management supporting a native `Slide2Delete` gesture.
+- **Modular Python Services Architecture (Backend)**: Complete refactoring of the gateway core under `src/elemm_gateway/services/` for optimal modularity and clean separation of concerns.
+  - Split gateway functions into dedicated services: `config`, `executors`, `graphql_bridge`, `hygiene`, `manifest`, `manifest_service`, `monitor`, `openapi_bridge`, `security`, `sequencer`, `telemetry`, `tool_registry`, and `vault`.
+- **Universal `search_landmarks` Tool**: A new core tool in the gateway allowing global, high-performance regex search across all landmarks and actions.
+- **Virtual Pagination & Truncation**: Standardized support for `_limit`, `_offset`, and `_select` parameters, coupled with intelligent `smart_truncate` highlighting exact truncation status.
+- **Enhanced Security & Data Privacy**:
+  - **API Key Redaction**: Automated detection and redacting of API keys in logs and outgoing JSON responses.
+  - **Guardian Engine**: Granular whitelist/blacklist validation, landmark path checks, and HTTP method filtering at the core layer.
+- **Config Hot-Reloading**: Seamless loading of gateway policy and credential updates at runtime without restarting the server.
+- **Comprehensive Test Suite**: Added over 18 new test modules covering pagination, E2E scenarios, hot-reloading, and manifest consistency.
+
+### Changed
+- **Centralized Versioning**: Version number consolidated under `pyproject.toml` as the single source of truth, dynamically loaded by the CLI and Dashboard.
+- **GraphQL Bridge Refactoring**: Significantly improved type resolution and query generation via recursive type inspection and smart leaf fallbacks.
+- **SmartRepair & Presenter Updates**: Embedded detailed remedy guidelines directly in tool metadata to maximize LLM autonomy when errors occur.onomie im Fehlerfall.
 
 ## [1.1.4] - 2026-05-13
 
