@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Shield, Clock, Zap } from 'lucide-react';
 import Tooltip from './Tooltip';
 import './Settings.css';
+import { API_BASE } from '../config';
 
 const Settings = () => {
   const [config, setConfig] = useState(null);
@@ -22,7 +23,7 @@ const Settings = () => {
 
   const fetchConfig = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8090/api/v1/config');
+      const res = await fetch(`${API_BASE}/api/v1/config`);
       const data = await res.json();
       if (!data.security) data.security = {};
       if (!data.security.disallowed_actions) data.security.disallowed_actions = [];
@@ -40,7 +41,7 @@ const Settings = () => {
   const saveConfig = async (currentConfig) => {
     setSaving(true);
     try {
-      await fetch('http://127.0.0.1:8090/api/v1/config', {
+      await fetch(`${API_BASE}/api/v1/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(currentConfig)

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Shield, ShieldAlert, ShieldCheck, Zap, AlertTriangle, MessageSquare, Plus, Trash2, X, Globe } from 'lucide-react';
 import Tooltip from './Tooltip';
 import './Security.css';
+import { API_BASE } from '../config';
 
 // Reusable interactive Tag Input Component
 const TagInput = ({ tags, onChange, placeholder, variant = 'simple' }) => {
@@ -75,7 +76,7 @@ const Security = () => {
 
   const fetchConfig = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8090/api/v1/config');
+      const res = await fetch(`${API_BASE}/api/v1/config`);
       const data = await res.json();
       
       // Ensure strict structure
@@ -101,7 +102,7 @@ const Security = () => {
   const saveConfig = async (currentConfig) => {
     setSaving(true);
     try {
-      await fetch('http://127.0.0.1:8090/api/v1/config', {
+      await fetch(`${API_BASE}/api/v1/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(currentConfig)

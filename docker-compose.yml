@@ -1,0 +1,20 @@
+services:
+  elemm-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/v3rm1ll1on/elemm:latest
+    container_name: elemm-gateway
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+      - "8000:8000"
+    volumes:
+      - elemm-config:/root/.elemm
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8090
+
+volumes:
+  elemm-config:
+    driver: local

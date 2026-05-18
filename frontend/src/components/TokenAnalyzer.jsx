@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import './TokenAnalyzer.css';
 import Tooltip from './Tooltip';
+import { API_BASE } from '../config';
 
 // Parser helper matching ManifestDebugger to extract landmarks
 const parseManifest = (manifestInput) => {
@@ -322,7 +323,7 @@ const TokenAnalyzer = () => {
 
   const fetchConfig = async () => {
     try {
-      const resp = await fetch('http://127.0.0.1:8090/api/v1/config');
+      const resp = await fetch(`${API_BASE}/api/v1/config`);
       const data = await resp.json();
       if (data.ui?.char_to_token_ratio) {
         setCharToTokenRatio(parseFloat(data.ui.char_to_token_ratio));
@@ -340,7 +341,7 @@ const TokenAnalyzer = () => {
 
   const fetchSessions = async () => {
     try {
-      const resp = await fetch('http://127.0.0.1:8090/api/v1/sessions');
+      const resp = await fetch(`${API_BASE}/api/v1/sessions`);
       const data = await resp.json();
       setSessions(data);
     } catch (e) {
@@ -451,7 +452,7 @@ const TokenAnalyzer = () => {
         });
       } else {
         // Fallback: fetch and parse Markdown manifest
-        const resp = await fetch(`http://127.0.0.1:8090/api/v1/sessions/${sid}/manifest`);
+        const resp = await fetch(`${API_BASE}/api/v1/sessions/${sid}/manifest`);
         const data = await resp.json();
         if (!data.manifest) throw new Error("No manifest returned for this session.");
 
@@ -483,7 +484,7 @@ const TokenAnalyzer = () => {
 
     try {
       const tempSid = `analyzer_${Date.now()}`;
-      const resp = await fetch(`http://127.0.0.1:8090/api/v1/inspect?url=${encodeURIComponent(urlInput.trim())}&session_id=${tempSid}`);
+      const resp = await fetch(`${API_BASE}/api/v1/inspect?url=${encodeURIComponent(urlInput.trim())}&session_id=${tempSid}`);
       if (!resp.ok) throw new Error(`Gateway failed to retrieve URL: ${resp.status}`);
 
       const data = await resp.json();

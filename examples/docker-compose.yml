@@ -1,0 +1,17 @@
+services:
+  elemm-gateway:
+    image: ghcr.io/v3rm1ll1on/elemm:latest
+    container_name: elemm-gateway
+    restart: unless-stopped
+    ports:
+      - "8000:8000"  # MCP SSE Gateway
+      - "8090:8090"  # Visual Dashboard Telemetry
+    volumes:
+      - elemm-config:/root/.elemm
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8090
+
+volumes:
+  elemm-config:
+    driver: local

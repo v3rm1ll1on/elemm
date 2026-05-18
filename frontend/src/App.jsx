@@ -11,6 +11,7 @@ import Vault from './components/Vault';
 import ManifestDebugger from './components/ManifestDebugger';
 import './App.css';
 import './Layout.css';
+import { API_BASE, WS_BASE } from './config';
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -32,7 +33,7 @@ function App() {
 
     const connectWS = () => {
       if (!isMounted) return;
-      ws = new WebSocket('ws://127.0.0.1:8090/ws/trace');
+      ws = new WebSocket(`${WS_BASE}/ws/trace`);
 
       ws.onopen = () => { 
         if (isMounted) {
@@ -103,10 +104,10 @@ function App() {
     const initFetch = async () => {
       try {
         const [sRes, vRes, sessRes, cRes] = await Promise.all([
-          fetch('http://127.0.0.1:8090/api/v1/status'),
-          fetch('http://127.0.0.1:8090/api/v1/vault/summary'),
-          fetch('http://127.0.0.1:8090/api/v1/sessions'),
-          fetch('http://127.0.0.1:8090/api/v1/config')
+          fetch(`${API_BASE}/api/v1/status`),
+          fetch(`${API_BASE}/api/v1/vault/summary`),
+          fetch(`${API_BASE}/api/v1/sessions`),
+          fetch(`${API_BASE}/api/v1/config`)
         ]);
         if (!isMounted) return;
         setSystemStatus(await sRes.json());
@@ -132,13 +133,13 @@ function App() {
 
   const handleReset = async () => {
     try {
-      await fetch('http://127.0.0.1:8090/api/v1/reset', { method: 'POST' });
+      await fetch(`${API_BASE}/api/v1/reset`, { method: 'POST' });
       setTraceEvents([]); 
       
       // Sofortiges Re-Fetch der Daten, damit die UI leer ist
       const [sRes, sessRes] = await Promise.all([
-        fetch('http://127.0.0.1:8090/api/v1/status'),
-        fetch('http://127.0.0.1:8090/api/v1/sessions')
+        fetch(`${API_BASE}/api/v1/status`),
+        fetch(`${API_BASE}/api/v1/sessions`)
       ]);
       setSystemStatus(await sRes.json());
       setSessions(await sessRes.json());

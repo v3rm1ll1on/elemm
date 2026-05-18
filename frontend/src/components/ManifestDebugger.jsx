@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import './ManifestDebugger.css';
 import './ObservabilityConsole.css';
 import { Cpu } from 'lucide-react';
+import { API_BASE } from '../config';
 import LandmarkTreeView from './LandmarkTreeView';
 import LandmarkDetails from './LandmarkDetails';
 
@@ -39,7 +40,7 @@ const ManifestDebugger = ({ sessions: externalSessions, selectedSession: externa
       const url = sniffUrl(session);
       if (!url) return;
 
-      const resp = await fetch(`http://127.0.0.1:8090/api/v1/search?query=${encodeURIComponent(query)}&session_id=${selectedSession}`);
+      const resp = await fetch(`${API_BASE}/api/v1/search?query=${encodeURIComponent(query)}&session_id=${selectedSession}`);
       const data = await resp.json();
       
       if (data.status === 'success' || data.landmarks) {
@@ -280,7 +281,7 @@ const ManifestDebugger = ({ sessions: externalSessions, selectedSession: externa
 
   const fetchSessions = async (forceSelectId = null) => {
     try {
-      const resp = await fetch('http://127.0.0.1:8090/api/v1/sessions');
+      const resp = await fetch(`${API_BASE}/api/v1/sessions`);
       const data = await resp.json();
       setSessions(data);
 
@@ -297,7 +298,7 @@ const ManifestDebugger = ({ sessions: externalSessions, selectedSession: externa
 
   const fetchManifest = async (sid) => {
     try {
-      const resp = await fetch(`http://127.0.0.1:8090/api/v1/sessions/${sid}/manifest`);
+      const resp = await fetch(`${API_BASE}/api/v1/sessions/${sid}/manifest`);
       const data = await resp.json();
       if (data.manifest) {
         setSessionManifests(prev => ({ ...prev, [sid]: data.manifest }));
@@ -328,7 +329,7 @@ const ManifestDebugger = ({ sessions: externalSessions, selectedSession: externa
       }
 
       const landmarkQuery = landmarkId ? `&landmark_id=${landmarkId}` : "";
-      const resp = await fetch(`http://127.0.0.1:8090/api/v1/inspect?url=${encodeURIComponent(url)}&session_id=${selectedSession}${landmarkQuery}`);
+      const resp = await fetch(`${API_BASE}/api/v1/inspect?url=${encodeURIComponent(url)}&session_id=${selectedSession}${landmarkQuery}`);
       if (!resp.ok) throw new Error(`Server error: ${resp.status}`);
 
       const data = await resp.json();
@@ -423,7 +424,7 @@ const ManifestDebugger = ({ sessions: externalSessions, selectedSession: externa
     setError(null);
     try {
       const sid = `manual_${Date.now()}`;
-      const resp = await fetch(`http://127.0.0.1:8090/api/v1/inspect?url=${encodeURIComponent(url)}&session_id=${sid}`);
+      const resp = await fetch(`${API_BASE}/api/v1/inspect?url=${encodeURIComponent(url)}&session_id=${sid}`);
       if (!resp.ok) throw new Error(`Failed to connect to ${url}`);
 
       const data = await resp.json();
@@ -461,7 +462,7 @@ const ManifestDebugger = ({ sessions: externalSessions, selectedSession: externa
       const url = sniffUrl(session);
       const urlParam = url ? `&url=${encodeURIComponent(url)}` : "";
 
-      const resp = await fetch(`http://127.0.0.1:8090/api/v1/inspect/landmark?landmark_id=${lid}&session_id=${sid}${urlParam}`);
+      const resp = await fetch(`${API_BASE}/api/v1/inspect/landmark?landmark_id=${lid}&session_id=${sid}${urlParam}`);
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({ detail: "Unknown server error" }));
         throw new Error(errData.detail || `Server error: ${resp.status}`);
@@ -539,7 +540,7 @@ const ManifestDebugger = ({ sessions: externalSessions, selectedSession: externa
       const url = sniffUrl(session);
       if (!url) throw new Error("No active URL for execution.");
 
-      const resp = await fetch('http://127.0.0.1:8090/api/v1/execute', {
+      const resp = await fetch(`${API_BASE}/api/v1/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

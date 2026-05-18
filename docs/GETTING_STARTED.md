@@ -107,7 +107,69 @@ Then start Claude and tell your agent:
 
 ---
 
-## 2. Option B: Build Your Own Landmark Server
+## 2. Option B: Run in Docker (2-Step Setup, Recommended for Cloud & Dev)
+
+Running Elemm inside Docker is the cleanest way to run the entire stack. With a single command, you start both the **Visual Dashboard** (on port `8090`) and the **MCP Gateway** (on port `8000` via SSE).
+
+This eliminates virtual environments, path resolution issues, and OS-specific setup.
+
+### Step 1: Run the Docker Container
+
+You can start Elemm either using a simple `docker run` command or with `docker compose`.
+
+#### Option A: Using the Docker CLI
+```bash
+docker run -d \
+  -p 8000:8000 \
+  -p 8090:8090 \
+  -v ~/.elemm:/root/.elemm \
+  --name elemm-gateway \
+  ghcr.io/v3rm1ll1on/elemm:latest
+```
+
+#### Option B: Using Docker Compose (Recommended)
+Download the [docker-compose.yml](../examples/docker-compose.yml) example file and start the stack with:
+
+```bash
+docker compose up -d
+```
+
+> [!NOTE]
+> Mounting the `~/.elemm` volume ensures your **Security Policies** and **Credential Vault** are securely persisted on your host machine.
+
+### Step 2: Configure Claude Desktop (SSE Connection)
+
+Since the container runs in its own network space, configure Claude Desktop to connect via **Server-Sent Events (SSE)** instead of standard input/output (STDIO).
+
+Add this block to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "elemm-gateway": {
+      "type": "sse",
+      "url": "http://localhost:8000/sse"
+    }
+  }
+}
+```
+
+*File Locations for `claude_desktop_config.json`:*
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS / Linux:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+An example configuration file is available at [claude_desktop_sse_config.json](../examples/claude_desktop_sse_config.json).
+
+### Step 3: Access the Visual Dashboard
+
+Open your browser and navigate to:
+👉 **[http://localhost:8090](http://localhost:8090)**
+
+From here, you can watch real-time telemetry, manage your secure credential vault, and inspect active session topologies.
+
+---
+
+## 3. Option C: Build Your Own Landmark Server
 
 If you want to expose your own Python functions as Elemm landmarks, use the decorator-based approach:
 
@@ -125,7 +187,7 @@ async def set_brightness(room: str, level: int):
 
 ---
 
-## 3. How Agents Interact with Elemm
+## 4. How Agents Interact with Elemm
 
 When an agent connects to an Elemm service (via the Gateway or a native server), it follows a strict discovery protocol:
 
@@ -137,7 +199,7 @@ When an agent connects to an Elemm service (via the Gateway or a native server),
 
 ---
 
-## 4. Next Steps
+## 5. Next Steps
 
 *   **[Gateway Reference](GATEWAY.md)**: Full documentation for the Elemm Gateway (OpenAPI, GraphQL, Security, Vault, Sequences).
 *   **[Developer Guide](DEVELOPER_GUIDE.md)**: Learn about Pydantic integration and SmartRepair.

@@ -3,6 +3,7 @@ import { Key, Plus, Trash2, Eye, EyeOff, Globe, Clock, Shield, Info } from 'luci
 import './Vault.css';
 import Slide2Delete from './Slide2Delete';
 import Tooltip from './Tooltip';
+import { API_BASE } from '../config';
 
 const decodeBasicAuth = (value) => {
   if (!value) return { username: '', password: '' };
@@ -50,7 +51,7 @@ const Vault = () => {
 
   const fetchVault = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8090/api/v1/vault');
+      const res = await fetch(`${API_BASE}/api/v1/vault`);
       const data = await res.json();
       // Transform map to array with stable IDs
       const items = Object.entries(data).map(([host, entry]) => ({
@@ -76,7 +77,7 @@ const Vault = () => {
         vaultMap[host] = config;
       });
 
-      await fetch('http://127.0.0.1:8090/api/v1/vault', {
+      await fetch(`${API_BASE}/api/v1/vault`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(vaultMap)
