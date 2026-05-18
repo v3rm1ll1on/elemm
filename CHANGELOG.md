@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Centralized Versioning**: Version number consolidated under `pyproject.toml` as the single source of truth, dynamically loaded by the CLI and Dashboard.
 - **GraphQL Bridge Refactoring**: Significantly improved type resolution and query generation via recursive type inspection and smart leaf fallbacks.
-- **SmartRepair & Presenter Updates**: Embedded detailed remedy guidelines directly in tool metadata to maximize LLM autonomy when errors occur.onomie im Fehlerfall.
+- **SmartRepair & Presenter Updates**: Embedded detailed remedy guidelines directly in tool metadata to maximize LLM autonomy when errors occur.
 
 ## [1.1.4] - 2026-05-13
 
