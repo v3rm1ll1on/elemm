@@ -28,6 +28,7 @@ async def async_main():
     parser.add_argument("--host", default="0.0.0.0", help="Host for SSE server")
     parser.add_argument("--port", type=int, default=8000, help="Port for SSE server")
     parser.add_argument("--bridge", help="SSE server URL to bridge to (runs in stdio <-> SSE proxy mode)")
+    parser.add_argument("--session-id", default=None, help="Session ID for the gateway instance (defaults to --name)")
 
     args = parser.parse_args()
 
@@ -69,8 +70,12 @@ async def async_main():
                 async def sse_worker():
                     while True:
                         try:
-                            logger.info(f"Connecting to SSE server at {args.bridge}...")
-                            async with sse_client(args.bridge) as (sse_read, sse_write):
+                            from urllib.parse import urlencode
+                            params = urlencode({"session_id": args.name})
+                            bridge_url = f"{args.bridge}?{params}" if "?" not in args.bridge else f"{args.bridge}&{params}"
+                            
+                            logger.info(f"Connecting to SSE server at {bridge_url}...")
+                            async with sse_client(bridge_url) as (sse_read, sse_write):
                                 logger.info("SSE connection established. Tunnel active.")
                                 
                                 async def forward_stdin():
@@ -136,7 +141,8 @@ async def async_main():
             sys.exit(1)
 
     try:
-        gateway = ElemmGateway(server_name=args.name)
+        session_id = args.session_id if args.session_id else args.name
+        gateway = ElemmGateway(session_id=session_id, server_name=args.name)
         
         # Banner removed for protocol purity
 
@@ -163,12 +169,32 @@ async def async_main():
             from starlette.responses import Response
 
             async def handle_sse(request):
-                async with sse.connect_sse(request.scope, request.receive, request._send) as (read, write):
-                    await gateway.server.run(
-                        read,
-                        write,
-                        gateway.server.create_initialization_options()
+                from elemm_gateway.services.connected_clients import current_client_id
+                from elemm_gateway.services.monitor import get_monitor
+                sid = request.query_params.get("session_id", "default")
+                
+                # Register session in dashboard immediately upon connection
+                get_monitor().report_activity(
+                    last_action=f"Client connected: {sid}",
+                    status="success",
+                    session_id=sid
+                )
+                
+                token = current_client_id.set(sid)
+                try:
+                    async with sse.connect_sse(request.scope, request.receive, request._send) as (read, write):
+                        await gateway.server.run(
+                            read,
+                            write,
+                            gateway.server.create_initialization_options()
+                        )
+                finally:
+                    get_monitor().report_activity(
+                        last_action=f"Client disconnected: {sid}",
+                        status="success",
+                        session_id=sid
                     )
+                    current_client_id.reset(token)
                 return Response()
 
             from starlette.middleware import Middleware

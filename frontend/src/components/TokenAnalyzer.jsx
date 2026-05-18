@@ -1069,12 +1069,18 @@ const TokenAnalyzer = () => {
                   className="premium-select-dropdown"
                   disabled={analyzing}
                 >
-                  <option value="">-- Choose active connected API --</option>
-                  {Object.entries(sessions).map(([sid, data]) => (
-                    <option key={sid} value={sid}>
-                      {data?.active_url ? data.active_url.replace(/^https?:\/\//, '') : `Session ${sid.substring(0, 6)}`}
-                    </option>
-                  ))}
+                  <option value="" style={{ background: '#090d16', color: '#cbd5e1' }}>
+                    -- Choose active connected API --
+                  </option>
+                  {Object.entries(sessions).map(([sid, data]) => {
+                    const clientName = sid.length > 20 ? `Session ${sid.substring(0, 6)}...` : sid;
+                    const apiName = data?.active_url ? data.active_url.replace(/^https?:\/\//, '') : 'No Active Connection';
+                    return (
+                      <option key={sid} value={sid} style={{ background: '#090d16', color: '#cbd5e1' }}>
+                        {clientName} ➔ {apiName}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             </div>

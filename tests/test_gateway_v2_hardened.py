@@ -236,3 +236,23 @@ async def test_core_tool_parameter_validation_errors(gateway):
         # Calling search_landmarks without query
         res = await gateway._proxy_core_tool("search_landmarks", {})
         assert "Error: 'query' parameter is required" in res[0].text
+
+@pytest.mark.asyncio
+async def test_session_id_resolution(gateway):
+    """Verify that _resolve_session_id correctly checks arguments, ContextVar, and self.session_id."""
+    # 1. Fallback to gateway instance session_id
+    assert gateway._resolve_session_id() == "default"
+    
+    # 2. Check explicit session_id passed as argument
+    assert gateway._resolve_session_id(session_id="custom-arg") == "custom-arg"
+    
+    # 3. Check session_id from arguments dictionary
+    assert gateway._resolve_session_id(arguments={"session_id": "arg-dict"}) == "arg-dict"
+    
+    # 4. Check session_id from ContextVar
+    from elemm_gateway.services.connected_clients import current_client_id
+    token = current_client_id.set("context-var-session")
+    try:
+        assert gateway._resolve_session_id() == "context-var-session"
+    finally:
+        current_client_id.reset(token)

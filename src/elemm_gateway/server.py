@@ -74,9 +74,9 @@ class ElemmGateway:
         self.openapi_executor = OpenAPIExecutor(self.vault_manager)
         self.graphql_executor = GraphQLExecutor(self.vault_manager)
 
-        # State
-        self.connected_sites: Dict[str, Dict[str, Any]] = {}
-        self.active_site_url: Optional[str] = None
+        # State (isolated by connected client session_id)
+        self._connected_sites_data: Dict[str, Dict[str, Dict[str, Any]]] = {}  # session_id -> {url -> site_data}
+        self.active_site_urls: Dict[str, str] = {}  # session_id -> active_site_url
         self.manifest_loaded = False
         
         # Global Settings
@@ -85,6 +85,52 @@ class ElemmGateway:
         self.limit_search_items = self.config_manager.get("limit_search_items", 10)
         
         self._setup_handlers()
+
+    def _resolve_session_id(self, session_id: Optional[str] = None, arguments: Optional[Dict] = None) -> str:
+        """Resolves the current session ID by checking arguments, manual override, ContextVar, and finally self.session_id."""
+        if arguments and isinstance(arguments, dict) and "session_id" in arguments:
+            return arguments["session_id"]
+        if session_id:
+            return session_id
+            
+        from elemm_gateway.services.connected_clients import current_client_id
+        ctx_sid = current_client_id.get()
+        if ctx_sid and ctx_sid != "default":
+            return ctx_sid
+            
+        return self.session_id
+
+    @property
+    def active_site_url(self) -> Optional[str]:
+        """Backwards compatibility for tests accessing global active_site_url directly."""
+        return self._get_active_url()
+
+    @active_site_url.setter
+    def active_site_url(self, value: str):
+        """Backwards compatibility setter for tests."""
+        sid = self._resolve_session_id()
+        self.active_site_urls[sid] = value
+
+    @property
+    def connected_sites(self) -> Dict[str, Dict[str, Any]]:
+        """Backwards compatibility for tests accessing global connected_sites directly."""
+        return self._get_connected_sites()
+
+    @connected_sites.setter
+    def connected_sites(self, value: Dict[str, Dict[str, Any]]):
+        """Backwards compatibility setter for tests."""
+        sid = self._resolve_session_id()
+        self._connected_sites_data[sid] = value
+
+    def _get_active_url(self, session_id: Optional[str] = None) -> Optional[str]:
+        sid = self._resolve_session_id(session_id)
+        return self.active_site_urls.get(sid)
+
+    def _get_connected_sites(self, session_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+        sid = self._resolve_session_id(session_id)
+        if sid not in self._connected_sites_data:
+            self._connected_sites_data[sid] = {}
+        return self._connected_sites_data[sid]
 
     def _setup_handlers(self):
         """Bind tools and resources to the MCP server."""
@@ -118,7 +164,7 @@ class ElemmGateway:
                 self.vault_manager.user_agent = self.config_manager.get("user_agent", "ElemmGateway/1.0 (Autonomous Agent)")
 
             if arguments is None: arguments = {}
-            sid = arguments.get("session_id", self.session_id)
+            sid = self._resolve_session_id(arguments=arguments)
             
             # Security Check: Validate the entire tool call against the security policy
             if self.security_policy:
@@ -246,9 +292,9 @@ class ElemmGateway:
             
         return [types.TextContent(type="text", text=res_text)]
 
-    async def _proxy_core_tool(self, name: str, arguments: Dict, session_id: str = "default") -> List[types.TextContent]:
+    async def _proxy_core_tool(self, name: str, arguments: Dict, session_id: Optional[str] = None) -> List[types.TextContent]:
         """Delegates core Elemm tools to specialized services."""
-        sid = arguments.get("session_id", session_id)
+        sid = self._resolve_session_id(session_id, arguments)
         
         if name == "clear_session":
             self.sequence_engine.clear_session(sid)
@@ -262,9 +308,9 @@ class ElemmGateway:
             if not url: return [types.TextContent(type="text", text="Error: URL is required.")]
             return await self._connect(url, session_id=sid)
 
-        url = self.active_site_url
+        url = self._get_active_url(sid)
         if not url: return [types.TextContent(type="text", text="Error: Not connected to any site.")]
-        site_data = self.connected_sites.get(url)
+        site_data = self._get_connected_sites(sid).get(url)
         
         if not site_data:
             return [types.TextContent(type="text", text="Error: Connection state lost for active site.")]
@@ -413,18 +459,20 @@ class ElemmGateway:
             
         return [types.TextContent(type="text", text=f"Error: Core tool '{name}' not supported by gateway.")]
 
-    async def _handle_execute_sequence(self, actions: List[Dict[str, Any]] = None, session_id: str = "default", **kwargs) -> List[types.TextContent]:
+    async def _handle_execute_sequence(self, actions: List[Dict[str, Any]] = None, session_id: Optional[str] = None, **kwargs) -> List[types.TextContent]:
         """Compatibility proxy for old test suite."""
-        return await self.sequence_engine.execute(actions, session_id, **kwargs)
+        sid = self._resolve_session_id(session_id)
+        return await self.sequence_engine.execute(actions, sid, **kwargs)
 
-    async def _execute_openapi(self, tool_name: str, arguments: Dict, session_id: str = "default") -> str:
+    async def _execute_openapi(self, tool_name: str, arguments: Dict, session_id: Optional[str] = None) -> str:
         return await self._execute_single(tool_name, arguments, session_id)
 
-    async def _execute_graphql(self, tool_name: str, arguments: Dict, session_id: str = "default") -> str:
+    async def _execute_graphql(self, tool_name: str, arguments: Dict, session_id: Optional[str] = None) -> str:
         return await self._execute_single(tool_name, arguments, session_id)
 
-    async def _execute_single(self, tool_name: str, arguments: Dict, session_id: str = "default") -> str:
+    async def _execute_single(self, tool_name: str, arguments: Dict, session_id: Optional[str] = None) -> str:
         """Universal dispatcher for tool execution (Native/OpenAPI/GraphQL)."""
+        sid = self._resolve_session_id(session_id)
         if tool_name in ["_elemm-help", "_elemm_help"]:
             help_data = {
                 "status": "success",
@@ -487,7 +535,8 @@ class ElemmGateway:
             }
             return json.dumps(help_data, indent=2)
 
-        site_data = self.connected_sites.get(self.active_site_url) if self.active_site_url else None
+        active_url = self._get_active_url(sid)
+        site_data = self._get_connected_sites(sid).get(active_url) if active_url else None
         
         # Determine method for security check
         method = None
@@ -515,7 +564,8 @@ class ElemmGateway:
                 res_obj["remedy"] = check["remedy"]
             return json.dumps(res_obj, indent=2)
 
-        if not self.active_site_url and tool_name != "connect_to_site":
+        active_url = self._get_active_url(sid)
+        if not active_url and tool_name != "connect_to_site":
             return json.dumps({
                 "status": "error",
                 "_PROTOCOL_ERROR": "DISCONNECTED",
@@ -538,17 +588,18 @@ class ElemmGateway:
             if tool_name == "call_action":
                 action = arguments.get("action")
                 params = arguments.get("parameters", {})
-                return await self._execute_single(action, params, session_id=session_id)
+                return await self._execute_single(action, params, session_id=sid)
             
             if tool_name == "execute_sequence":
                 steps = arguments.get("actions", []) or arguments.get("steps", [])
-                res = await self.sequence_engine.execute(steps, session_id=session_id)
+                res = await self.sequence_engine.execute(steps, session_id=sid)
                 return res[0].text if res else "[]"
 
-            res = await self._proxy_core_tool(tool_name, arguments, session_id=session_id)
+            res = await self._proxy_core_tool(tool_name, arguments, session_id=sid)
             return res[0].text if res else f"Error: Core tool '{tool_name}' returned empty result."
 
-        site_data = self.connected_sites.get(self.active_site_url)
+        active_url = self._get_active_url(sid)
+        site_data = self._get_connected_sites(sid).get(active_url)
         if site_data and site_data.get("type") in ["openapi", "graphql"]:
             # OpenAPI/GraphQL Execution
             landmarks = site_data.get("landmarks", site_data.get("tools", []))
@@ -602,7 +653,8 @@ class ElemmGateway:
             offset = arguments.pop("_offset", None)
             
             async with httpx.AsyncClient() as client:
-                exec_url = f"{self.active_site_url}/.well-known/elemm/execute"
+                active_url = self._get_active_url(sid)
+                exec_url = f"{active_url}/.well-known/elemm/execute"
                 resp = await client.post(exec_url, json={"action": tool_name, "parameters": arguments}, timeout=60.0)
                 if resp.status_code != 200: return f"Execution Error: {resp.status_code}\n{resp.text}"
                 
@@ -627,22 +679,24 @@ class ElemmGateway:
                 "remedy": "Ensure the target API is online and the URL is correct. If the endpoint requires authentication, verify your credentials in ~/.elemm/vault.json."
             }, indent=2)
 
-    async def _connect(self, url: str, session_id: str = "default") -> List[types.TextContent]:
+    async def _connect(self, url: str, session_id: Optional[str] = None) -> List[types.TextContent]:
         """Delegates connection probing to ManifestService."""
         url = url.strip().rstrip("/")
         self.manifest_loaded = False
         
+        sid = session_id or self.session_id
         self.vault_manager.vault = self.vault_manager.load()
         limit = self.config_manager.get("max_tools_per_landmark", 5)
         res = await ManifestService.inspect_url(url, vault_manager=self.vault_manager, limit=limit)
         if res.get("status") == "success":
-            self.connected_sites[url] = res
+            connected_sites = self._get_connected_sites(sid)
+            connected_sites[url] = res
             # Ensure 'landmarks' key exists for consistency
-            if "landmarks" not in self.connected_sites[url]:
-                self.connected_sites[url]["landmarks"] = res.get("landmarks", res.get("tools", []))
-                self.connected_sites[url]["tools"] = res.get("tools", [])
+            if "landmarks" not in connected_sites[url]:
+                connected_sites[url]["landmarks"] = res.get("landmarks", res.get("tools", []))
+                connected_sites[url]["tools"] = res.get("tools", [])
                 
-            self.active_site_url = url
+            self.active_site_urls[sid] = url
             display_type = "GraphQL" if res["type"] == "graphql" else res["type"].upper()
             return [types.TextContent(type="text", text=f"SUCCESS: CONNECTED to {display_type} API at {url}\n\nNEXT: Call 'get_manifest'.")]
         

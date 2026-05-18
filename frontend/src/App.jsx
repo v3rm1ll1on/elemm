@@ -257,19 +257,23 @@ function App() {
             <span className="breadcrumb">Elemm / Gateway /</span>
             <h1>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h1>
           </div>
-          <div className="controls-group">
-            <select
-              className="session-selector"
-              value={selectedSessionId}
-              onChange={(e) => setSelectedSessionId(e.target.value)}
-            >
-              <option value="global">Global Instance</option>
-              {Object.keys(sessions).map(sid => (
-                <option key={sid} value={sid}>Session: {sid}</option>
-              ))}
-            </select>
-            <button className="btn-secondary" onClick={handleReset}>Clear Logs</button>
-          </div>
+          {(activeTab === 'dashboard' || activeTab === 'manifest') && (
+            <div className="controls-group">
+              <select
+                className="session-selector"
+                value={selectedSessionId}
+                onChange={(e) => setSelectedSessionId(e.target.value)}
+              >
+                <option value="global">Global Instance</option>
+                {Object.keys(sessions).map(sid => (
+                  <option key={sid} value={sid}>Session: {sid}</option>
+                ))}
+              </select>
+              {activeTab === 'dashboard' && (
+                <button className="btn-secondary" onClick={handleReset}>Reset Stats</button>
+              )}
+            </div>
+          )}
         </header>
         <div className="flex-1 min-h-0 flex flex-col">
           {renderContent()}

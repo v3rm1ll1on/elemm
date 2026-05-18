@@ -32,6 +32,15 @@ class VaultManager:
 
     def load(self) -> Dict[str, Any]:
         if not os.path.exists(self.vault_path):
+            try:
+                config_dir = os.path.dirname(self.vault_path)
+                if config_dir:
+                    os.makedirs(config_dir, exist_ok=True)
+                with open(self.vault_path, "w") as f:
+                    json.dump({}, f, indent=2)
+                logger.info(f"Vault: Created default empty vault at {self.vault_path}")
+            except Exception as e:
+                logger.warning(f"Vault: Could not create default empty vault: {e}")
             return {}
         try:
             with open(self.vault_path, "r") as f:

@@ -409,23 +409,47 @@ async def get_status():
 
     active_clients = len([s for s in GLOBAL_STATE["sessions"].values() if now - s.get("last_seen", 0) < 300])
     
+    # Count unique active URLs across all active sessions
+    active_urls = {s.get("active_url") for s in GLOBAL_STATE["sessions"].values() if now - s.get("last_seen", 0) < 300 and s.get("active_url")}
+    active_sites = len(active_urls)
+    GLOBAL_STATE["active_sites_count"] = active_sites
+    
     return {
         **GLOBAL_STATE,
         "uptime": get_uptime(),
         "security_level": level,
-        "active_clients": active_clients
+        "active_clients": active_clients,
+        "active_sites": active_sites
     }
 
 @app.post("/api/v1/reset")
 async def reset_dashboard():
-    """Clears history only, preserving global counters and sessions."""
+    """Clears history and resets statistics, preserving active sessions."""
     GLOBAL_STATE["last_action"] = "History Cleared"
+    GLOBAL_STATE["tokens_in"] = 0
+    GLOBAL_STATE["tokens_out"] = 0
+    GLOBAL_STATE["chars_in"] = 0
+    GLOBAL_STATE["chars_out"] = 0
+    GLOBAL_STATE["total_tokens"] = 0
+    GLOBAL_STATE["total_chars"] = 0
+    GLOBAL_STATE["active_sites_count"] = 0
+    GLOBAL_STATE["landmark_count"] = 0
     
-    # Clear all history and all session entries
+    # Clear all global history
     GLOBAL_STATE["history"] = []
-    GLOBAL_STATE["sessions"] = {}
     
-    return {"status": "success", "message": "All sessions and history cleared. Global counters preserved."}
+    # Reset history and counters inside each session but keep them registered
+    for sid, session in GLOBAL_STATE["sessions"].items():
+        session["history"] = []
+        session["last_action"] = "History Cleared"
+        session["tokens_in"] = 0
+        session["tokens_out"] = 0
+        session["chars_in"] = 0
+        session["chars_out"] = 0
+        session["total_tokens"] = 0
+        session["total_chars"] = 0
+    
+    return {"status": "success", "message": "History and statistics cleared. Active sessions preserved."}
 
 CONFIG_PATH = os.path.expanduser("~/.elemm/config.json")
 
@@ -678,7 +702,7 @@ async def publish_event(event: Dict[str, Any]):
         "global_chars_in": GLOBAL_STATE["chars_in"],
         "global_chars_out": GLOBAL_STATE["chars_out"],
         "active_clients": len([s for s in GLOBAL_STATE["sessions"].values() if time.time() - s.get("last_seen", 0) < 300]),
-        "active_sites": GLOBAL_STATE["active_sites_count"]
+        "active_sites": len({s.get("active_url") for s in GLOBAL_STATE["sessions"].values() if time.time() - s.get("last_seen", 0) < 300 and s.get("active_url")})
     }
     await manager.broadcast(broadcast_data)
     return {"status": "aggregated", "session": sid}

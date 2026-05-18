@@ -86,7 +86,7 @@
   background: rgba(0, 0, 0, 0.3);
 }
 
-.search-icon {
+.stream-search-container .search-icon {
   color: #475569;
   margin-right: 8px;
 }

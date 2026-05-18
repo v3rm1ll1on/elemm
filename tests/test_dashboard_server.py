@@ -202,7 +202,7 @@ def test_publish_activity_and_session_stats():
     assert history_entry["output"] == "[LOG] Rerouting check completed successfully."
 
 def test_reset_dashboard_retains_counters():
-    """Verify that dashboard resetting clears logs and sessions but keeps global tokens."""
+    """Verify that dashboard resetting clears logs but keeps active sessions and global tokens."""
     client = TestClient(dashboard_server.app)
     
     # 1. Publish data
@@ -216,11 +216,13 @@ def test_reset_dashboard_retains_counters():
     assert response.status_code == 200
     assert response.json()["status"] == "success"
     
-    # 3. Verify history is cleared but global accumulator persists
+    # 3. Verify history is cleared but global accumulator is reset and sessions are preserved
     status_resp = client.get("/api/v1/status")
     status_data = status_resp.json()
-    assert status_data["tokens_in"] == 500 # Kept!
-    assert status_data["sessions"] == {}   # Wiped!
+    assert status_data["tokens_in"] == 0 # Reset!
+    assert "transient-session" in status_data["sessions"] # Preserved!
+    assert status_data["sessions"]["transient-session"]["history"] == [] # History Wiped!
+    assert status_data["sessions"]["transient-session"]["tokens_in"] == 0 # Reset!
     assert status_data["history"] == []    # Wiped!
 
 def test_websocket_trace_connection():

@@ -68,7 +68,7 @@ async def test_cli_bridge_mode_success():
          await async_main()
          
          # Assert 1: Correctly connected to the user's targeted SSE server
-         mock_sse_client.assert_called_once_with("http://localhost:8000/sse")
+         mock_sse_client.assert_called_once_with("http://localhost:8000/sse?session_id=elemm-gateway")
          
          # Assert 2: Request from stdio forwarded to the SSE write channel
          mock_sse_write.send.assert_called_once_with(mock_session_msg)
