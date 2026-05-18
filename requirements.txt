@@ -1,0 +1,11 @@
+# Development and testing requirements for Elemm
+# Install with: pip install -r requirements.txt
+
+# Installs the local elemm package in editable mode with all core dependencies
+-e .
+
+# Testing framework and plugins
+pytest>=8.0.0
+pytest-asyncio
+respx
+anyio

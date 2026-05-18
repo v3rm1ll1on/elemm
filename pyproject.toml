@@ -25,17 +25,9 @@ dependencies = [
     "mcp>=0.1.0",
     "pyyaml",
     "starlette",
-    "uvicorn"
-]
-
-[project.optional-dependencies]
-fastapi = [
-    "fastapi",
-    "httpx",
-]
-examples = [
     "uvicorn",
-    "mcp>=0.1.0",
+    "fastapi",
+    "websockets"
 ]
 
 [project.urls]

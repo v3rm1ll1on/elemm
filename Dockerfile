@@ -31,7 +31,7 @@ COPY pyproject.toml MANIFEST.in ./
 COPY src/ ./src/
 
 # Install the Python package
-RUN pip install --no-cache-dir .[fastapi]
+RUN pip install --no-cache-dir .
 
 # Create volume target for persisted configurations (secrets vault & security policy)
 RUN mkdir -p /root/.elemm
