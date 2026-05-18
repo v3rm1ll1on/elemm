@@ -81,7 +81,9 @@ class AIProtocolManager:
             # Metadata - Use get() instead of pop() to avoid data loss in the hierarchy loop
             tool_meta = self.registry.get(actual_id)
             desc = landmark_data.get("description") or (tool_meta.description if tool_meta else None) or (func.__doc__ if func else None) or f"Area: {actual_id}"
-            params = landmark_data.get("parameters") or (tool_meta.parameters if tool_meta else None)
+            params = landmark_data.get("parameters")
+            if params is None:
+                params = tool_meta.parameters if tool_meta else None
             if params is None and func:
                 params = self.discovery.extract_parameters(func)
                 

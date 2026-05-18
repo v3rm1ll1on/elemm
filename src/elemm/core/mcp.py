@@ -43,14 +43,14 @@ class MCPToolFactory:
         
         return types.Tool(
             name="call_action",
-            description="Execute a single action on the remote site. Supports hygiene (_select, _filter, _limit).",
+            description="Execute a single action on the remote site. Supports hygiene parameters in 'parameters': '_select' (GraphQL-style key selection e.g. ['id', 'status'] or 'user { name }' to save up to 90% context), '_filter', '_limit', and '_offset'.",
             inputSchema={
                 "type": "object",
                 "properties": props,
                 "required": ["action"]
             }
         )
-
+ 
     @staticmethod
     def execute_sequence_tool(with_session: bool = False) -> types.Tool:
         action_item = {
@@ -58,7 +58,7 @@ class MCPToolFactory:
             "properties": {
                 "action": {"type": "string"},
                 "alias": {"type": "string"},
-                "parameters": {"type": "object"},
+                "parameters": {"type": "object", "description": "Parameters for the action. Supports hygiene parameters: '_select' (e.g. ['id', 'status'] or 'user { name }' to filter keys), '_filter', '_limit', and '_offset' to save massive token context."},
                 "on_error": {"type": "string", "enum": ["stop", "continue"], "default": "stop"}
             },
             "required": ["action"]
@@ -70,10 +70,10 @@ class MCPToolFactory:
         }
         if with_session:
             props["session_id"] = {"type": "string", "description": "Optional session ID for memory isolation.", "default": "default"}
-
+ 
         return types.Tool(
             name="execute_sequence",
-            description="Batch execute tools. Piping: Use '$step0.field' or '$step0[0].field'. IMPORTANT: $stepN is ephemeral and relative to this call. Use 'alias' in a step to persist data globally. Failures are isolated per step — other steps continue unless 'on_error': 'stop' is set. Safe to use even when step success is uncertain.",
+            description="Batch execute tools. Piping: Use '$step0.field' or '$step0[0].field'. IMPORTANT: $stepN is ephemeral. Every step's 'parameters' block supports hygiene parameters: '_select' (GraphQL-style e.g. ['id', 'status'] or 'user { name }' to filter keys), '_filter', '_limit', and '_offset' to save up to 90% context. Use 'alias' in a step to persist data globally.",
             inputSchema={
                 "type": "object",
                 "properties": props

@@ -98,7 +98,9 @@ class ManifestPresenter:
         if is_root:
             lines.append("### MEMORY BANK (Live Memory)")
             lines.append("- Use `list_aliases()` to see stored findings ($step0, $step1, etc.)")
-            lines.append("- PIPING: Use '$alias.field' (e.g. '$step0.hostname') to access results directly.\n")
+            lines.append("- AUTO-ALIASING: The system automatically assigns '$step0' (1st step), '$step1' (2nd step), etc. to each step in the sequence. You do NOT need to define manual aliases for sequential step-to-step piping.")
+            lines.append("- PIPING: Use '$alias.field' (e.g. '$step0.hostname') to access results directly.")
+            lines.append("- COLLISION WARNING: Avoid naming custom aliases '$stepN' (like 'step1', 'step2') as they will collide with automatic 0-based sequence indexing. Use descriptive names (e.g. 'ip_host', 'audit_account') for global persistence across turns.\n")
 
         lines.append("### LANDMARK TOPOLOGY\n")
         

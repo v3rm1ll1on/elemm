@@ -29,7 +29,7 @@ class ManifestBuilder:
         "- PATH ADDRESSING: Sibling or sub-landmark paths mentioned in logs/alerts map directly to addressable landmarks. Call 'inspect_landmark' on them directly. Sibling actions may have prerequisite preconditions (e.g. locks/releases) within the same sub-landmark.\n"
         "- BATCHING: For independent actions, always prefer 'execute_sequence' over sequential 'call_action' calls. Failures are isolated per step.\n"
         "- ONBOARDING: New to this system? Run call_action(action='_elemm-help') before your first execute_sequence call.\n"
-        "- HYGIENE: Use '_select', '_filter', '_limit', and '_offset' to manage context overflow.\n"
+        "- HYGIENE: Use '_select', '_filter', '_limit', and '_offset' in 'parameters' (both in individual calls and 'execute_sequence' steps) to prevent context overflow. E.g., passing '_select': ['id', 'status'] or '_select': 'user { name }' saves up to 90% of your token context window!\n"
         "- VIRTUAL PAGINATION: If results are truncated, use '_offset' to fetch the next page. This works on BOTH lists and large string content (logs).\n"
     )
 
@@ -46,7 +46,7 @@ class ManifestBuilder:
         "- PATH ADDRESSING: Sibling or sub-landmark paths mentioned in logs/alerts map directly to addressable landmarks. Call 'inspect_landmark' on them directly. Sibling actions may have prerequisite preconditions (e.g. locks/releases) within the same sub-landmark.\n"
         "- BATCHING: For independent or sequential actions, always prefer 'execute_sequence' over sequential 'call_action' calls. Failures are isolated per step.\n"
         "- ONBOARDING: New to this system? Run call_action(action='_elemm-help') before your first execute_sequence call.\n"
-        "- HYGIENE: Use '_select', '_filter', '_limit', and '_offset' in EVERY call to prevent context overflow.\n"
+        "- HYGIENE: Use '_select', '_filter', '_limit', and '_offset' in EVERY call's 'parameters' (including inside 'execute_sequence' steps) to prevent context overflow. For example, pass '_select': ['id', 'status'] or '_select': 'user { name, email }' to filter JSON response keys and save up to 90% token space.\n"
         "- VIRTUAL PAGINATION: This gateway supports virtual pagination for ALL tools. If a response is truncated, increment '_offset' to see the remaining data.\n"
         "- PIPING: Chain results via '$alias.field' (e.g. '$step0.id') in any parameter. **IMPORTANT: $stepN is local to the current call and overwritten in the next sequence.** Use custom aliases for global persistence.\n"
     )
@@ -56,8 +56,10 @@ class ManifestBuilder:
     MEMORY_BANK = (
         "### SESSION GOVERNANCE\n"
         "- Use 'list_aliases' to see all current session findings ($step0, $step1, etc.).\n"
-        "- PERSISTENCE: Custom aliases (e.g. 'alias: \"user_id\"') stay in memory across turns.\n"
-        "- VOLATILITY: '$stepN' aliases are overwritten in each 'execute_sequence' call. Always prefer custom aliases for critical data.\n"
+        "- AUTO-ALIASING: The system automatically assigns '$step0' (1st step), '$step1' (2nd step), etc. to each step in the sequence. You do NOT need to define manual aliases for sequential step-to-step piping.\n"
+        "- PERSISTENCE: Custom aliases (e.g. 'alias: \"compromised_user\"') stay in memory across turns.\n"
+        "- COLLISION WARNING: Avoid naming custom aliases '$stepN' (like 'step1', 'step2') as they will collide with automatic 0-based sequence indexing and get overwritten. Use descriptive names instead (e.g., 'ip_host', 'audit_account').\n"
+        "- VOLATILITY: Automatic '$stepN' aliases are overwritten in each 'execute_sequence' call. Always prefer descriptive custom aliases for critical data you need in later turns.\n"
         "- SYNTAX: Use '$alias.field' (e.g. '$step0.id') or '$alias[0].field'. Do NOT use '.result' in the path.\n"
     )
 
