@@ -27,7 +27,7 @@ def test_deduplication(manager):
     res = manager.search_landmarks(query=["energy", "power"])
     
     # Count occurrences of the item in the markdown list specifically
-    count = res.count("- **`Zentrum:energy`**")
+    count = res.count("- Action: `Zentrum:energy` ")
     assert count == 1 # Set should have deduplicated it
 
 def test_default_limit_application(manager):

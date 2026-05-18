@@ -142,17 +142,19 @@ class ManifestPresenter:
                             is_tool = bool(t.handler) or t.type in ["action", "tool"]
                             
                             if is_tool:
-                                remedy_str = f" | Remedy: {t.remedy}" if getattr(t, 'remedy', None) else ""
-                                lines.append(f"  - Action: `{t.id}` ({self._get_required_params_str(t)} | Returns: {t.returns or 'any'}{remedy_str})")
+                                if show_technical:
+                                    lines.append(self._render_ts_signature(t))
+                                else:
+                                    remedy_str = f" | Remedy: {t.remedy}" if getattr(t, 'remedy', None) else ""
+                                    lines.append(f"  - Action: `{t.id}` ({self._get_required_params_str(t)} | Returns: {t.returns or 'any'}{remedy_str})")
+                                    lines.append(f"    > {t_desc}")
                                 rendered_tools += 1
                             else:
                                 child_info = f" ({len(t.tools)} tools available in this landmark)" if hasattr(t, 'tools') and t.tools else ""
                                 lines.append(f"  - Landmark: `{t.id}`{child_info}")
+                                lines.append(f"    > {t_desc}")
                                 rendered_landmarks += 1
                                 
-                            lines.append(f"    > {t_desc}")
-                            if is_tool and show_technical:
-                                lines.append(self._render_ts_signature(t))
                             items_rendered += 1
                             
                         if hidden_tools > 0:
@@ -164,17 +166,21 @@ class ManifestPresenter:
                         rendered_landmarks += 1
                 else:
                     desc = lm.description if getattr(lm, 'description', None) else f"Area: {lm.id}"
-                    lines.append(f"- **`{lm.id}`**: {desc}")
-                    items_rendered += 1
-                    
                     is_tool = bool(lm.handler) or lm.type in ["action", "tool"]
+                    
                     if is_tool:
+                        if show_technical:
+                            lines.append(self._render_ts_signature(lm))
+                        else:
+                            remedy_str = f" | Remedy: {lm.remedy}" if getattr(lm, 'remedy', None) else ""
+                            lines.append(f"- Action: `{lm.id}` ({self._get_required_params_str(lm)} | Returns: {lm.returns or 'any'}{remedy_str})")
+                            lines.append(f"  > {desc}")
                         rendered_tools += 1
                     else:
+                        lines.append(f"- **`{lm.id}`**: {desc}")
                         rendered_landmarks += 1
                         
-                    if hasattr(lm, 'handler') and lm.handler:
-                        lines.append(self._render_ts_signature(lm))
+                    items_rendered += 1
 
             remaining_landmarks = len(landmarks) - (offset + items_rendered)
             if remaining_landmarks > 0 or items_rendered < len(visible_lms):

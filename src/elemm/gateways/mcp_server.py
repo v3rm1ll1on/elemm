@@ -188,7 +188,7 @@ class MCPGateway:
             if not query:
                 return [types.TextContent(type="text", text="PROTOCOL ERROR: 'query' is required for search.")]
             
-            res = self.manager.search_landmarks(query)
+            res = self.manager.search_landmarks(query, technical=False)
             if auto_injected_manifest:
                 res = f"NOTICE: Auto-injected protocol manifest (Initial Discovery Attempt).\n\n{auto_injected_manifest}\n\n---\n\n{res}"
 

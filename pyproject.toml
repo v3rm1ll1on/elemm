@@ -44,6 +44,7 @@ examples = [
 
 [project.scripts]
 elemm-gateway = "elemm_gateway.cli:main"
+elemm-dashboard = "elemm_gateway.ui_backend.dashboard_server:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

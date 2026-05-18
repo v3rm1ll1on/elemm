@@ -8,6 +8,8 @@ import asyncio
 import logging
 import sys
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
 
@@ -566,7 +568,32 @@ async def get_vault_summary():
     except Exception as e:
         return [{"host": "Error", "type": str(e), "status": "error"}]
 
-if __name__ == "__main__":
+# Mount static files for the frontend if the directory exists
+frontend_dist_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../frontend/dist"))
+if not os.path.exists(frontend_dist_path):
+    # Fallback to local package dist folder if installed/packaged
+    frontend_dist_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "dist"))
+
+if os.path.exists(frontend_dist_path):
+    logger.info(f"Serving frontend from {frontend_dist_path}")
+    app.mount("/", StaticFiles(directory=frontend_dist_path, html=True), name="frontend")
+else:
+    logger.warning(f"Frontend dist directory not found at {frontend_dist_path}")
+
+
+def main():
     import uvicorn
-    # Start with reload enabled
-    uvicorn.run("elemm_gateway.ui_backend.dashboard_server:app", host="127.0.0.1", port=8090, reload=True)
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Start the Elemm Gateway Dashboard Server")
+    parser.add_argument("--host", default="127.0.0.1", help="Host to bind the server to")
+    parser.add_argument("--port", type=int, default=8090, help="Port to bind the server to")
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
+    
+    args = parser.parse_args()
+    
+    uvicorn.run("elemm_gateway.ui_backend.dashboard_server:app", host=args.host, port=args.port, reload=args.reload)
+
+
+if __name__ == "__main__":
+    main()
