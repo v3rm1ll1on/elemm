@@ -73,6 +73,19 @@ START_TIME = time.time()
 
 vault_manager = VaultManager(VAULT_PATH)
 
+def get_current_security_policy():
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                config = json.load(f)
+            ui_config = config.get("ui", {})
+            if ui_config.get("simulate_security_policy", False):
+                from elemm_gateway.services.security import SecurityPolicy
+                return SecurityPolicy(config)
+        except Exception as e:
+            logger.error(f"Failed to load SecurityPolicy in backend: {e}")
+    return None
+
 @app.get("/api/v1/inspect")
 async def inspect_site(url: str, landmark_id: str = None, session_id: str = "default"):
     """
@@ -84,6 +97,54 @@ async def inspect_site(url: str, landmark_id: str = None, session_id: str = "def
         
         result = await ManifestService.inspect_url(url, landmark_id=landmark_id, vault_manager=vault_manager, output_format="json")
         if result["status"] == "success":
+            # Apply server-side client emulation of active Guardian Security Policy
+            policy = get_current_security_policy()
+            if policy:
+                # 1. Filter result["tools"]
+                if "tools" in result and isinstance(result["tools"], list):
+                    result["tools"] = [
+                        t for t in result["tools"]
+                        if policy.is_action_allowed(
+                            t.get("name") or t.get("id") if isinstance(t, dict) else (t.name if hasattr(t, "name") else t.id),
+                            method=t.get("method") or t.get("meta", {}).get("method") if isinstance(t, dict) else (t.method if hasattr(t, "method") else (t.meta.get("method") if hasattr(t, "meta") else None))
+                        )["allowed"]
+                    ]
+                # 2. Filter result["landmarks"]
+                if "landmarks" in result:
+                    if isinstance(result["landmarks"], dict):
+                        result["landmarks"] = {
+                            id: data for id, data in result["landmarks"].items()
+                            if policy.is_action_allowed(
+                                id,
+                                method=data.get("method") or data.get("meta", {}).get("method") if isinstance(data, dict) else (data.method if hasattr(data, "method") else None)
+                            )["allowed"]
+                        }
+                    elif isinstance(result["landmarks"], list):
+                        result["landmarks"] = [
+                            lm for lm in result["landmarks"]
+                            if policy.is_action_allowed(
+                                lm.get("id") or lm.get("name") if isinstance(lm, dict) else (lm.id if hasattr(lm, "id") else lm.name),
+                                method=lm.get("method") or lm.get("meta", {}).get("method") if isinstance(lm, dict) else (lm.method if hasattr(lm, "method") else None)
+                            )["allowed"]
+                        ]
+                # 3. Filter result["data"]["landmarks"]
+                if "data" in result and isinstance(result["data"], dict) and "landmarks" in result["data"]:
+                    if isinstance(result["data"]["landmarks"], dict):
+                        result["data"]["landmarks"] = {
+                            id: data for id, data in result["data"]["landmarks"].items()
+                            if policy.is_action_allowed(
+                                id,
+                                method=data.get("method") or data.get("meta", {}).get("method") if isinstance(data, dict) else (data.method if hasattr(data, "method") else None)
+                            )["allowed"]
+                        }
+                    elif isinstance(result["data"]["landmarks"], list):
+                        result["data"]["landmarks"] = [
+                            lm for lm in result["data"]["landmarks"]
+                            if policy.is_action_allowed(
+                                lm.get("id") or lm.get("name") if isinstance(lm, dict) else (lm.id if hasattr(lm, "id") else lm.name),
+                                method=lm.get("method") or lm.get("meta", {}).get("method") if isinstance(lm, dict) else (lm.method if hasattr(lm, "method") else None)
+                            )["allowed"]
+                        ]
             # 1. Store Manifest String (Ensure it's a string for the UI parser)
             manifest_content = result.get("manifest")
             if not manifest_content and "data" in result:
@@ -133,6 +194,11 @@ async def inspect_landmark(landmark_id: str, url: str = None, session_id: str = 
     Fetches the technical signature for a specific landmark, prioritizing session cache.
     """
     try:
+        policy = get_current_security_policy()
+        if policy:
+            if not policy.is_action_allowed(landmark_id)["allowed"]:
+                raise HTTPException(status_code=403, detail=f"Access to action/landmark '{landmark_id}' is restricted by Security Policy.")
+
         session = GLOBAL_STATE["sessions"].get(session_id)
         if not url and session:
             url = session.get("active_url")
@@ -225,6 +291,17 @@ async def search_landmarks(query: str, url: str = None, session_id: str = "defau
         result = await ManifestService.search_landmarks(
             url, site_data, query, limit=limit, offset=offset, output_format="json"
         )
+        
+        policy = get_current_security_policy()
+        if policy and "landmarks" in result:
+            if isinstance(result["landmarks"], list):
+                result["landmarks"] = [
+                    lm for lm in result["landmarks"]
+                    if policy.is_action_allowed(
+                        lm.get("id") or lm.get("name") if isinstance(lm, dict) else (lm.id if hasattr(lm, "id") else lm.name),
+                        method=lm.get("method") or lm.get("meta", {}).get("method") if isinstance(lm, dict) else (lm.method if hasattr(lm, "method") else None)
+                    )["allowed"]
+                ]
         return result
     except HTTPException:
         raise
@@ -399,15 +476,101 @@ async def update_vault(vault: dict):
 
 @app.get("/api/v1/sessions")
 async def get_sessions():
-    """Returns statistics for all active sessions."""
-    return GLOBAL_STATE["sessions"]
+    """Returns statistics for all active sessions, optionally filtered by policy."""
+    import copy
+    policy = get_current_security_policy()
+    if not policy:
+        return GLOBAL_STATE["sessions"]
+    
+    filtered_sessions = copy.deepcopy(GLOBAL_STATE["sessions"])
+    for sid, session in filtered_sessions.items():
+        if "tools" in session and isinstance(session["tools"], list):
+            session["tools"] = [
+                t for t in session["tools"]
+                if policy.is_action_allowed(
+                    t.get("id") or t.get("name") if isinstance(t, dict) else (t.id if hasattr(t, "id") else t.name),
+                    method=t.get("method") or t.get("meta", {}).get("method") if isinstance(t, dict) else (t.method if hasattr(t, "method") else (t.meta.get("method") if hasattr(t, "meta") else None))
+                )["allowed"]
+            ]
+    return filtered_sessions
+
+def filter_manifest_string(manifest_str: str, policy) -> str:
+    if not manifest_str:
+        return manifest_str
+    
+    # Try parsing as pure JSON first
+    try:
+        data = json.loads(manifest_str)
+        # Filter tools
+        if "tools" in data and isinstance(data["tools"], list):
+            data["tools"] = [
+                t for t in data["tools"]
+                if policy.is_action_allowed(
+                    t.get("name") or t.get("id") if isinstance(t, dict) else t.id,
+                    method=t.get("method") or t.get("meta", {}).get("method") if isinstance(t, dict) else (t.meta.get("method") if hasattr(t, "meta") else None)
+                )["allowed"]
+            ]
+        # Filter landmarks
+        if "landmarks" in data:
+            if isinstance(data["landmarks"], dict):
+                data["landmarks"] = {
+                    id: val for id, val in data["landmarks"].items()
+                    if policy.is_action_allowed(
+                        id,
+                        method=val.get("method") or val.get("meta", {}).get("method") if isinstance(val, dict) else (val.method if hasattr(val, "method") else None)
+                    )["allowed"]
+                }
+            elif isinstance(data["landmarks"], list):
+                data["landmarks"] = [
+                    lm for lm in data["landmarks"]
+                    if policy.is_action_allowed(
+                        lm.get("id") or lm.get("name") if isinstance(lm, dict) else lm.id,
+                        method=lm.get("method") or lm.get("meta", {}).get("method") if isinstance(lm, dict) else (lm.method if hasattr(lm, "method") else None)
+                    )["allowed"]
+                ]
+        return json.dumps(data)
+    except Exception:
+        # Check if it has a json-elemm block in markdown
+        import re
+        pattern = r"(```json-elemm\s+)([\s\S]*?)(```)"
+        match = re.search(pattern, manifest_str)
+        if match:
+            try:
+                json_part = match.group(2).strip()
+                tools = json.loads(json_part)
+                if isinstance(tools, list):
+                    filtered_tools = [
+                        t for t in tools
+                        if policy.is_action_allowed(
+                            t.get("name") or t.get("id") if isinstance(t, dict) else t.id,
+                            method=t.get("method") or t.get("meta", {}).get("method") if isinstance(t, dict) else None
+                        )["allowed"]
+                    ]
+                else:
+                    t = tools
+                    allowed = policy.is_action_allowed(
+                        t.get("name") or t.get("id") if isinstance(t, dict) else t.id,
+                        method=t.get("method") or t.get("meta", {}).get("method") if isinstance(t, dict) else None
+                    )["allowed"]
+                    filtered_tools = t if allowed else {}
+                
+                new_json_part = json.dumps(filtered_tools, indent=2)
+                return manifest_str[:match.start(2)] + new_json_part + manifest_str[match.end(2):]
+            except Exception as e:
+                logger.warning(f"Failed to parse and filter embedded json-elemm block: {e}")
+        return manifest_str
 
 @app.get("/api/v1/sessions/{sid}/manifest")
 async def get_session_manifest(sid: str):
-    """Returns the manifest for a specific session."""
+    """Returns the manifest for a specific session, optionally filtered by policy."""
     manifest = GLOBAL_STATE["manifests"].get(sid)
     if not manifest:
         return {"manifest": None, "message": "No manifest found for this session"}
+    
+    policy = get_current_security_policy()
+    if policy:
+        manifest = filter_manifest_string(manifest, policy)
+        
     return {"manifest": manifest}
 
 @app.post("/api/v1/internal/publish")

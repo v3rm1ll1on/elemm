@@ -2,13 +2,32 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Key, Plus, Trash2, Eye, EyeOff, Globe, Clock, Shield, Info } from 'lucide-react';
 import './Vault.css';
 import Slide2Delete from './Slide2Delete';
+import Tooltip from './Tooltip';
 
-const Tooltip = ({ text }) => (
-  <div className="tooltip-wrapper">
-    <Info size={14} className="info-icon" />
-    <span className="tooltip-text">{text}</span>
-  </div>
-);
+const decodeBasicAuth = (value) => {
+  if (!value) return { username: '', password: '' };
+  try {
+    const decoded = atob(value);
+    const colonIdx = decoded.indexOf(':');
+    if (colonIdx !== -1) {
+      return {
+        username: decoded.substring(0, colonIdx),
+        password: decoded.substring(colonIdx + 1)
+      };
+    }
+  } catch (e) {
+    // Fallback
+  }
+  return { username: '', password: value };
+};
+
+const encodeBasicAuth = (username, password) => {
+  try {
+    return btoa(`${username}:${password}`);
+  } catch (e) {
+    return '';
+  }
+};
 
 const Vault = () => {
   const [vaultItems, setVaultItems] = useState([]);
@@ -87,6 +106,14 @@ const Vault = () => {
     ));
   };
 
+  const updateBasicAuth = (id, field, val, currentItem) => {
+    const { username, password } = decodeBasicAuth(currentItem.value || '');
+    const newUsername = field === 'username' ? val : username;
+    const newPassword = field === 'password' ? val : password;
+    const encoded = encodeBasicAuth(newUsername, newPassword);
+    updateVaultEntry(id, 'value', encoded);
+  };
+
   const deleteVaultEntry = (id) => {
     setVaultItems(prev => prev.filter(item => item.id !== id));
   };
@@ -124,7 +151,7 @@ const Vault = () => {
 
       <div className="vault-grid">
         {vaultItems.map((item) => (
-          <div key={item.id} className={`vault-card glass ${deletingId === item.id ? 'deleting-mode' : ''}`}>
+          <div key={item.id} className={`vault-card type-${(item.type || 'apiKey').toLowerCase()} glass ${deletingId === item.id ? 'deleting-mode' : ''}`}>
             {deletingId === item.id && (
               <Slide2Delete 
                 onConfirm={() => {
@@ -173,9 +200,9 @@ const Vault = () => {
                 )}
               </div>
               
-              <div className="form-group" style={{ opacity: item.type !== 'apiKey' ? 0.6 : 1 }}>
+              <div className={`form-group ${item.type !== 'apiKey' ? 'readonly-group' : ''}`}>
                 <label>
-                  {item.type === 'apiKey' ? 'Parameter Name' : 'Identifier'}
+                  <span>{item.type === 'apiKey' ? 'Parameter Name' : 'Identifier'}</span>
                   <Tooltip text={item.type === 'apiKey' 
                     ? "The key name (e.g. 'api_key' or 'X-API-Key')." 
                     : "For Bearer/Basic, this is fixed to 'Authorization'."} 
@@ -189,30 +216,60 @@ const Vault = () => {
                 />
               </div>
 
-              <div className="form-group">
-                <label>Credential Value <Tooltip text="Your secret token or password." /></label>
-                <div className="password-input-wrapper">
-                  <input 
-                    type={showKeys[item.id] ? 'text' : 'password'}
-                    value={item.value || ''} 
-                    onChange={(e) => updateVaultEntry(item.id, 'value', e.target.value)}
-                    placeholder="••••••••••••••••"
-                  />
-                  <button 
-                    className="btn-icon visibility-toggle"
-                    onClick={() => setShowKeys({...showKeys, [item.id]: !showKeys[item.id]})}
-                  >
-                    {showKeys[item.id] ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
+              {item.type === 'basic' ? (
+                <div className="form-row">
+                  <div className="form-group">
+                    <label>Username <Tooltip text="The HTTP Basic Auth username." /></label>
+                    <input 
+                      value={decodeBasicAuth(item.value).username} 
+                      onChange={(e) => updateBasicAuth(item.id, 'username', e.target.value, item)}
+                      placeholder="username"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Password <Tooltip text="The HTTP Basic Auth password." /></label>
+                    <div className="password-input-wrapper">
+                      <input 
+                        type={showKeys[item.id] ? 'text' : 'password'}
+                        value={decodeBasicAuth(item.value).password} 
+                        onChange={(e) => updateBasicAuth(item.id, 'password', e.target.value, item)}
+                        placeholder="••••••••"
+                      />
+                      <button 
+                        className="btn-icon visibility-toggle"
+                        onClick={() => setShowKeys({...showKeys, [item.id]: !showKeys[item.id]})}
+                      >
+                        {showKeys[item.id] ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="form-group">
+                  <label>Credential Value <Tooltip text="Your secret token or password." /></label>
+                  <div className="password-input-wrapper">
+                    <input 
+                      type={showKeys[item.id] ? 'text' : 'password'}
+                      value={item.value || ''} 
+                      onChange={(e) => updateVaultEntry(item.id, 'value', e.target.value)}
+                      placeholder="••••••••••••••••"
+                    />
+                    <button 
+                      className="btn-icon visibility-toggle"
+                      onClick={() => setShowKeys({...showKeys, [item.id]: !showKeys[item.id]})}
+                    >
+                      {showKeys[item.id] ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ))}
         {vaultItems.length === 0 && (
           <div className="empty-vault glass">
-            <Key size={48} className="text-secondary opacity-20" />
-            <p>No credentials stored in vault.</p>
+            <Shield size={64} className="empty-vault-icon" />
+            <p>Secure Vault is empty. Add your first external API credential to enable automatic injection.</p>
           </div>
         )}
       </div>

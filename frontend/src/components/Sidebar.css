@@ -130,6 +130,11 @@
   box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
 }
 
+.status-dot.offline {
+  background: var(--accent-danger, #ef4444);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+}
+
 .status-text {
   font-size: 0.8125rem;
   font-weight: 500;

@@ -253,7 +253,7 @@ const Security = () => {
               />
             </div>
             
-            <div className="form-group-custom" style={{ marginTop: '20px', marginBottom: '20px', paddingBottom: '15px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+            <div className="form-group-custom" style={{ marginTop: '20px', marginBottom: '15px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
               <label>Data Loss Prevention (DLP) <Tooltip text="Automatically scrubs all vault secrets from LLM responses to prevent leakage. Turn off only for debugging." /></label>
               <div style={{ display: 'flex', alignItems: 'center', marginTop: '10px' }}>
                 <label className="switch">
@@ -266,6 +266,29 @@ const Security = () => {
                 </label>
                 <span style={{ marginLeft: '12px', fontSize: '13px', color: config.security.prevent_key_leakage ? '#22c55e' : '#94a3b8', fontWeight: config.security.prevent_key_leakage ? '500' : 'normal' }}>
                   {config.security.prevent_key_leakage ? 'Active (Secrets Scrubbed)' : 'Disabled (Keys Visible)'}
+                </span>
+              </div>
+            </div>
+
+            <div className="form-group-custom" style={{ marginBottom: '20px', paddingBottom: '15px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <label>Global UI Policy Masking <Tooltip text="When active, the Visualizer Landmark TreeView and Token Analyzer will persistently filter out all blocked/disallowed endpoints based on this security policy." /></label>
+              <div style={{ display: 'flex', alignItems: 'center', marginTop: '10px' }}>
+                <label className="switch">
+                  <input 
+                    type="checkbox" 
+                    checked={config.ui?.simulate_security_policy || false} 
+                    onChange={(e) => {
+                      const nextUi = { ...(config.ui || {}), simulate_security_policy: e.target.checked };
+                      setConfig(prev => ({
+                        ...prev,
+                        ui: nextUi
+                      }));
+                    }} 
+                  />
+                  <span className="slider round"></span>
+                </label>
+                <span style={{ marginLeft: '12px', fontSize: '13px', color: config.ui?.simulate_security_policy ? 'var(--accent-primary)' : '#94a3b8', fontWeight: config.ui?.simulate_security_policy ? '600' : 'normal' }}>
+                  {config.ui?.simulate_security_policy ? 'Active (Strict UI Masking)' : 'Disabled (All Tools Visible)'}
                 </span>
               </div>
             </div>

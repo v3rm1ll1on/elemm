@@ -3,7 +3,6 @@ import {
   LayoutDashboard, 
   Key, 
   Search, 
-  History, 
   Settings, 
   Activity,
   Shield,
@@ -11,7 +10,7 @@ import {
 } from 'lucide-react';
 import './Sidebar.css';
 
-const Sidebar = ({ activeTab, setActiveTab }) => {
+const Sidebar = ({ activeTab, setActiveTab, isOnline }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const hoverTimeout = React.useRef(null);
 
@@ -31,7 +30,6 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
     { id: 'manifest', icon: <Search size={20} />, label: 'Manifest Debugger' },
     { id: 'security', icon: <Shield size={20} />, label: 'Security' },
     { id: 'vault', icon: <Key size={20} />, label: 'Vault / Auth' },
-    { id: 'history', icon: <History size={20} />, label: 'Call History' },
     { id: 'tokens', icon: <Activity size={20} />, label: 'Token Analysis' },
     { id: 'settings', icon: <Settings size={20} />, label: 'Settings' },
   ];
@@ -65,8 +63,8 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
       </nav>
 
       <div className="sidebar-footer">
-        <div className="status-dot online"></div>
-        {isExpanded && <span className="status-text">Gateway Online</span>}
+        <div className={`status-dot ${isOnline ? 'online' : 'offline'}`}></div>
+        {isExpanded && <span className="status-text">{isOnline ? 'Gateway Online' : 'Gateway Offline'}</span>}
       </div>
     </div>
   );

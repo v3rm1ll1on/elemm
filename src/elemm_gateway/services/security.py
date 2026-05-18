@@ -78,7 +78,7 @@ class SecurityPolicy:
                 }
 
         # --- B. METHOD CHECK ---
-        if method and self.allowed_methods:
+        if method and self.allowed_methods is not None:
             method_upper = method.upper()
             if method_upper not in self.allowed_methods:
                 return {

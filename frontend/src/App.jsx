@@ -3,7 +3,7 @@ import Sidebar from './components/Sidebar';
 import GlassCard from './components/GlassCard';
 import Tooltip from './components/Tooltip';
 import ObservabilityConsole from './components/ObservabilityConsole';
-import CallHistory from './components/CallHistory';
+import TokenAnalyzer from './components/TokenAnalyzer';
 import { Activity, Shield, Cpu, Zap } from 'lucide-react';
 import Settings from './components/Settings';
 import Security from './components/Security';
@@ -21,24 +21,41 @@ function App() {
   const [traceEvents, setTraceEvents] = useState([]);
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isOnline, setIsOnline] = useState(false);
 
   // WebSocket for Real-Time Streaming
   useEffect(() => {
     let ws;
     let reconnectTimeout;
+    let startTimeout;
     let isMounted = true;
 
     const connectWS = () => {
       if (!isMounted) return;
       ws = new WebSocket('ws://127.0.0.1:8090/ws/trace');
 
-      ws.onopen = () => { if (isMounted) console.log("WS connected"); };
+      ws.onopen = () => { 
+        if (isMounted) {
+          console.log("WS connected"); 
+          setIsOnline(true);
+        }
+      };
+      
+      ws.onerror = () => {
+        if (isMounted) {
+          setIsOnline(false);
+        }
+      };
+
       ws.onmessage = (event) => {
         if (!isMounted) return;
         const data = JSON.parse(event.data);
         
         if (data.type === 'status_update') {
           setSystemStatus(prev => ({ ...prev, ...data }));
+          if (data.sessions) {
+            setSessions(data.sessions);
+          }
           return;
         }
 
@@ -73,11 +90,15 @@ function App() {
       };
 
       ws.onclose = () => {
-        if (isMounted) reconnectTimeout = setTimeout(connectWS, 3000);
+        if (isMounted) {
+          setIsOnline(false);
+          reconnectTimeout = setTimeout(connectWS, 3000);
+        }
       };
     };
 
-    connectWS();
+    // Delay connection slightly to avoid React 18 StrictMode double-instantiation errors
+    startTimeout = setTimeout(connectWS, 100);
 
     const initFetch = async () => {
       try {
@@ -87,19 +108,25 @@ function App() {
           fetch('http://127.0.0.1:8090/api/v1/sessions'),
           fetch('http://127.0.0.1:8090/api/v1/config')
         ]);
+        if (!isMounted) return;
         setSystemStatus(await sRes.json());
         setVaultSummary(await vRes.json());
         setSessions(await sessRes.json());
         setConfig(await cRes.json());
-      } catch (e) { console.error("Init failed", e); }
-      finally { setLoading(false); }
+      } catch (e) { if (isMounted) console.error("Init failed", e); }
+      finally { if (isMounted) setLoading(false); }
     };
     initFetch();
 
     return () => {
       isMounted = false;
-      ws?.close();
+      clearTimeout(startTimeout);
       clearTimeout(reconnectTimeout);
+      if (ws) {
+        ws.onerror = null;
+        ws.onclose = null;
+        ws.close();
+      }
     };
   }, []);
 
@@ -181,16 +208,8 @@ function App() {
             />
           </div>
         );
-      case 'history':
-        return (
-          <div className="history-view-container premium-page-container animate-slide-up" style={{ padding: '32px' }}>
-            <CallHistory 
-              history={displayData?.history} 
-              selectedSessionId={selectedSessionId} 
-              config={config}
-            />
-          </div>
-        );
+      case 'tokens':
+        return <TokenAnalyzer />;
       case 'vault':
         return (
           <div className="premium-page-container animate-slide-up custom-scrollbar" style={{ padding: '32px', overflowY: 'auto' }}>
@@ -198,7 +217,13 @@ function App() {
           </div>
         );
       case 'manifest':
-        return <ManifestDebugger />;
+        return (
+          <ManifestDebugger 
+            sessions={sessions} 
+            selectedSession={selectedSessionId === 'global' ? (Object.keys(sessions).length > 0 ? Object.keys(sessions)[0] : null) : selectedSessionId} 
+            setSelectedSession={setSelectedSessionId} 
+          />
+        );
       case 'settings':
         return (
           <div className="premium-page-container animate-slide-up custom-scrollbar" style={{ padding: '32px', overflowY: 'auto' }}>
@@ -224,7 +249,7 @@ function App() {
 
   return (
     <>
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} isOnline={isOnline} />
       <main className="main-content">
         <header className="content-header">
           <div className="title-group">

@@ -9,6 +9,11 @@
   --accent-primary: #6366f1; /* Indigo */
   --accent-secondary: #38bdf8; /* Sky */
   --accent-glow: rgba(99, 102, 241, 0.4);
+  --accent-success: #10b981; /* Emerald Green */
+  --accent-danger: #ef4444; /* Flame Red */
+  --accent-warning: #f59e0b; /* Amber */
+  --border-color: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.16);
   
   --text-primary: #ffffff;
   --text-secondary: #94a3b8;
@@ -159,6 +164,10 @@ code, pre {
   margin-left: 8px;
   cursor: help;
   vertical-align: middle;
+}
+
+.tooltip-wrapper:hover {
+  z-index: 99999;
 }
 
 .info-icon {

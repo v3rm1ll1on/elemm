@@ -5,9 +5,14 @@ import { Cpu } from 'lucide-react';
 import LandmarkTreeView from './LandmarkTreeView';
 import LandmarkDetails from './LandmarkDetails';
 
-const ManifestDebugger = () => {
-  const [sessions, setSessions] = useState({});
-  const [selectedSession, setSelectedSession] = useState(null);
+const ManifestDebugger = ({ sessions: externalSessions, selectedSession: externalSelectedSession, setSelectedSession: externalSetSelectedSession }) => {
+  const [internalSessions, setInternalSessions] = useState({});
+  const [internalSelectedSession, setInternalSelectedSession] = useState(null);
+
+  const sessions = externalSessions || internalSessions;
+  const setSessions = externalSessions ? () => {} : setInternalSessions;
+  const selectedSession = externalSelectedSession !== undefined ? externalSelectedSession : internalSelectedSession;
+  const setSelectedSession = externalSetSelectedSession || setInternalSelectedSession;
   const [selectedLandmark, setSelectedLandmark] = useState('instructions');
   const [sessionManifests, setSessionManifests] = useState({});
   const [expandedNodes, setExpandedNodes] = useState({}); // id -> boolean
@@ -38,18 +43,20 @@ const ManifestDebugger = () => {
       const data = await resp.json();
       
       if (data.status === 'success' || data.landmarks) {
-        setSearchResults(data.landmarks || []);
+        const results = data.landmarks || [];
+        setSearchResults(results);
         
         // Also merge results into allLandmarks cache to ensure details can be loaded
         if (data.landmarks) {
           const newFound = {};
-          data.landmarks.forEach(lm => {
+          results.forEach(lm => {
             newFound[lm.id] = {
               id: lm.id,
               description: lm.description || "",
               isTool: lm.is_tool || lm.isTool || true, // Search results are usually tools
               parameters: lm.parameters || [],
               returns: lm.returns || "any",
+              method: lm.method || lm.meta?.method || null,
               outputSchema: lm.outputSchema || {}
             };
           });
@@ -110,6 +117,7 @@ const ManifestDebugger = () => {
           isTruncated: lm.is_truncated,
           parameters: lm.parameters || [],
           returns: lm.returns || "any",
+          method: lm.method || lm.meta?.method || null,
           outputSchema: lm.outputSchema || lm.response_schema || {},
           remedy: lm.remedy,
           signature: lm.signature || ""
@@ -159,6 +167,7 @@ const ManifestDebugger = () => {
             })),
             requiredParams: schema.required || [],
             returns: t.returns || "any",
+            method: t.method || t.meta?.method || null,
             signature: t.signature || ""
           };
         });
@@ -343,7 +352,8 @@ const ManifestDebugger = () => {
             parameters: lm.parameters || [],
             returns: lm.returns || "any",
             outputSchema: lm.outputSchema || lm.response_schema || {},
-            remedy: lm.remedy
+            remedy: lm.remedy,
+            method: lm.method || lm.meta?.method || null
           };
 
           if ((lm.is_tool || lm.isTool)) {
@@ -372,7 +382,8 @@ const ManifestDebugger = () => {
                 description: pData.description || "",
                 location: pData.location
               })),
-              returns: t.returns || "any"
+              returns: t.returns || "any",
+              method: t.method || t.meta?.method || null
             };
           });
         }
@@ -551,10 +562,22 @@ const ManifestDebugger = () => {
   // --- Effects ---
 
   useEffect(() => {
-    fetchSessions();
-    const interval = setInterval(fetchSessions, 10000);
-    return () => clearInterval(interval);
-  }, []);
+    if (!externalSessions) {
+      fetchSessions();
+      const interval = setInterval(fetchSessions, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [externalSessions]);
+
+  useEffect(() => {
+    if (externalSessions) {
+      setSelectedSession(prev => {
+        if (!prev && Object.keys(externalSessions).length > 0) return Object.keys(externalSessions)[0];
+        if (prev && !externalSessions[prev] && Object.keys(externalSessions).length > 0) return Object.keys(externalSessions)[0];
+        return prev;
+      });
+    }
+  }, [externalSessions, setSelectedSession]);
 
   useEffect(() => {
     if (selectedSession && !sessionManifests[selectedSession]) fetchManifest(selectedSession);

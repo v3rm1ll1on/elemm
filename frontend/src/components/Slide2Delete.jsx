@@ -73,7 +73,7 @@ const Slide2Delete = ({ onConfirm, onCancel, label = "Slide to delete" }) => {
             <div className="slide-label">{label}</div>
             <div className="slide-progress" style={{ width: `${dragX + 20}px` }}></div>
             <div 
-              className="slide-handle"
+              className={`slide-handle ${isDragging ? 'dragging' : ''}`}
               style={{ transform: `translateX(${dragX}px)` }}
               onMouseDown={handleStart}
               onTouchStart={handleStart}
