@@ -55,7 +55,7 @@ class GatewayToolRegistry:
 
     @classmethod
     def get_all_tools(cls) -> List[types.Tool]:
-        """Returns the full set of 8 tools for the Standalone Gateway."""
+        """Returns the full set of 9 tools for the Standalone Gateway."""
         core_tools = MCPToolFactory.get_core_tools(with_session=True)
         gateway_tools = [
             cls.get_connect_tool(),

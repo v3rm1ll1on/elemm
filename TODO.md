@@ -8,7 +8,7 @@
 - [x] Comprehensive documentation and PyPI release.
 
 ## Phase 2: Gateway v1.1.0 — Security and Integration (Completed)
-- [x] **Elemm Gateway**: Universal MCP server with broker architecture (8 core tools only).
+- [x] **Elemm Gateway**: Universal MCP server with broker architecture (9 core tools only).
 - [x] **OpenAPI Bridge**: Automatic parsing of OpenAPI 3.x / Swagger 2.0 into Elemm landmarks.
 - [x] **GraphQL Bridge**: Introspection-based mapping of GraphQL endpoints to landmarks.
 - [x] **Security Policy Engine (Guardian)**: Pattern blacklists, landmark restrictions, method filtering.

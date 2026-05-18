@@ -42,11 +42,13 @@ By eliminating the need for massive, repetitive system prompts and context-heavy
 Standard protocols like MCP often struggle with large-scale toolsets. Elemm provides a structural solution:
 
 - **Efficient Discovery**: Agents only see a high-level manifest, loading detailed tool schemas only when needed (on-demand inspection).
+- **Direct Search**: `search_landmarks(query)` enables regex-based tool discovery without traversing the full hierarchy — ideal for large API surfaces.
 - **Atomic Sequencing**: Execute multiple tool calls in a single LLM turn with native variable piping (`$step0.id`).
 - **Multi-Protocol Gateway**: Connect to any **OpenAPI**, **GraphQL**, or **native Elemm** service through a single MCP server.
-- **Security Policy Engine**: Built-in Guardian mode with pattern blacklists, landmark restrictions, and HTTP method filtering.
+- **Security Policy Engine**: Built-in Guardian mode with Zero-Trust whitelist, pattern blacklists, landmark restrictions, HTTP method filtering, and Data Loss Prevention.
 - **SmartRepair Engine**: Built-in error handling that provides agents with actionable remedies instead of cryptic stack traces.
 - **Token Economy**: Reduces input tokens by up to 90% in complex forensic and administrative scenarios.
+- **Observability Dashboard**: Optional web UI for real-time monitoring, API exploration, and configuration management.
 
 ---
 
@@ -55,8 +57,9 @@ Standard protocols like MCP often struggle with large-scale toolsets. Elemm prov
 *   **[Getting Started](docs/GETTING_STARTED.md)**: Install and run your first Elemm setup.
 *   **[Gateway Reference](docs/GATEWAY.md)**: Complete reference for the Elemm Gateway (OpenAPI, GraphQL, Security, Vault).
 *   **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Build your own landmark servers with decorators and Pydantic.
-*   **[Architecture Overview](docs/ARCHITECTURE.md)**: Deep dive into the Elemm philosophy.
+*   **[Architecture Overview](docs/ARCHITECTURE.md)**: Deep dive into the Elemm philosophy and package structure.
 *   **[Protocol Specification](docs/PROTOCOL_SPEC.md)**: Technical details for implementers.
+*   **[Dashboard & Observability](docs/DASHBOARD.md)**: The Gateway UI — monitoring, config, and API explorer.
 *   **[Benchmarking Results](docs/BENCHMARKING.md)**: Performance analysis vs. standard MCP.
 
 ---
@@ -94,7 +97,7 @@ The fastest way to use Elemm is via the built-in **Gateway**. It acts as a unive
 Once connected, tell your agent:
 > *"Use Elemm to connect to https://petstore.swagger.io/v2/swagger.json and list all available pets."*
 
-The Gateway provides exactly **8 core tools** to the agent. All domain-specific actions are discovered on-the-fly via the Elemm protocol.
+The Gateway provides **9 core tools** to the agent. All domain-specific actions are discovered on-the-fly via the Elemm protocol.
 
 ### 4. Build Your Own Landmark Server (Optional)
 Elemm uses a decorator-based approach to turn standard Python functions into high-performance landmarks:
@@ -114,9 +117,11 @@ async def quarantine_node(node_id: str, urgent: bool = False):
 ### Advanced Usage
 
 - **Pydantic Discovery**: Elemm automatically generates schemas from Pydantic models.
-- **Response Hygiene**: Built-in `_select`, `_filter`, and `_limit` parameters prevent context overflow.
+- **Response Hygiene**: Built-in `_select`, `_filter`, `_limit`, and `_offset` parameters prevent context overflow.
 - **Session Isolation**: Use `session_id` to run parallel tasks without cross-contamination.
 - **Self-Healing**: The SmartRepair engine provides agents with actionable remedies when errors occur.
+- **Search**: Use `search_landmarks(query)` with Python REGEX to locate tools instantly without full hierarchy traversal.
+- **Dashboard**: Start `python3 -m elemm_gateway.ui_backend.dashboard_server` for a real-time observability UI on port 8090.
 
 ---
 

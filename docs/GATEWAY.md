@@ -1,6 +1,6 @@
 # Elemm Gateway — Complete Reference
 
-The Elemm Gateway is an autonomous MCP server that acts as a **protocol-aware broker** between AI agents and remote APIs. It enables any MCP-compatible client (Claude Desktop, Cursor, Anything LLM, etc.) to interact with **any OpenAPI, GraphQL, or native Elemm API** through a single, unified interface of just 8 core tools.
+The Elemm Gateway is an autonomous MCP server that acts as a **protocol-aware broker** between AI agents and remote APIs. It enables any MCP-compatible client (Claude Desktop, Cursor, Anything LLM, etc.) to interact with **any OpenAPI, GraphQL, or native Elemm API** through a single, unified interface of **9 core tools**.
 
 ---
 
@@ -20,6 +20,7 @@ The Elemm Gateway is an autonomous MCP server that acts as a **protocol-aware br
 12. [SmartRepair — Error Guidance](#12-smartrepair--error-guidance)
 13. [Protocol Error Codes](#13-protocol-error-codes)
 14. [Architecture Overview](#14-architecture-overview)
+15. [Dashboard & Observability](#15-dashboard--observability)
 
 ---
 
@@ -29,8 +30,8 @@ The Gateway is built on three fundamental principles:
 
 | Principle | Description |
 |---|---|
-| **Broker, Not Proxy** | The gateway never exposes raw API endpoints to the agent. It provides exactly 8 generic core tools. All domain-specific actions are accessed through `call_action` or `execute_sequence`. |
-| **Manifest-Driven Discovery** | Agents must follow a strict handshake protocol (Connect → Manifest → Landmarks → Inspect → Execute) before they can run any action. This prevents hallucination and saves tokens. |
+| **Broker, Not Proxy** | The gateway never exposes raw API endpoints to the agent. It provides exactly 9 generic core tools. All domain-specific actions are accessed through `call_action` or `execute_sequence`. |
+| **Manifest-Driven Discovery** | Agents must follow a strict handshake protocol (Connect -> Manifest -> Landmarks -> Inspect -> Execute) before they can run any action. This prevents hallucination and saves tokens. |
 | **Token Hygiene** | Every response is truncated, filterable, and selectable. The gateway actively prevents context overflow in the AI agent's prompt window. |
 
 ---
@@ -100,8 +101,8 @@ python3 -m elemm_gateway.cli --transport sse --port 8000
 }
 ```
 
-After configuring your client, you will see exactly **8 tools** registered:
-`connect_to_site`, `get_manifest`, `call_action`, `execute_sequence`, `get_landmarks`, `inspect_landmark`, `list_aliases`, `clear_session`.
+After configuring your client, you will see exactly **9 tools** registered:
+`connect_to_site`, `get_manifest`, `get_landmarks`, `inspect_landmark`, `search_landmarks`, `call_action`, `execute_sequence`, `list_aliases`, `clear_session`.
 
 ---
 
@@ -110,13 +111,13 @@ After configuring your client, you will see exactly **8 tools** registered:
 Every session must follow this strict sequence. The gateway enforces this via a **handshake mechanism**: any action attempted before `get_manifest` is called will be rejected with a `PROTOCOL_VIOLATION` error.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  1. CONNECT        →  connect_to_site(url)                  │
-│  2. GET MANIFEST   →  get_manifest()          [HANDSHAKE]   │
-│  3. DISCOVER       →  get_landmarks()                       │
-│  4. INSPECT        →  inspect_landmark(id)                  │
-│  5. EXECUTE        →  call_action() / execute_sequence()    │
-└─────────────────────────────────────────────────────────────┘
++-------------------------------------------------------------+
+|  1. CONNECT        ->  connect_to_site(url)                  |
+|  2. GET MANIFEST   ->  get_manifest()          [HANDSHAKE]   |
+|  3. DISCOVER       ->  get_landmarks()                       |
+|  4. INSPECT        ->  inspect_landmark(id)                  |
+|  5. EXECUTE        ->  call_action() / execute_sequence()    |
++-------------------------------------------------------------+
 ```
 
 ### Handshake Enforcement
@@ -147,9 +148,9 @@ Connects the gateway to a remote API. The gateway auto-detects the interface typ
 | `url` | `string` | Yes | URL of the API (e.g., an OpenAPI JSON, a GraphQL endpoint, or an Elemm site). |
 
 **Auto-Detection Logic:**
-1. If the URL contains `graphql` → Attempts GraphQL introspection.
-2. If the URL ends in `.json`, `.yaml`, `.yml`, or contains `/openapi` → Parses as OpenAPI spec.
-3. Otherwise → Probes for a native Elemm manifest at `<url>/.well-known/elemm-manifest.md`.
+1. If the URL contains `graphql` -> Attempts GraphQL introspection.
+2. If the URL ends in `.json`, `.yaml`, `.yml`, or contains `/openapi` -> Parses as OpenAPI spec.
+3. Otherwise -> Probes for a native Elemm manifest at `<url>/.well-known/elemm-manifest.md`.
 
 ### `get_manifest`
 
@@ -182,6 +183,8 @@ Returns TypeScript-style technical signatures for all tools within the specified
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `landmark_id` | `string` or `string[]` | Yes | One or more landmark IDs to inspect. |
+| `_limit` | `integer` | No | Pagination limit to restrict the number of tools returned. |
+| `_offset` | `integer` | No | Pagination offset to skip a number of tools/landmarks. |
 
 **Example Output:**
 ```typescript
@@ -196,6 +199,16 @@ function call_action(action: 'repos_repos_get', parameters: { owner: string, rep
 
 > [!TIP]
 > Always call `inspect_landmark` before executing actions. Guessing parameter names or schemas from memory is the #1 cause of agent failures.
+
+### `search_landmarks`
+
+Global Python REGEX search over all landmarks and individual actions. Returns executable actions directly, bypassing the full hierarchy navigation.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `query` | `string` | Yes | Regex pattern (e.g. `'repos\|issues'` or `'^security:.*'`). |
+| `_limit` | `integer` | No | Max number of results to return. |
+| `_offset` | `integer` | No | Starting index for pagination. |
 
 ### `call_action`
 
@@ -351,13 +364,14 @@ Each `session_id` maintains its own isolated memory bank. This allows parallel t
 
 ## 8. Response Hygiene
 
-Every action call supports three universal hygiene parameters that are processed **gateway-side** before the response reaches the agent:
+Every action call supports four universal hygiene parameters that are processed **gateway-side** before the response reaches the agent:
 
 | Parameter | Type | Description |
 |---|---|---|
 | `_select` | `string` | Comma-separated list of fields to return. Supports dot-notation for nested objects (e.g., `"name, owner.login"`). |
 | `_filter` | `string` or `object` | Equality filter applied to array responses (e.g., `"state=open"` or `{"state": "open"}`). |
 | `_limit` | `integer` | Maximum number of items to return from array responses. |
+| `_offset` | `integer` | Number of items to skip (pagination). |
 
 ### Truncation Limits
 
@@ -365,7 +379,7 @@ Responses are automatically truncated to prevent context overflow:
 
 | Context | Default Limit | Config Key |
 |---|---|---|
-| Standard responses | 5,000 characters | `limit_standard` |
+| Standard responses | 30,000 characters | `limit_standard` |
 | Inspection responses | 20,000 characters | `limit_inspect` |
 
 When truncation occurs, the agent receives a hint:
@@ -381,14 +395,17 @@ The gateway includes a built-in security engine ("Guardian") that enforces restr
 
 ### Policy Layers
 
-Policies are evaluated in order. The first match blocks the action.
+Policies are evaluated in this order. The first match blocks the action.
 
 | Layer | Config Key | Description |
 |---|---|---|
+| **Zero-Trust Whitelist** | `enforce_whitelist` + `allowed_landmarks/actions` | When `enforce_whitelist: true`, only explicitly listed actions/landmarks are permitted. All others are denied. |
 | **HTTP Method Restriction** | `allowed_methods` | Whitelist of allowed HTTP methods. An empty list (`[]`) means **all methods are allowed**. |
 | **Action Blacklist** | `disallowed_actions` | Exact action IDs to block (e.g., `["admin_delete-user"]`). |
 | **Landmark Blacklist** | `disallowed_landmarks` | Entire landmark namespaces to hide and block (e.g., `["admin", "billing"]`). |
-| **Pattern Matching** | `disallowed_patterns` | Substrings that trigger blocking if found in the action ID (e.g., `["delete", "remove", "purge"]`). |
+| **Pattern Matching** | `disallowed_patterns` | Substrings that trigger blocking. Prefix with `re:` for full Python regex (e.g., `["re:.*secret.*", "delete"]`). |
+| **Deep Argument Inspection** | `disallowed_patterns` | Pattern matching is applied **recursively** to all argument values, not just the action name. |
+| **Data Loss Prevention** | `prevent_key_leakage` | When `true` (default), vault API keys are automatically scrubbed from all responses before reaching the agent. |
 
 ### Discovery Filtering
 
@@ -409,13 +426,8 @@ When a policy violation occurs:
 ### Exempt Actions
 
 The following are always exempt from security checks:
-- All core tools (`connect_to_site`, `get_manifest`, `get_landmarks`, etc.)
+- All 9 core tools (`connect_to_site`, `get_manifest`, `get_landmarks`, `inspect_landmark`, `search_landmarks`, `call_action`, `execute_sequence`, `list_aliases`, `clear_session`)
 - Internal `elemm:` prefixed actions
-- Inspection actions (ending in `_inspect`)
-
-### Example Configuration
-
-See [`examples/security_config_example.json`](../examples/security_config_example.json) for a production-ready template.
 
 ---
 
@@ -492,39 +504,56 @@ The gateway is configured via `~/.elemm/config.json`. The file is auto-created w
 ```json
 {
   "security": {
+    "enforce_whitelist": false,
+    "allowed_landmarks": [],
+    "allowed_actions": [],
     "disallowed_patterns": ["delete", "remove", "purge", "destroy"],
     "disallowed_landmarks": ["admin", "billing", "internal"],
     "disallowed_actions": ["users_delete_account"],
-    "allowed_methods": ["GET", "POST"]
+    "allowed_methods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    "prevent_key_leakage": true,
+    "custom_remedies": {},
+    "simulate_security_policy": false
   },
-  "limit_standard": 5000,
+  "limit_standard": 30000,
   "limit_inspect": 20000,
+  "limit_search_items": 10,
   "timeout_seconds": 30,
   "retry_attempts": 3,
-  "retry_delay_ms": 1000
+  "retry_delay_ms": 1000,
+  "max_tools_per_landmark": 5,
+  "max_landmarks_per_view": 20,
+  "user_agent": "ElemmGateway/1.0 (Autonomous Agent)",
+  "ui": {
+    "display_mode": "tokens",
+    "char_to_token_ratio": 4.0,
+    "simulate_security_policy": false
+  }
 }
 ```
-
-#### Filtering Examples (Security Policy)
-
-- **Strict Read-Only**: Set `allowed_methods` to `["GET"]`.
-- **Block Destructive Patterns**: Add `"delete"`, `"drop"`, `"truncate"` to `disallowed_patterns`.
-- **Isolate Departments**: Add `"finance"` or `"hr"` to `disallowed_landmarks` to hide those functional areas from the agent entirely.
-- **Granular Action Block**: Use `disallowed_actions` for specific high-risk tools like `repos_repos_delete`.
 
 ### Key Reference
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `security.disallowed_patterns` | `string[]` | `["delete", "remove", "purge", "destroy"]` | Action name substrings to block. |
+| `security.enforce_whitelist` | `boolean` | `false` | Zero-Trust mode. Only listed landmarks/actions are permitted. |
+| `security.allowed_landmarks` | `string[]` | `[]` | Whitelisted landmark namespaces (Zero-Trust mode only). |
+| `security.allowed_actions` | `string[]` | `[]` | Whitelisted exact action IDs (Zero-Trust mode only). |
+| `security.disallowed_patterns` | `string[]` | `["delete", "remove", "purge", "destroy"]` | Action name substrings to block. Prefix with `re:` for regex. |
 | `security.disallowed_landmarks` | `string[]` | `[]` | Landmark namespaces to hide and block entirely. |
 | `security.disallowed_actions` | `string[]` | `[]` | Explicit action IDs to block. |
-| `security.allowed_methods` | `string[]` | `["GET", "POST", "PUT", "PATCH", "DELETE"]` | Whitelisted HTTP methods. Empty `[]` = all allowed. |
-| `limit_standard` | `integer` | `5000` | Max characters for standard responses. |
+| `security.allowed_methods` | `string[]` | `["GET","POST","PUT","PATCH","DELETE"]` | Whitelisted HTTP methods. |
+| `security.prevent_key_leakage` | `boolean` | `true` | Scrub vault API keys from all agent responses. |
+| `security.custom_remedies` | `object` | `{}` | Map of `pattern/action_id` → custom remedy message. |
+| `limit_standard` | `integer` | `30000` | Max characters for standard responses. |
 | `limit_inspect` | `integer` | `20000` | Max characters for inspection responses. |
+| `limit_search_items` | `integer` | `10` | Max results for `search_landmarks`. |
 | `timeout_seconds` | `integer` | `30` | HTTP request timeout. |
 | `retry_attempts` | `integer` | `3` | Default retry count for transient failures. |
 | `retry_delay_ms` | `integer` | `1000` | Delay between retries in milliseconds. |
+| `max_tools_per_landmark` | `integer` | `5` | Max tools shown per landmark on connect. |
+| `max_landmarks_per_view` | `integer` | `20` | Max landmarks shown in `get_landmarks`. |
+| `user_agent` | `string` | `"ElemmGateway/1.0"` | User-Agent header for outgoing HTTP requests. |
 
 ---
 
@@ -575,59 +604,62 @@ All errors returned by the gateway follow a standardized format with a `_PROTOCO
 ## 14. Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        MCP CLIENT (Agent)                            │
-│              (Claude Desktop / Cursor / Anything LLM)                │
-└────────────────────────────┬─────────────────────────────────────────┘
-                             │  8 Core Tools (MCP Protocol)
++----------------------------------------------------------------------+
+|                        MCP CLIENT (Agent)                            |
+|              (Claude Desktop / Cursor / Anything LLM)                |
++----------------------------+-----------------------------------------+
+                             |  9 Core Tools (MCP Protocol)
                              ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│                       ELEMM GATEWAY v1.1.4                           │
-│                                                                      │
-│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────────┐  │
-│  │ SecurityPolicy│  │ManifestBuilder│  │   ConfigManager          │  │
-│  │  (Guardian)   │  │               │  │   (~/.elemm/config.json) │  │
-│  └──────────────┘  └───────────────┘  └──────────────────────────┘  │
-│                                                                      │
-│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────────────┐  │
-│  │ VaultManager │  │SequenceEngine │  │   ResponseSquisher       │  │
-│  │ (~/.elemm/   │  │ (Piping,      │  │   (_select, _filter,     │  │
-│  │  vault.json) │  │  Sessions,    │  │    _limit, Truncation)   │  │
-│  │              │  │  Retry)       │  │                          │  │
-│  └──────────────┘  └───────────────┘  └──────────────────────────┘  │
-│                                                                      │
-│  ┌──────────────────────────────────────────────────────────────┐    │
-│  │               Protocol Bridges                               │    │
-│  │  ┌──────────────┐  ┌───────────────┐  ┌────────────────┐    │    │
-│  │  │ OpenAPIBridge │  │ GraphQLBridge  │  │ Native Elemm   │    │    │
-│  │  │  (REST/JSON)  │  │(Introspection)│  │ (Manifest .md) │    │    │
-│  │  └──────┬───────┘  └───────┬───────┘  └───────┬────────┘    │    │
-│  └─────────┼──────────────────┼──────────────────┼──────────────┘    │
-└────────────┼──────────────────┼──────────────────┼───────────────────┘
-             │                  │                  │
++----------------------------------------------------------------------+
+|                    ELEMM GATEWAY (server.py)                         |
+|                                                                      |
+|  +--------------+  +---------------+  +──────────────────────────+  |
+|  |SecurityPolicy|  |ManifestService|  |   ConfigManager          |  |
+|  |  (Guardian)  |  |               |  |   (~/.elemm/config.json) |  |
+|  +--------------+  +---------------+  +──────────────────────────+  |
+|                                                                      |
+|  +--------------+  +---------------+  +──────────────────────────+  |
+|  | VaultManager |  | SequenceEngine|  |   ResponseSquisher       |  |
+|  | (~/.elemm/   |  | (Piping,      |  |   (_select, _filter,     |  |
+|  |  vault.json) |  |  Sessions,    |  |    _limit, _offset)      |  |
+|  |              |  |  Retry)       |  |                          |  |
+|  +--------------+  +---------------+  +──────────────────────────+  |
+|                                                                      |
+|  +──────────────────────────────────────────────────────────────+    |
+|  |               Protocol Bridges                               |    |
+|  |  +--------------+  +---------------+  +────────────────+    |    |
+|  |  | OpenAPIBridge |  | GraphQLBridge  |  | Native Elemm   |    |    |
+|  |  |  (REST/JSON)  |  |(Introspection)|  | (Manifest .md) |    |    |
+|  |  +──────┬───────+  +───────┬───────+  +───────┬────────+    |    |
+|  +─────────┼──────────────────┼──────────────────┼──────────────+    |
+|            |  ActivityMonitor (telemetry -> Dashboard)                |
++------------┼──────────────────┼──────────────────┼───────────────────+
+             |                  |                  |
              ▼                  ▼                  ▼
-    ┌────────────────┐  ┌──────────────┐  ┌──────────────────┐
-    │  OpenAPI APIs   │  │ GraphQL APIs │  │  Elemm Servers   │
-    │  (GitHub, etc.) │  │              │  │  (Smart Home,..) │
-    └────────────────┘  └──────────────┘  └──────────────────┘
+    +----------------+  +--------------+  +------------------+
+    |  OpenAPI APIs   |  | GraphQL APIs |  |  Elemm Servers   |
+    |  (GitHub, etc.) |  |              |  |  (Smart Home,..) |
+    +----------------+  +--------------+  +------------------+
 ```
 
 ### Component Responsibilities
 
 | Component | File | Responsibility |
 |---|---|---|
-| `ElemmGateway` | `server.py` | Main dispatcher, connection manager, handshake enforcement. |
-| `ManifestBuilder` | `components.py` | Generates and injects protocol rules, globals, and memory bank instructions. |
-| `SecurityPolicy` | `components.py` | Enforces pattern, landmark, action, and HTTP method restrictions. |
-| `ConfigManager` | `components.py` | Loads, migrates, and provides access to `~/.elemm/config.json`. |
-| `VaultManager` | `components.py` | Loads `~/.elemm/vault.json` and injects auth into outgoing requests. |
-| `ResponseSquisher` | `components.py` | Applies `_select`, `_filter`, and `_limit` hygiene to responses. |
-| `SequenceEngine` | `components.py` | Executes multi-step pipelines with piping, retry, and session isolation. |
-| `OpenAPIExecutor` | `components.py` | Constructs and sends HTTP requests for OpenAPI-based actions. |
-| `GraphQLExecutor` | `components.py` | Constructs GQL queries with variables and executes them. |
-| `OpenAPIBridge` | `openapi_bridge.py` | Parses OpenAPI/Swagger specs into Elemm tool registries. |
-| `GraphQLBridge` | `graphql_bridge.py` | Parses GraphQL introspection data into Elemm tool registries. |
-| `CLI` | `cli.py` | Entry point with argument parsing, transport selection, and banner. |
+| `ElemmGateway` | `server.py` | Main dispatcher, connection manager, handshake enforcement, telemetry. |
+| `ManifestService` | `services/manifest_service.py` | URL probing, bridge routing, landmark inspection, manifest generation. |
+| `SecurityPolicy` | `services/security.py` | Full Guardian engine: whitelist, blacklist, patterns, DLP, argument inspection. |
+| `ConfigManager` | `services/config.py` | Loads `~/.elemm/config.json` with hot-reload on every request. |
+| `VaultManager` | `services/vault.py` | Loads `~/.elemm/vault.json` and injects auth headers into outgoing requests. |
+| `ResponseSquisher` | `services/hygiene.py` | Applies `_select`, `_filter`, `_limit`, `_offset` hygiene to responses. |
+| `SequenceEngine` | `services/sequencer.py` | Executes multi-step pipelines with piping, retry, and session isolation. |
+| `OpenAPIExecutor` | `services/executors.py` | Constructs and sends HTTP requests for OpenAPI-based actions. |
+| `GraphQLExecutor` | `services/executors.py` | Constructs GQL queries with variables and executes them. |
+| `OpenAPIBridge` | `services/openapi_bridge.py` | Parses OpenAPI/Swagger specs into Elemm landmark registries. |
+| `GraphQLBridge` | `services/graphql_bridge.py` | Parses GraphQL introspection data into Elemm landmark registries. |
+| `GatewayToolRegistry` | `services/tool_registry.py` | Defines the 9 core MCP tool schemas. |
+| `ActivityMonitor` | `services/monitor.py` | Publishes telemetry events to the Dashboard backend. |
+| `CLI` | `cli.py` | Entry point with argument parsing and stdio/sse transport selection. |
 
 ---
 
