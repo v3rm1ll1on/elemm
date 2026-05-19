@@ -220,8 +220,15 @@ Global Python REGEX search over all landmarks and individual actions. Returns ex
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `query` | `string` | Yes | Regex pattern (e.g. `'repos\|issues'` or `'^security:.*'`). |
-| `_limit` | `integer` | No | Max number of results to return. |
+| `_limit` | `integer` | No | Max number of results to return (defaults to a safe context-hygiene cap of 10 if not specified). |
 | `_offset` | `integer` | No | Starting index for pagination. |
+
+> [!NOTE]
+> **Context-Hygiene & Scale Protection**:
+> To protect the agent's context window from being overloaded in large environments (e.g. 100k+ tools), the following behaviors are enforced:
+> 1. **Default Cap**: Large query results are automatically capped at 10 items.
+> 2. **Truncation Warning**: If there are more results than the limit, a detailed warning notice is injected showing the total count of matches.
+> 3. **Dynamic Namespace Suggestion**: The response dynamically recommends narrowing the search area by utilizing the specific namespace of the first matching landmark as a filter inside a follow-up `get_manifest(landmark_id="...")` call (e.g. `get_manifest(landmark_id="Zentrum:Sector_042:energy")`).
 
 ### `call_action`
 

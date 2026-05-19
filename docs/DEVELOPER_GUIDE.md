@@ -71,6 +71,15 @@ Unlike standard MCP servers that send all tool definitions at once, Elemm uses a
 
 This prevents the "Context Fatigue" that occurs when an LLM is overwhelmed by hundreds of tool definitions.
 
+### Searching at Scale with Smart Pagination & Filtering
+
+When dealing with large environments (like a city with 100,000+ tools), agents can use `search_landmarks(query="...")` to look up specific functional zones or actions.
+
+To protect the agent's context window from accidental bloat during broad searches, the Elemm Gateway applies smart search filters:
+- **Search Cap & Pagination**: Broad keyword queries (e.g. `power|failure`) are automatically capped to 10 results at a time.
+- **Smart Remediation Hints**: When results are truncated, the Gateway dynamically injects a warning instructing the agent to narrow down the query.
+- **Dynamic Recommendations**: The search response includes a custom recommendation showing the agent how to inspect or fetch the manifest for the exact namespace of the first matching landmark (e.g. `get_manifest(landmark_id="Zentrum:Sector_042:energy")`).
+
 ---
 
 ## 5. Performance Best Practices
