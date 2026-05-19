@@ -1,0 +1,41 @@
+{
+  "description": "Query operation: charactersByIds",
+  "type": "action",
+  "parameters": [
+    {
+      "name": "ids",
+      "type": "array",
+      "description": "",
+      "required": true,
+      "aliases": [],
+      "location": "query",
+      "meta": {
+        "gql_type": "[ID!]!"
+      }
+    }
+  ],
+  "tags": [],
+  "groups": [],
+  "meta": {
+    "type": "graphql",
+    "operation_type": "query",
+    "field_name": "charactersByIds",
+    "base_url": "https://rickandmortyapi.com/graphql"
+  },
+  "id": "Query:charactersByIds",
+  "tools": [],
+  "name": "Query:charactersByIds",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "ids": {
+        "type": "array",
+        "description": "",
+        "gql_type": "[ID!]!"
+      }
+    },
+    "required": [
+      "ids"
+    ]
+  }
+}

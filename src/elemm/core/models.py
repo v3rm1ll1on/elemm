@@ -25,11 +25,13 @@ class Parameter(BaseModel):
     default: Optional[Any] = None
     options: Optional[Union[List[Any], Dict[str, Any]]] = None
     aliases: List[str] = Field(default_factory=list)
+    location: str = "query" # query, path, header, body
+    meta: Dict[str, Any] = Field(default_factory=dict)
 
 class LandmarkMetadata(BaseModel):
     """Die rein deklarativen Metadaten aus der YAML."""
     description: str
-    type: str = "action"  # action, tool, navigation
+    type: str = "navigation"  # action, tool, navigation
     instructions: Optional[str] = None
     remedy: Optional[str] = None
     parameters: Optional[List[Parameter]] = None
@@ -37,6 +39,7 @@ class LandmarkMetadata(BaseModel):
     response_schema: Optional[Dict[str, Any]] = None
     tags: List[str] = Field(default_factory=list)
     groups: List[str] = Field(default_factory=list)
+    meta: Dict[str, Any] = Field(default_factory=dict)
 
 class Landmark(LandmarkMetadata):
     """Die vollständige Landmark inklusive Runtime-Handler."""

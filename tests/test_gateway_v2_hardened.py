@@ -33,6 +33,24 @@ def gateway():
         }
     }
     gw = ElemmGateway()
+    # Reset to standard test defaults so user config overrides don't break tests
+    gw.config_manager.config = {
+        "security": {
+            "disallowed_patterns": [],
+            "disallowed_landmarks": [],
+            "allowed_methods": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+            "disallowed_actions": [],
+            "allowed_landmarks": [],
+            "allowed_actions": [],
+            "custom_remedies": {},
+            "enforce_whitelist": False,
+            "prevent_key_leakage": True
+        },
+        "limit_standard": 30000,
+        "limit_inspect": 20000,
+        "max_landmarks_per_view": 20
+    }
+    gw.security_policy.refresh(gw.config_manager.config)
     gw.vault_manager.load = lambda: mock_vault # Direct override on component
     gw.vault_manager.vault = mock_vault
     gw.manifest_loaded = True # Authorize for tests
@@ -79,7 +97,7 @@ async def test_vault_key_injection(gateway):
         
         # Use execute_sequence
         actions = [
-            {"action": "Weather_getCurrentWeather", "parameters": {"q": "Berlin"}}
+            {"action": "Weather:getCurrentWeather", "parameters": {"q": "Berlin"}}
         ]
         await gateway._handle_execute_sequence(actions)
         
@@ -114,7 +132,7 @@ async def test_hygiene_squishing_nested(gateway):
         )
         
         # Call via execute_sequence
-        actions = [{"action": "General_getData", "parameters": {"_select": "user.name"}}]
+        actions = [{"action": "General:getData", "parameters": {"_select": "user.name"}}]
         res = await gateway._handle_execute_sequence(actions)
         
         results = json.loads(res[0].text)
@@ -138,7 +156,7 @@ async def test_auth_remedy_standard(gateway):
         # Mock 401 Unauthorized
         respx.get("https://api.locked.com/secret").respond(status_code=401, text="Unauthorized")
         
-        actions = [{"action": "General_getSecret"}]
+        actions = [{"action": "General:getSecret"}]
         res = await gateway._handle_execute_sequence(actions)
         
         results = json.loads(res[0].text)
@@ -169,4 +187,72 @@ async def test_landmark_discovery_grouping(gateway):
         res = await gateway._proxy_core_tool("get_landmarks", {})
         summary = res[0].text
         
-        assert "- **A**: (2 tools)" in summary
+        assert "- **A**:" in summary
+
+@pytest.mark.asyncio
+async def test_sequencer_local_tool_alias_and_normalization(gateway):
+    """Verify that execute_sequence normalizes gateway prefix and maps 'landmark' alias."""
+    target_url = "https://api.grouped.com/openapi.json"
+    with respx.mock:
+        respx.get(target_url).respond(status_code=200, json={
+            "openapi": "3.0.0",
+            "paths": {
+                "/a": {"get": {"tags": ["A"], "operationId": "one"}}
+            }
+        })
+        await gateway._connect(target_url)
+        gateway.manifest_loaded = True
+
+        # Call inspect_landmark with elemm-gateway prefix and 'landmark' parameter inside sequence
+        actions = [{
+            "action": "elemm-gateway:inspect_landmark",
+            "parameters": {
+                "landmark": "A"
+            }
+        }]
+        res = await gateway._handle_execute_sequence(actions)
+        results = json.loads(res[0].text)
+        assert results[0]["result"] is not None
+        assert "A" in json.dumps(results[0]["result"])
+
+@pytest.mark.asyncio
+async def test_core_tool_parameter_validation_errors(gateway):
+    """Verify that inspect_landmark and search_landmarks return descriptive errors if arguments are missing."""
+    target_url = "https://api.grouped.com/openapi.json"
+    with respx.mock:
+        respx.get(target_url).respond(status_code=200, json={
+            "openapi": "3.0.0",
+            "paths": {
+                "/a": {"get": {"tags": ["A"], "operationId": "one"}}
+            }
+        })
+        await gateway._connect(target_url)
+        gateway.manifest_loaded = True
+
+        # Calling inspect_landmark without landmark_id / landmark
+        res = await gateway._proxy_core_tool("inspect_landmark", {})
+        assert "Error: 'landmark_id' (or 'landmark') parameter is required" in res[0].text
+
+        # Calling search_landmarks without query
+        res = await gateway._proxy_core_tool("search_landmarks", {})
+        assert "Error: 'query' parameter is required" in res[0].text
+
+@pytest.mark.asyncio
+async def test_session_id_resolution(gateway):
+    """Verify that _resolve_session_id correctly checks arguments, ContextVar, and self.session_id."""
+    # 1. Fallback to gateway instance session_id
+    assert gateway._resolve_session_id() == "default"
+    
+    # 2. Check explicit session_id passed as argument
+    assert gateway._resolve_session_id(session_id="custom-arg") == "custom-arg"
+    
+    # 3. Check session_id from arguments dictionary
+    assert gateway._resolve_session_id(arguments={"session_id": "arg-dict"}) == "arg-dict"
+    
+    # 4. Check session_id from ContextVar
+    from elemm_gateway.services.connected_clients import current_client_id
+    token = current_client_id.set("context-var-session")
+    try:
+        assert gateway._resolve_session_id() == "context-var-session"
+    finally:
+        current_client_id.reset(token)

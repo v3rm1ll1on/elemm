@@ -18,7 +18,7 @@ import respx
 import httpx
 import json
 from elemm_gateway.server import ElemmGateway
-from elemm_gateway.graphql_bridge import GraphQLBridge
+from elemm_gateway.services.graphql_bridge import GraphQLBridge
 
 MOCK_GQL_URL = "https://api.test/graphql"
 
@@ -60,8 +60,8 @@ async def test_gateway_graphql_connect():
     site_data = gateway.connected_sites[MOCK_GQL_URL]
     assert site_data["type"] == "graphql"
     assert len(site_data["tools"]) > 0
-    assert "Query_test" in [t["name"] for t in site_data["tools"]]
-    assert "# ELEMM v2 INTERFACE" in site_data["manifest"]
+    assert "Query:test" in [t["name"] for t in site_data["tools"]]
+    assert "Bridged Interface" in site_data["manifest"]
 
 @pytest.mark.asyncio
 @respx.mock
@@ -81,7 +81,7 @@ async def test_gateway_graphql_execution():
     
     # 3. Call tool
     # Tool name is category_field
-    result_contents = await gateway._execute_single("Query_test", {"_select": "test"})
+    result_contents = await gateway._execute_single("Query:test", {"_select": "test"})
     
     # Verify execution
     assert "hello world" in result_contents

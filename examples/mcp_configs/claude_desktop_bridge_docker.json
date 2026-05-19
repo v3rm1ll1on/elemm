@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "elemm-gateway-bridge-docker": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--network",
+        "host",
+        "ghcr.io/v3rm1ll1on/elemm:latest",
+        "elemm-gateway",
+        "--transport",
+        "stdio",
+        "--bridge",
+        "http://localhost:8000/sse"
+      ]
+    }
+  }
+}

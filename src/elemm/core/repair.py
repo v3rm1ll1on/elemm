@@ -87,22 +87,22 @@ class SmartRepairEngine:
         return RepairResult(
             message=f"CRITICAL PROTOCOL ERROR: Direct tool execution via MCP is strictly prohibited for '{tool_id}'.",
             remedy="You MUST ALWAYS use the 'call_action' or 'execute_sequence' tools for ALL operations. Never attempt direct calls again.",
-            suggested_fix=example,
-            example=example
+            suggested_fix=f"call_action(action='{tool_id}', parameters={json.dumps(actual_params)})",
+            example=f"call_action(action='{tool_id}', parameters={json.dumps(actual_params)})"
         )
     
     @staticmethod
     def handle_piping_failure(alias: str, field: str, available_keys: List[str]) -> RepairResult:
         return RepairResult(
             message=f"Piping failed: Field '{field}' not found in alias '{alias}'.",
-            remedy=f"Available keys in this alias are: {available_keys}. Use call_action(action='elemm:list_aliases') to verify state.",
+            remedy=f"Available keys in this alias are: {available_keys}. Use the 'list_aliases' tool to verify current state.",
             example=f"${alias}.{available_keys[0]}" if available_keys else None
         )
     
     @staticmethod
     def handle_remote_error(status_code: int, remote_msg: str) -> RepairResult:
         """Translates HTTP status codes into actionable remedies for the agent."""
-        remedy = "Verify technical signatures with 'elemm:inspect_landmark' and check your parameters."
+        remedy = "Verify technical signatures with 'inspect_landmark' and check your parameters."
         
         if status_code == 404:
             remedy = "The resource was not found. Check if the 'owner', 'repo', or specific IDs (like issue_number) are spelled correctly."
@@ -130,7 +130,8 @@ class SmartRepairEngine:
     def handle_namespace_execution_attempt(namespace_id: str) -> RepairResult:
         return RepairResult(
             message=f"STRUCTURAL ERROR: '{namespace_id}' is a Landmark Namespace, not an executable function.",
-            remedy=f"You MUST use call_action(action='elemm:inspect_landmark', parameters={{'landmark_id': '{namespace_id}'}}) to discover the actual tool IDs before execution."
+            remedy=f"You MUST use 'inspect_landmark(landmark_id=\"{namespace_id}\")' to discover the actual tool IDs before execution.",
+            example=f"inspect_landmark(landmark_id='{namespace_id}')"
         )
 
     @staticmethod

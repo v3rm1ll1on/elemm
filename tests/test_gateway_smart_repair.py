@@ -55,7 +55,7 @@ async def test_openapi_error_details_extraction():
         
         assert res["status"] == "error"
         assert "Invalid date format" in res["message"]
-        assert "elemm:inspect_landmark" in res["remedy"]
+        assert "inspect_landmark" in res["remedy"]
 
 @pytest.mark.asyncio
 async def test_empty_result_info_injection():
@@ -87,13 +87,15 @@ async def test_landmark_namespace_protection_remedy():
         ]
     }
     
+    gateway.manifest_loaded = True
+    
     # We call 'Weather' which is a landmark (prefix of Weather_get)
     res_str = await gateway._execute_openapi("Weather", {})
     res = json.loads(res_str)
     
     assert "STRUCTURAL ERROR" in res["message"]
     assert "Landmark Namespace" in res["message"]
-    assert "elemm:inspect_landmark" in res["remedy"]
+    assert "inspect_landmark" in res["remedy"]
 
 @pytest.mark.asyncio
 async def test_vault_hot_reload():
@@ -126,4 +128,57 @@ async def test_malformed_piping_syntax():
         engine._navigate(engine.aliases["step0"], "user.status", engine.aliases)
     assert "Path component 'status' failed" in str(excinfo.value)
     assert "name" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_disconnected_structured_remedy():
+    """Verify that calling execution when disconnected returns a structured DISCONNECTED error with remedy."""
+    gateway = ElemmGateway()
+    gateway.active_site_url = None
+    res_str = await gateway._execute_single("some_tool", {})
+    res = json.loads(res_str)
+    assert res["status"] == "error"
+    assert res["_PROTOCOL_ERROR"] == "DISCONNECTED"
+    assert "remedy" in res
+    assert "example" in res
+    assert "connect_to_site" in res["example"]
+
+
+@pytest.mark.asyncio
+async def test_protocol_violation_structured_remedy():
+    """Verify that calling execution before loading manifest returns a PROTOCOL_VIOLATION error with remedy."""
+    gateway = ElemmGateway()
+    gateway.active_site_url = "http://test-site"
+    gateway.manifest_loaded = False
+    res_str = await gateway._execute_single("some_tool", {})
+    res = json.loads(res_str)
+    assert res["status"] == "error"
+    assert res["_PROTOCOL_ERROR"] == "PROTOCOL_VIOLATION"
+    assert "remedy" in res
+    assert "example" in res
+    assert "get_manifest" in res["example"]
+
+
+@pytest.mark.asyncio
+async def test_tool_not_found_fuzzy_remedy():
+    """Verify that calling a non-existent tool returns a fuzzy match suggestion via SmartRepairEngine."""
+    gateway = ElemmGateway()
+    gateway.active_site_url = "http://test-site"
+    gateway.connected_sites["http://test-site"] = {
+        "type": "openapi",
+        "tools": [
+            {"name": "Weather_get", "meta": {"type": "openapi"}},
+            {"name": "Weather_list", "meta": {"type": "openapi"}}
+        ]
+    }
+    gateway.manifest_loaded = True
+
+    # Call with a spelling mistake
+    res_str = await gateway._execute_openapi("Weather_gut", {})
+    res = json.loads(res_str)
+    assert res["status"] == "error"
+    assert res["_PROTOCOL_ERROR"] == "NOT_FOUND"
+    assert "remedy" in res
+    assert "Weather_get" in res["remedy"]
+
 

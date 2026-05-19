@@ -25,9 +25,11 @@ class SequenceEngine:
     def __init__(self, manager):
         self.manager = manager
 
-    async def run(self, actions: List[Dict[str, Any]], context: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def run(self, actions: List[Dict[str, Any]], context: Dict[str, Any], index_offset: int = 0) -> List[Dict[str, Any]]:
         results = []
-        for i, action_req in enumerate(actions):
+        for i_raw, action_req in enumerate(actions):
+            i = i_raw + index_offset
+            step_alias = f"step{i}"
             action_id = action_req.get("action")
             raw_params = action_req.get("parameters", {})
             alias = action_req.get("alias")
@@ -65,9 +67,9 @@ class SequenceEngine:
             result = await self.manager.call_action(action_id, resolved_params)
             
             # 3. Store results
-            step_alias = f"step{i}"
             context[step_alias] = result
             if alias:
+                # Store under custom alias as well
                 context[alias] = result
 
             # Context Hygiene: Omit action if success, keep if error
@@ -76,12 +78,16 @@ class SequenceEngine:
                 "alias": alias or step_alias,
                 "result": result
             }
-            if isinstance(result, dict) and result.get("status") == "error":
+            
+            is_error = isinstance(result, dict) and result.get("status") == "error"
+            if is_error:
                 res_entry["action"] = action_id
 
             results.append(res_entry)
             
-            if isinstance(result, dict) and result.get("status") == "error":
+            # 4. Error Handling (on_error: stop|continue)
+            on_error = action_req.get("on_error", "stop")
+            if is_error and on_error == "stop":
                 break
                 
         return results
@@ -189,10 +195,6 @@ class SequenceEngine:
             if current_key in source:
                 return self._navigate_path(source[current_key], remaining, alias_context)
             
-            # Single-field unwrap (fallback)
-            if len(source) == 1 and not remaining:
-                return list(source.values())[0], None
-                
             return None, f"Field '{current_key}' not found in '${alias_context}'. Available: {list(source.keys())}"
 
         if isinstance(source, list):

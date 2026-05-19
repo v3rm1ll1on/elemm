@@ -26,17 +26,57 @@ jobs:
       run: |
         python -m pytest tests/test_manager_v2.py
 
+  test-docker:
+    name: Test Docker Build & Run
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build local Docker image
+      run: docker build -t elemm-gateway-test .
+    - name: Start container
+      run: |
+        docker run -d -p 8000:8000 -p 8090:8090 --name test-container elemm-gateway-test
+    - name: Wait for server boot
+      run: sleep 5
+    - name: Run connection health check
+      run: |
+        curl -i --fail http://localhost:8090/api/v1/status || (docker logs test-container && exit 1)
+        code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:8000/sse || true)
+        if [ "$code" != "200" ]; then
+          echo "SSE Gateway check failed: HTTP $code"
+          docker logs test-container
+          exit 1
+        fi
+    - name: Tear down container
+      if: always()
+      run: docker rm -f test-container
+
   build-n-publish:
-    name: Build and publish to PyPI
-    needs: test
+    name: Build and publish to PyPI & Docker Hub
+    needs: [test, test-docker]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
+      packages: write
 
     steps:
     - uses: actions/checkout@v4
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+    - name: Build React Frontend
+      run: |
+        cd frontend
+        npm ci
+        npm run build
+        cd ..
+    - name: Copy Frontend Build to Package
+      run: |
+        mkdir -p src/elemm_gateway/ui_backend/dist
+        cp -r frontend/dist/* src/elemm_gateway/ui_backend/dist/
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -49,3 +89,21 @@ jobs:
       run: python -m build
     - name: Publish package to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
+
+    # --- Automatic GitHub Container Registry (GHCR) Release Publishing ---
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: |
+          ghcr.io/v3rm1ll1on/elemm:latest
+          ghcr.io/v3rm1ll1on/elemm:${{ github.ref_name }}

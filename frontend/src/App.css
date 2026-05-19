@@ -1,0 +1,11 @@
+/* 
+  App.css - Global Styles 
+  Note: This file has been modularized. 
+  Component-specific styles are now located in their respective component directories.
+  Shared layout styles are in Layout.css.
+*/
+
+.main-content {
+  /* Die Sidebar gleitet jetzt darüber, daher bleibt der Margin fest */
+  margin-left: var(--sidebar-width-collapsed);
+}

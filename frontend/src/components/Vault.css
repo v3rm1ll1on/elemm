@@ -1,0 +1,568 @@
+/* 
+  =========================================
+  ELEMM SECURE VAULT - PREMIUM DESIGN SYSTEM
+  =========================================
+*/
+
+.vault-container {
+  padding: 16px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Header & Status Area */
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 16px;
+}
+
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.page-title h2 {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  background: linear-gradient(135deg, #ffffff 30%, var(--accent-primary) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin: 0;
+}
+
+.sync-status {
+  display: flex;
+  align-items: center;
+}
+
+.sync-status span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sync-status span.syncing {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent-primary);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.sync-status span.synced {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  animation: pulse-green 2s infinite;
+}
+
+.sync-status span.ready {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Intro Alert Box */
+.vault-intro {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 24px;
+  margin-bottom: 32px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(99, 102, 241, 0.02) 100%);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 16px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(10px);
+}
+
+.vault-intro::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(to bottom, var(--accent-primary), transparent);
+}
+
+.vault-intro p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+
+/* Vault Actions & Buttons */
+.vault-actions {
+  margin-bottom: 28px;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, var(--accent-primary) 0%, #4f46e5 100%);
+  border: none;
+  color: #ffffff;
+  padding: 12px 22px;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3);
+}
+
+.btn-secondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+}
+
+.btn-secondary:active {
+  transform: translateY(0);
+}
+
+/* Responsive Vault Grid */
+.vault-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 28px;
+}
+
+/* Premium Card Layout */
+.vault-card {
+  position: relative;
+  background: linear-gradient(135deg, rgba(20, 20, 35, 0.75) 0%, rgba(15, 15, 25, 0.9) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+
+/* Interactive Border Glow */
+.vault-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  background: var(--card-accent, #6366f1);
+  transition: all 0.4s ease;
+}
+
+.vault-card:hover {
+  border-color: rgba(99, 102, 241, 0.25);
+  box-shadow: 0 12px 36px rgba(99, 102, 241, 0.12);
+  transform: translateY(-4px);
+}
+
+/* Dynamic Auth Type Styles */
+.vault-card.type-apikey {
+  --card-accent: #a855f7; /* Violet */
+}
+
+.vault-card.type-bearer {
+  --card-accent: #3b82f6; /* Blue */
+}
+
+.vault-card.type-basic {
+  --card-accent: #10b981; /* Green */
+}
+
+/* Card Header */
+.vault-card-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px 24px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-top-left-radius: 19px;
+  border-top-right-radius: 19px;
+}
+
+.host-input {
+  flex: 1;
+  background: transparent !important;
+  border: none !important;
+  padding: 4px 0 !important;
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: #ffffff;
+  box-shadow: none !important;
+  letter-spacing: -0.01em;
+  transition: all 0.2s ease;
+}
+
+.host-input:focus {
+  color: var(--card-accent, var(--accent-primary));
+}
+
+.btn-icon {
+  background: transparent;
+  border: none;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  color: var(--text-secondary);
+}
+
+.btn-icon:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+}
+
+.btn-icon.text-error:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* Card Body */
+.vault-card-body {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all 0.3s ease;
+}
+
+.form-group label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Input Fields and Selects */
+.vault-container input:not(.host-input),
+.vault-container select {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 11px 16px;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.875rem;
+  width: 100%;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.vault-container input:not(.host-input):hover,
+.vault-container select:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.vault-container input:not(.host-input):focus,
+.vault-container select:focus {
+  outline: none;
+  border-color: var(--card-accent, var(--accent-primary));
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.vault-container select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 40px;
+}
+
+.vault-container select option {
+  background-color: #0f0f1a;
+  color: #ffffff;
+}
+
+
+
+/* Password Input Visiblity Wrapper */
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrapper input {
+  padding-right: 48px !important;
+  font-family: inherit;
+}
+
+.visibility-toggle {
+  position: absolute;
+  right: 12px;
+  color: var(--text-secondary);
+  background: transparent !important;
+  border: none;
+  opacity: 0.5;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.visibility-toggle:hover {
+  opacity: 1;
+  color: var(--card-accent, var(--accent-primary)) !important;
+}
+
+/* Empty Vault Area */
+.empty-vault {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 40px;
+  text-align: center;
+  color: var(--text-secondary);
+  gap: 20px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.01) 100%);
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.15);
+}
+
+.empty-vault-icon {
+  color: var(--accent-primary);
+  opacity: 0.3;
+  animation: float 4s ease-in-out infinite;
+}
+
+.empty-vault p {
+  font-size: 1.05rem;
+  font-weight: 500;
+  margin: 0;
+  max-width: 320px;
+  line-height: 1.5;
+}
+
+/* Slide2Delete Integration styling */
+.vault-card.deleting-mode {
+  position: relative;
+}
+
+.vault-card.deleting-mode::after {
+  background: #ef4444; /* Rot fuer loeschen */
+}
+
+.vault-card.deleting-mode .vault-card-header,
+.vault-card.deleting-mode .vault-card-body {
+  filter: blur(6px);
+  pointer-events: none;
+  opacity: 0.25;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.delete-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  padding: 24px;
+  background: rgba(239, 68, 68, 0.04);
+  border-radius: 20px;
+  animation: alert-glow 2s infinite;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+.delete-overlay h4 {
+  margin: 0 0 16px 0;
+  color: #f87171;
+  font-size: 0.775rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+}
+
+.slide-track {
+  width: 100%;
+  max-width: 260px;
+  height: 48px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 24px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  overflow: hidden;
+  backdrop-filter: blur(4px);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.slide-label {
+  position: absolute;
+  width: 100%;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: rgba(248, 113, 113, 0.6);
+  pointer-events: none;
+  user-select: none;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.slide-handle {
+  width: 38px;
+  height: 38px;
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  cursor: grab;
+  z-index: 2;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), background 0.3s ease;
+}
+
+.slide-handle.dragging {
+  transition: none !important;
+}
+
+.slide-handle:active {
+  cursor: grabbing;
+  background: linear-gradient(135deg, #f87171 0%, #dc2626 100%);
+}
+
+.deleting-text {
+  color: #ef4444;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+}
+
+.slide-progress {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0) 0%, rgba(239, 68, 68, 0.3) 100%);
+  z-index: 1;
+}
+
+.cancel-timer {
+  margin-top: 14px;
+  font-size: 0.725rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  opacity: 0.8;
+  letter-spacing: 0.02em;
+}
+
+/* Readonly Form Groups styling */
+.form-group.readonly-group label > span {
+  opacity: 0.6;
+}
+
+.vault-container input[readonly] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: rgba(0, 0, 0, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* KEYFRAMES & ANIMATIONS */
+@keyframes pulse-green {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.3);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+@keyframes alert-glow {
+  0% {
+    background: rgba(239, 68, 68, 0.02);
+  }
+  50% {
+    background: rgba(239, 68, 68, 0.06);
+  }
+  100% {
+    background: rgba(239, 68, 68, 0.02);
+  }
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-10px) rotate(3deg);
+  }
+  100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+}

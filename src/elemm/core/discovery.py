@@ -46,17 +46,27 @@ class TypeMapper:
         # Handle Pydantic BaseModel (Recursive Schema)
         try:
             from pydantic import BaseModel
+            # Case 1: Direct BaseModel
             if inspect.isclass(annotation) and issubclass(annotation, BaseModel):
                 schema = annotation.model_json_schema()
                 return "object", schema
+            
+            # Case 2: List of BaseModel
+            if origin is list or origin is List:
+                args = getattr(annotation, "__args__", [])
+                if args and inspect.isclass(args[0]) and issubclass(args[0], BaseModel):
+                    schema = args[0].model_json_schema()
+                    return "array", schema
         except:
             pass
 
         raw_type = str(getattr(annotation, "__name__", annotation)).lower()
         
         # Handle typing.Dict, typing.List, etc.
-        if "dict" in str(annotation).lower(): raw_type = "object"
-        if "list" in str(annotation).lower(): raw_type = "array"
+        if "dict" in str(annotation).lower() or origin is dict or origin is Dict: 
+            raw_type = "object"
+        if "list" in str(annotation).lower() or origin is list or origin is List: 
+            raw_type = "array"
 
         mapping = {
             "str": "string", "string": "string",
@@ -92,6 +102,24 @@ class TypeMapper:
 
 class ParameterDiscovery:
     """Extrahiert Protokoll-Parameter aus Python-Funktionssignaturen."""
+
+    def extract_return_schema(self, func: Callable) -> Optional[Dict[str, Any]]:
+        """Extrahiert das JSON-Schema für den Rückgabewert einer Funktion."""
+        sig = inspect.signature(func)
+        return_type = sig.return_annotation
+        
+        if return_type is inspect.Signature.empty:
+            return None
+            
+        # Nutze TypeMapper für die Auflösung
+        p_type, schema_or_options = TypeMapper.map_type(return_type)
+        
+        if p_type in ["object", "array"] and isinstance(schema_or_options, dict):
+            # Resolve refs within the schema
+            definitions = schema_or_options.get("$defs", schema_or_options.get("definitions", {}))
+            return TypeMapper.resolve_refs(schema_or_options, definitions)
+            
+        return None
 
     def extract_parameters(self, func: Callable) -> List[Any]:
         """Konvertiert eine Funktionssignatur in eine Liste von Parameter-Objekten."""

@@ -28,12 +28,12 @@ def test_config_manager_creation():
         manager = ConfigManager(config_path)
         
         assert os.path.exists(config_path)
-        assert manager.get("limit_standard") == 5000
+        assert manager.get("limit_standard") == 30000
         assert manager.get("limit_inspect") == 20000
         
         with open(config_path, "r") as f:
             data = json.load(f)
-            assert data["limit_standard"] == 5000
+            assert data["limit_standard"] == 30000
 
 def test_config_manager_merging():
     """Tests if ConfigManager merges defaults with existing partial config."""

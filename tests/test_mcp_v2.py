@@ -80,3 +80,38 @@ async def test_mcp_inspect_landmarks_schema():
     # We'll use a more direct approach: check the code via a small hack or just trust the logic
     # For a real test, we would need to mock the MCP Server's internal tool storage.
     pass
+
+def test_mcp_run_sse_setup():
+    from unittest.mock import MagicMock, patch
+    from starlette.applications import Starlette
+
+    manager = AIProtocolManager()
+    gateway = MCPGateway(manager)
+
+    mock_server_instance = MagicMock()
+    mock_server_instance.serve = MagicMock()
+
+    with patch("uvicorn.Server", return_value=mock_server_instance) as mock_server_class, \
+         patch("asyncio.run") as mock_asyncio_run:
+        
+        gateway.run_sse(host="127.0.0.1", port=9999)
+        
+        # Verify uvicorn.Server was called
+        mock_server_class.assert_called_once()
+        config = mock_server_class.call_args[0][0]
+        
+        # Verify Uvicorn configuration parameters
+        assert config.host == "127.0.0.1"
+        assert config.port == 9999
+        
+        # Verify Starlette app configuration
+        app = config.app
+        assert isinstance(app, Starlette)
+        
+        # Verify routes
+        route_paths = [route.path for route in app.routes]
+        assert "/sse" in route_paths
+        assert "/messages" in route_paths
+        
+        # Verify asyncio.run started the server
+        mock_asyncio_run.assert_called_once()

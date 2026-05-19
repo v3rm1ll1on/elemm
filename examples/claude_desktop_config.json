@@ -1,16 +1,18 @@
 {
   "mcpServers": {
     "elemm-gateway": {
-      "command": "python3",
+      "command": "docker",
       "args": [
-        "-m",
-        "elemm_gateway.cli",
-        "http://localhost:8000"
-      ],
-      "env": {
-        "PYTHONPATH": "src",
-        "NOTE": "Change 'PYTHONPATH' to the absolute path of the 'src' directory if Claude cannot find the module."
-      }
+        "run",
+        "-i",
+        "--rm",
+        "-v",
+        "elemm-config:/root/.elemm",
+        "ghcr.io/v3rm1ll1on/elemm:latest",
+        "elemm-gateway",
+        "--transport",
+        "stdio"
+      ]
     }
   }
 }

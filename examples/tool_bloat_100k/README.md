@@ -156,6 +156,8 @@ The `release_emergency_brake` tool uses the `remedy` decorator parameter to
 inject a human-readable error message that guides the agent to the correct
 prerequisite step — without hardcoding logic into the gateway itself.
 
+Additionally, to assist local LLMs or less capable agents that lack a system prompt, the server utilizes the `instructions` parameter of the `AIProtocolManager` to embed **Auditor Special Directives & Scenario Protocols** directly into the manifest. These guidelines outline crucial physical and logical dependencies (such as releasing the mechanical emergency brake prior to lockdown, or reducing water pressure before a patch) directly in-context, guaranteeing a high success rate on any compliant model.
+
 ---
 
 ## Why This Matters

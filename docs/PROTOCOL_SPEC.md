@@ -18,7 +18,7 @@ A landmark definition must provide:
 
 ## 2. Standard Protocol Tools
 
-Every Elemm-compliant gateway must expose the following 8 core tools:
+Every Elemm-compliant gateway must expose the following **9 core tools**:
 
 ### `connect_to_site(url: string)`
 - **Purpose**: Establish a connection to a remote API.
@@ -35,15 +35,22 @@ Every Elemm-compliant gateway must expose the following 8 core tools:
 - **Returns**: A summary of available functional areas and tool counts per landmark.
 - **Security**: Landmarks restricted by the Security Policy are excluded from the response.
 
-### `inspect_landmark(landmark_id: string | string[])`
+### `inspect_landmark(landmark_id: string | string[], _limit?: integer, _offset?: integer)`
 - **Purpose**: Technical discovery for specific landmarks.
 - **Returns**: Full TypeScript-style technical signatures for all actions in the specified namespaces.
-- **Implementation Note**: Accepts either a single string ID or an array of IDs.
+- **Implementation Note**: Accepts either a single string ID or an array of IDs. Supports virtual pagination (`_limit`, `_offset`) for large namespaces.
+
+### `search_landmarks(query: string, _limit?: integer, _offset?: integer)`
+- **Purpose**: Global regex search over all landmarks and actions.
+- **Returns**: Executable actions matching the query, with full technical signatures.
+- **Usage**: Use the pipe operator `|` for multiple terms (e.g., `'repos|issues'`).
+- **Performance**: Bypasses full hierarchy navigation — ideal when the tool name is partially known.
+- **Security**: Queries are validated against the Security Policy. Blocked terms cannot be searched.
 
 ### `call_action(action: string, parameters: object)`
 - **Purpose**: Single action execution.
 - **Validation**: Security policy enforcement and schema validation.
-- **Hygiene**: Supports `_select`, `_filter`, and `_limit` parameters.
+- **Hygiene**: Supports `_select`, `_filter`, `_limit`, and `_offset` parameters.
 
 ### `execute_sequence(actions: object[], session_id?: string)`
 - **Purpose**: Batch execution with dependency management.
@@ -78,13 +85,14 @@ The execution engine resolves these placeholders in real-time, ensuring that the
 
 ## 4. Response Hygiene
 
-Every action supports three universal parameters for context control:
+Every action supports four universal parameters for context control:
 
 | Parameter | Type | Description |
 |---|---|---|
 | `_select` | `string` | Comma-separated list of fields to return. Supports dot-notation. |
 | `_filter` | `string` or `object` | Equality filter for array responses (e.g., `"state=open"`). |
 | `_limit` | `integer` | Maximum number of items to return. |
+| `_offset` | `integer` | Number of items to skip (pagination). |
 
 Additionally, responses are automatically truncated to configurable limits to prevent context overflow.
 
@@ -108,17 +116,21 @@ The engine attempts to correct common AI errors, such as calling a landmark name
 
 The gateway enforces a multi-layer security policy:
 
-1. **HTTP Method Restriction**: Whitelist of allowed methods (empty list = all allowed).
-2. **Action Blacklist**: Explicit action IDs to block.
-3. **Landmark Blacklist**: Entire namespaces to hide and block.
-4. **Pattern Matching**: Substrings in action names that trigger blocking (e.g., `delete`, `purge`).
+1. **Zero-Trust Whitelist** (`enforce_whitelist`): When enabled, only explicitly listed landmarks and actions are permitted. All others are denied by default.
+2. **HTTP Method Restriction**: Whitelist of allowed methods (empty list = all allowed).
+3. **Action Blacklist**: Explicit action IDs to block.
+4. **Landmark Blacklist**: Entire namespaces to hide and block.
+5. **Pattern Matching**: Substrings in action names that trigger blocking. Prefix with `re:` for Python regex.
+6. **Deep Argument Inspection**: Patterns are also matched recursively against all argument values.
+7. **Data Loss Prevention (DLP)**: Vault API keys are automatically scrubbed from all responses.
 
-Core tools are always exempt from security checks.
+Core tools (`connect_to_site`, `get_manifest`, `get_landmarks`, `inspect_landmark`, `search_landmarks`, `call_action`, `execute_sequence`, `list_aliases`, `clear_session`) are always exempt from security checks.
 
 ---
 
 ## 7. Protocol Constraints
 
-1.  **Handshake Requirement**: Agents must call `get_manifest()` before any execution. Direct action calls are blocked with `PROTOCOL_VIOLATION`.
-2.  **Broker Isolation**: The gateway only exposes 8 core tools to the MCP client. Domain-specific tools are never leaked.
-3.  **Parameter Filtering**: The engine strictly filters tool arguments, passing only those defined in the underlying function signature to prevent AI "hallucination noise".
+1. **Handshake Requirement**: Agents must call `get_manifest()` before any execution. Direct action calls are blocked with `PROTOCOL_VIOLATION`.
+2. **Broker Isolation**: The gateway only exposes 9 core tools to the MCP client. Domain-specific tools are never leaked.
+3. **Parameter Filtering**: The engine strictly filters tool arguments, passing only those defined in the underlying function signature to prevent AI "hallucination noise".
+4. **Placeholder Rejection**: Arguments containing unresolved placeholders (`"UNKNOWN"`, `"PLACEHOLDER"`, literal `"$stepN"` strings) are rejected before execution.

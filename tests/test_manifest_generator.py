@@ -21,10 +21,11 @@ def test_manifest_builder_structure():
     header = ManifestBuilder.build_header("Test API", "1.2.3")
     
     assert "# ELEMM v2 INTERFACE: Test API (v1.2.3)" in header
-    assert "### CRITICAL PROTOCOL RULES" in header
-    assert "### SESSION GOVERNANCE AND MEMORY" in header
-    assert "### GATEWAY GLOBALS" in header
-    assert "$step0.items[0].id" in header # Check for the improved piping explanation
+    assert "### OPERATIONAL HYGIENE" in header
+    assert "### SESSION GOVERNANCE" in header
+    assert "list_aliases" in header
+    assert "HYGIENE" in header # Check for the new operational hygiene rule
+    assert "$step0.id" in header
 
 def test_manifest_no_double_injection():
     """Tests if inject_globals is idempotent (no double injection)."""
@@ -32,11 +33,11 @@ def test_manifest_no_double_injection():
     
     # 1. First injection
     injected = ManifestBuilder.inject_globals(base_manifest)
-    assert injected.count("GATEWAY GLOBALS") == 1
+    assert "PROTOCOL WORKFLOW" in injected
     
     # 2. Second injection attempt
     re_injected = ManifestBuilder.inject_globals(injected)
-    assert re_injected.count("GATEWAY GLOBALS") == 1
+    assert re_injected.count("PROTOCOL WORKFLOW") == 1
     assert re_injected == injected
 
 def test_legacy_hint_cleanup():
@@ -45,5 +46,5 @@ def test_legacy_hint_cleanup():
     cleaned = ManifestBuilder.inject_globals(legacy)
     
     assert "'inspect_landmarks'" not in cleaned
-    assert "elemm:inspect_landmark" in cleaned
+    assert "'inspect_landmark'" in cleaned
     assert "inspect_landmark(id)" not in cleaned

@@ -1,0 +1,56 @@
+/* Manifest Debugger - Clean Layout Architecture */
+
+.manifest-inspector {
+  display: flex;
+  flex-direction: row;
+  height: calc(100vh - 120px);
+  width: 100%;
+  background: var(--bg-surface);
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+}
+
+.inspector-sidebar {
+  width: 350px;
+  min-width: 350px;
+  display: flex;
+  flex-direction: column;
+  background: rgba(0, 0, 0, 0.2);
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  /* WICHTIG für Scrollen der Treeview */
+  overflow: hidden; 
+}
+
+.inspector-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(circle at top right, rgba(99, 102, 241, 0.05), transparent 40%);
+  overflow: hidden;
+}
+
+/* Scrollbar Design für alle Container */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.5);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}

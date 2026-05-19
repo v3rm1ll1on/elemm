@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "elemm-gateway-bridge": {
+      "command": "wsl.exe",
+      "args": [
+        "-d",
+        "Ubuntu",
+        "-u",
+        "your-username",
+        "bash",
+        "-c",
+        "cd /home/your-username/elemm/ai_landmarks_pkg && ./venv/bin/python3 -m elemm_gateway.cli --bridge http://localhost:8000/sse"
+      ]
+    }
+  }
+}

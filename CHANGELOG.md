@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-05-17
+
+### Added
+- **Auditor Special Directives**: Added support for toolset-specific instructions inside the `AIProtocolManager` constructor. Custom directives are seamlessly integrated directly into the markdown manifest to provide critical logical/physical guidelines to LLMs.
+- **x-elemm-instructions support**: Added automatic bridging of custom directives from OpenAPI specifications (via `x-elemm-instructions` under the `info` object or root level) directly into the gateway's transient manifest.
+- **Search Scale & Context-Hygiene Protection**: Implemented dynamic pagination limits and search result caps (defaulting to 10 results) in `search_landmarks` to avoid agent context bloat, with truncation warnings and dynamic namespace recommendations (e.g. `get_manifest(landmark_id="...")`).
+- **Dockerization & CI/CD Automation**: Integrated multi-stage `Dockerfile` and production-ready `docker-compose.yml` for platform-independent, one-click deployment of the gateway. Standardized automated container builds, health-checks, and automatic image publishing targeting **GitHub Container Registry (GHCR)** upon new releases.
+- **Observability Dashboard (Frontend)**: Brand new, high-performance React frontend for gateway monitoring and real-time live debugging.
+  - **TokenAnalyzer & TokenCalculator**: Live tracking, visualization, and calculation of token consumption, costs, and real savings achieved via Elemm response hygiene.
+  - **ManifestDebugger & Live-Execution UI**: Full client to inspect landmarks and execute parameterized tool actions live.
+  - **LandmarkTreeView & LandmarkDetails**: Hierarchical tree-based visualization of landmarks and real-time tool signatures.
+  - **Security Control Panel**: Browser-based configuration of Guardian security policies, whitelists, and filters.
+  - **Vault Manager**: UI-driven API credential management supporting a native `Slide2Delete` gesture.
+- **Modular Python Services Architecture (Backend)**: Complete refactoring of the gateway core under `src/elemm_gateway/services/` for optimal modularity and clean separation of concerns.
+  - Split gateway functions into dedicated services: `config`, `executors`, `graphql_bridge`, `hygiene`, `manifest`, `manifest_service`, `monitor`, `openapi_bridge`, `security`, `sequencer`, `telemetry`, `tool_registry`, and `vault`.
+- **Universal `search_landmarks` Tool**: A new core tool in the gateway allowing global, high-performance regex search across all landmarks and actions.
+- **Virtual Pagination & Truncation**: Standardized support for `_limit`, `_offset`, and `_select` parameters, coupled with intelligent `smart_truncate` highlighting exact truncation status.
+- **Enhanced Security & Data Privacy**:
+  - **API Key Redaction**: Automated detection and redacting of API keys in logs and outgoing JSON responses.
+  - **Guardian Engine**: Granular whitelist/blacklist validation, landmark path checks, and HTTP method filtering at the core layer.
+- **Config Hot-Reloading**: Seamless loading of gateway policy and credential updates at runtime without restarting the server.
+- **Comprehensive Test Suite**: Added over 18 new test modules covering pagination, E2E scenarios, hot-reloading, and manifest consistency.
+
+### Changed
+- **Centralized Versioning**: Version number consolidated under `pyproject.toml` as the single source of truth, dynamically loaded by the CLI and Dashboard.
+- **GraphQL Bridge Refactoring**: Significantly improved type resolution and query generation via recursive type inspection and smart leaf fallbacks.
+- **SmartRepair & Presenter Updates**: Embedded detailed remedy guidelines directly in tool metadata to maximize LLM autonomy when errors occur.
+
+### Fixed
+- **Search Truncation Math**: Corrected the search truncation count calculation in `ManifestPresenter.present_manifest` to accurately determine remaining matches by inspecting the actual total results in transience.
+- **Starlette Connection Close Crash**: Resolved an ASGI runtime `TypeError` crash in the SSE connection handler (`handle_sse` in `cli.py`) by explicitly returning a Starlette `Response()` object upon client disconnection.
+
 ## [1.1.4] - 2026-05-13
 
 ### Added

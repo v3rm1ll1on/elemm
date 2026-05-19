@@ -14,7 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional, Callable, Union
 from pydantic import BaseModel
 from .models import Landmark, LandmarkRegistry, Manifest, Parameter
 
@@ -24,10 +24,17 @@ class AIProtocolManager:
     """Zentrale für das Elemm v2 Protokoll (Back-to-Basics)."""
     
     DEFAULT_INSTRUCTIONS = """# ELEMM v2 PROTOCOL RULES
-1. **DISCOVERY**: Use 'get_manifest' to see landmarks.
-2. **INSPECTION**: Use 'inspect_landmark' for technical signatures.
-3. **EXECUTION**: Use 'call_action' or 'execute_sequence' ONLY.
-4. **MEMORY**: Use 'list_aliases' to see stored findings ($step_0, $step_1, etc.)
+1. **DISCOVERY**: Use 'get_manifest' to see functional areas (landmarks).
+2. **INSPECTION**: Use 'inspect_landmark' to get technical signatures (REQUIRED before execution).
+3. **EXECUTION**: Use 'call_action' or 'execute_sequence'.
+4. **MEMORY**: Access results via '$alias.field' or '$stepN.field'.
+
+## PIPELINING & MEMORY RULES
+- **SESSION MEMORY**: Every tool call (individual or sequence step) is stored as '$step0', '$step1', etc. in order. 
+- **PERSISTENCE**: Use '_alias' in 'call_action' or 'alias' in 'execute_sequence' to name a result permanently.
+- **SYNTAX**: Access data directly: '$step0.id'. 
+- **LISTS**: If a tool returns a list, you MUST use an index: '$step0[0].id'. Ambiguous calls (missing index on lists) will fail.
+- **INSPECT**: Use `list_aliases()` to see all stored findings.
 """
 
     def __init__(self, registry: Optional[LandmarkRegistry] = None, presenter: Optional[Any] = None, **kwargs):
@@ -60,6 +67,7 @@ class AIProtocolManager:
 
         from .discovery import ParameterDiscovery
         self.discovery = ParameterDiscovery()
+        self.session_step_counter = 0
 
     def landmark(self, landmark_id: str, **landmark_data):
         """Dekorator für Landmark-Tools."""
@@ -70,16 +78,22 @@ class AIProtocolManager:
             
             parts = actual_id.split(":")
             
-            # Metadata
+            # Metadata - Use get() instead of pop() to avoid data loss in the hierarchy loop
             tool_meta = self.registry.get(actual_id)
-            desc = landmark_data.pop("description", None) or (tool_meta.description if tool_meta else None) or (func.__doc__ if func else None) or f"Area: {actual_id}"
-            params = landmark_data.pop("parameters", None) or (tool_meta.parameters if tool_meta else None)
+            desc = landmark_data.get("description") or (tool_meta.description if tool_meta else None) or (func.__doc__ if func else None) or f"Area: {actual_id}"
+            params = landmark_data.get("parameters")
+            if params is None:
+                params = tool_meta.parameters if tool_meta else None
             if params is None and func:
                 params = self.discovery.extract_parameters(func)
                 
-            returns = landmark_data.pop("returns", None) or (tool_meta.returns if tool_meta else None)
-            remedy = landmark_data.pop("remedy", None) or (tool_meta.remedy if tool_meta else None)
-            instructions = landmark_data.pop("instructions", None) or (tool_meta.instructions if tool_meta else None)
+            returns = landmark_data.get("returns") or (tool_meta.returns if tool_meta else None)
+            response_schema = landmark_data.get("response_schema") or (tool_meta.response_schema if tool_meta else None)
+            if response_schema is None and func:
+                response_schema = self.discovery.extract_return_schema(func)
+                
+            remedy = landmark_data.get("remedy") or (tool_meta.remedy if tool_meta else None)
+            instructions = landmark_data.get("instructions") or (tool_meta.instructions if tool_meta else None)
 
             # Build Hierarchy
             for i in range(1, len(parts) + 1):
@@ -103,8 +117,13 @@ class AIProtocolManager:
                     lm.returns = returns
                     lm.remedy = remedy
                     lm.instructions = instructions
+                    lm.type = "action" if func else "navigation"
+                    
+                    # Set extra fields (excluding already handled ones)
+                    skip_keys = {"description", "parameters", "returns", "response_schema", "remedy", "instructions"}
                     for k, v in landmark_data.items():
-                        setattr(lm, k, v)
+                        if k not in skip_keys:
+                            setattr(lm, k, v)
 
                 if i > 1:
                     parent_id = ":".join(parts[:i-1])
@@ -116,17 +135,39 @@ class AIProtocolManager:
             return func
         return decorator
 
+    # Backward compatibility alias
+    bind = landmark
+
     def register(self, landmark_id: str, **landmark_data):
         """Hilfsmethode zur Registrierung von Landmarken ohne Handler."""
         return self.landmark(landmark_id, **landmark_data)(None)
 
     async def call_action(self, action_id: str, arguments: Dict[str, Any]) -> Any:
         """Führt eine Action aus mit Smart Repair und Auto-Aliasing."""
+        # 0. Handle Internal Core Tools (Redirection for call_action/sequences)
+        if action_id == "get_manifest":
+            return self.get_manifest(**arguments)
+        if action_id == "inspect_landmark":
+            landmark_id = arguments.get("landmark_id")
+            return self.inspect_landmark(landmark_id) if landmark_id else "Error: 'landmark_id' required."
+        if action_id == "search_landmarks":
+            query = arguments.get("query")
+            return self.search_landmarks(query) if query else "Error: 'query' required."
+        if action_id == "get_landmarks":
+            return [lm.model_dump(exclude_none=True) for lm in self.get_landmarks()]
+        if action_id == "list_aliases":
+            return self.list_aliases()
+
         landmark = self.landmarks.get(action_id)
         
         # 1. Check Existence
         if not landmark:
             return self.repair.handle_missing_action(action_id, list(self.landmarks.keys())).model_dump(exclude_none=True)
+
+        # 1. Resolve Piping (Global Session Logic)
+        arguments, err = self.sequencer.resolve_all(arguments, self.global_context)
+        if err:
+            return {"status": "error", "message": f"Piping failed: {err}", "remedy": "Ensure the field exists or use explicit indexing (e.g. $step0[0].id) if the source is a list."}
 
         # 2. Check Callability (Area vs Tool)
         if not landmark.handler:
@@ -134,6 +175,9 @@ class AIProtocolManager:
                 return self.repair.handle_namespace_execution_attempt(action_id).model_dump(exclude_none=True)
             return {"status": "error", "message": f"Tool {action_id} has no implementation."}
 
+        # 2.1 Handle Alias Registration
+        alias = arguments.pop("_alias", None)
+        
         # 3. Validate Parameters
         params = landmark.parameters or []
         
@@ -218,11 +262,64 @@ class AIProtocolManager:
                 if remedy and "remedy" not in result:
                     result["remedy"] = remedy
             
-            return result
+            # --- PROTOCOL HYGIENE ---
+            try:
+                from elemm.core.hygiene import ResponseSquisher
+                select = arguments.get("_select")
+                filter_str = arguments.get("_filter")
+                limit = arguments.get("_limit")
+                offset = arguments.get("_offset")
                 
-            # Auto-Aliasing: In v2 we only pipe via explicit aliases ($step0 etc.)
-            # or the global_context which is managed by the sequencer/broker.
-            # We no longer flatten results into the global namespace to avoid collisions.
+                if limit is not None: limit = int(limit)
+                if offset is not None: offset = int(offset)
+                
+                if any(v is not None for v in [select, filter_str, limit, offset]) and result is not None:
+                    # Convert to dict if it's a Pydantic model or dataclass
+                    if hasattr(result, "model_dump"):
+                        result = result.model_dump(exclude_none=True)
+                    elif hasattr(result, "dict"):
+                        result = result.dict()
+                        
+                    # Squish operates on dicts and lists safely
+                    squished_data, was_truncated, total = ResponseSquisher.squish(result, select, filter_str, limit, offset)
+                    
+                    if was_truncated:
+                        return {
+                            "status": "success",
+                            "data": squished_data,
+                            "_HYGIENE_NOTICE": f"Output truncated for context hygiene. Showing {len(squished_data) if isinstance(squished_data, list) else 'partial'} of {total} items.",
+                            "remedy": f"The result is large. Use '_offset={int(offset or 0) + (len(squished_data) if isinstance(squished_data, list) else 0)}' to fetch the next page of results."
+                        }
+                    result = squished_data
+            except ImportError:
+                pass
+
+            # --- RESPONSE UNWRAPPING ---
+            # Handle FastAPI/Starlette Response objects (commonly returned by native tools)
+            try:
+                from fastapi.responses import JSONResponse, Response
+                if isinstance(result, JSONResponse):
+                    import json
+                    result = json.loads(result.body)
+                elif isinstance(result, Response):
+                    # Try to parse as JSON, fallback to text
+                    import json
+                    try:
+                        result = json.loads(result.body)
+                    except:
+                        result = result.body.decode() if hasattr(result.body, "decode") else str(result.body)
+            except ImportError:
+                pass
+
+            # --- PERSISTENCE & SESSION STORAGE ---
+            step_alias = f"step{self.session_step_counter}"
+            self.global_context[step_alias] = result
+            self.session_step_counter += 1
+
+            if alias:
+                self.global_context[alias] = result
+                logger.info(f"Stored result for {action_id} under alias '{alias}'")
+
             return result
         except Exception as e:
             # Extract clean error message
@@ -231,6 +328,7 @@ class AIProtocolManager:
             
             response = {
                 "status": "error", 
+                "_PROTOCOL_ERROR": "EXECUTION_FAILED",
                 "message": f"Execution failed: {error_detail}"
             }
             
@@ -238,10 +336,8 @@ class AIProtocolManager:
             meta = self.registry.get(action_id)
             if meta and meta.remedy:
                 logger.info(f"Shadowing exception for {action_id} with YAML remedy.")
-                response["message"] = meta.remedy
-                # Keep the technical info hidden from the primary message
-                # but we could put it in a separate field if we really wanted to.
-                # Per previous decision: We hide it from the AI.
+                response["message"] = "Execution failed." # Keep it clean
+                response["remedy"] = meta.remedy
                 
             return response
 
@@ -249,26 +345,147 @@ class AIProtocolManager:
         """Gibt alle Root-Landmarken zurück."""
         return [l for l in self.landmarks.values() if ":" not in l.id]
 
-    def get_manifest(self, **kwargs) -> str:
-        """Generiert das Manifest (High-Level Topology für Progressive Disclosure)."""
-        all_landmarks = [l for l in self.landmarks.values() if ":" not in l.id]
+    def _get_registry_lower(self) -> Dict[str, Landmark]:
+        """Lazy-loaded lower-case registry for fast lookups."""
+        if not hasattr(self, "_registry_cache") or len(self._registry_cache) != len(self.landmarks):
+            self._registry_cache = {k.lower(): v for k, v in self.landmarks.items()}
+        return self._registry_cache
+
+    def _rebuild_hierarchy(self):
+        """Rekonstruiert die Eltern-Kind-Beziehungen basierend auf Landmark-IDs."""
+        # 1. Alle Tools-Listen leeren, um Duplikate beim Rebuild zu vermeiden
+        for lm in self.landmarks.values():
+            lm.tools = []
+            
+        # 2. Alle IDs sortieren, damit Eltern vor Kindern (oder zumindest strukturiert) kommen
+        # Aber eigentlich reicht ein Pass, wenn wir sicherstellen dass Eltern existieren
+        for lid, lm in list(self.landmarks.items()):
+            if ":" in lid:
+                parts = lid.split(":")
+                parent_id = ":".join(parts[:-1])
+                
+                # Sicherstellen, dass das Eltern-Landmark existiert (Auto-Creation falls nötig)
+                if parent_id not in self.landmarks:
+                    self.landmarks[parent_id] = Landmark(
+                        id=parent_id,
+                        description=f"Area: {parent_id}",
+                        type="navigation"
+                    )
+                
+                parent = self.landmarks[parent_id]
+                if not any(t.id == lid for t in parent.tools):
+                    parent.tools.append(lm)
+
+    async def execute_sequence(self, arguments: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        High-level Sequencer für Tool-Ketten.
+        """
+        # Resolve 'steps' or 'actions'
+        steps = arguments.get("steps") or arguments.get("actions") or []
         
-        # In v2.2 (TypeScript/Progressive Disclosure Update) zeigen wir standardmäßig 
-        # NIE die Signaturen im Root-Manifest, um Kontext zu sparen (Lazy Loading).
-        # Außer, es wird explizit 'full=True' angefordert (z.B. durch Legacy-Routen).
-        is_full = kwargs.get("full", False)
-        hide_signatures = not is_full
+        # We run the sequence using the current global counter as offset
+        # Note: sequencer.run calls manager.call_action, which handles the counter increments.
+        return await self.sequencer.run(steps, self.global_context, index_offset=self.session_step_counter)
+
+    def get_manifest(self, landmark_ids: Optional[Union[str, List[str]]] = None, technical: bool = False, **kwargs) -> str:
+        """Generiert ein dynamisches Manifest basierend auf dem Kontext."""
+        if landmark_ids is None and "landmark_id" in kwargs:
+            landmark_ids = kwargs.pop("landmark_id")
+            
+        all_landmarks = []
         
-        # Erlaube Übersteuerung des Limits via Kwargs (z.B. durch Discovery-Parameter)
-        ctx_limit = kwargs.get("limit") or self.ctx_threshold
+        # Normalize landmark_ids to a list
+        # Handle 'full' parameter from kwargs
+        full = kwargs.pop("full", False)
         
+        if landmark_ids is not None:
+            ids = [landmark_ids] if isinstance(landmark_ids, (str, bytes)) else landmark_ids
+            reg_lower = self._get_registry_lower()
+            
+            for lid in ids:
+                # Suche erst exakt, dann lower
+                landmark = self.landmarks.get(lid) or reg_lower.get(lid.lower())
+                
+                if not landmark:
+                    logger.warning(f"Landmark {lid} not found in registry.")
+                    continue
+                
+                # Add the landmark as-is. The Presenter handles drilling down/expansion
+                # for JSON and hierarchical rendering for Markdown.
+                all_landmarks.append(landmark)
+        else:
+            # Smart Scale Protection: Falls die Anzahl der Landmarks extrem hoch ist,
+            # verhindern wir ein blindes Flachklopfen, da dies das Budget/Limit sprengt
+            # und andere Regionen abschneidet.
+            if full and len(self.landmarks) < 1000:
+                # Wenn 'full' angefordert wird und das System klein ist, zeigen wir alles
+                all_landmarks = list(self.landmarks.values())
+            else:
+                # Root-Ebene: Zeige alle Landmarks ohne Doppelpunkt (Hauptbereiche/Regionen)
+                all_landmarks = [l for l in self.landmarks.values() if ":" not in l.id]
+
+        # Context-Hygiene: Header nur zeigen, wenn wir auf Root-Ebene sind
+        is_root = landmark_ids is None
+        
+        if full:
+            # When full is requested, we show technical details for everything
+            technical = True
+
         return self.presenter.present_manifest(
             all_landmarks, 
-            instructions=self.instructions,
-            welcome_message=self.welcome_message,
-            hide_json=hide_signatures,
-            technical=kwargs.get("technical", False),
-            max_ctx=ctx_limit
+            instructions=self.instructions if is_root else "",
+            welcome_message=self.welcome_message if is_root else "",
+            show_technical=technical,
+            is_root=is_root,
+            output_format=kwargs.pop("output_format", "markdown"),
+            **kwargs
+        )
+
+    def search_landmarks(self, query: Union[str, List[str]], technical: bool = False, **kwargs) -> str:
+        """Durchsucht alle Landmarks nach einem oder mehreren Suchbegriffen."""
+        import re
+        queries = [query] if isinstance(query, str) else query
+        
+        patterns = []
+        for q in queries:
+            try:
+                patterns.append(re.compile(q, re.IGNORECASE))
+            except re.error:
+                patterns.append(re.compile(re.escape(q), re.IGNORECASE))
+
+        landmark_id = kwargs.get("landmark_id") or kwargs.get("namespace")
+        lm_type = kwargs.get("type")
+
+        matches_set = set()
+        matches = []
+        
+        for lid, lm in self.landmarks.items():
+            # 1. Filter by namespace prefix (landmark_id) if specified
+            if landmark_id:
+                if not (lid == landmark_id or lid.startswith(f"{landmark_id}:")):
+                    continue
+            
+            # 2. Filter by type (action or navigation) if specified
+            if lm_type:
+                if getattr(lm, "type", None) != lm_type:
+                    continue
+
+            for pattern in patterns:
+                if pattern.search(lid) or (lm.description and pattern.search(lm.description)):
+                    if lid not in matches_set:
+                        matches_set.add(lid)
+                        matches.append(lm)
+                    break # One match is enough
+        
+        # Prioritize executable actions over navigation namespaces to bypass structural navigation
+        matches.sort(key=lambda x: 0 if getattr(x, "type", None) == "action" else 1)
+        
+        return self.presenter.present_manifest(
+            matches,
+            instructions=f"# SEARCH RESULTS FOR: {queries}",
+            show_technical=technical,
+            output_format=kwargs.pop("output_format", "markdown"),
+            **kwargs
         )
 
     def inspect_landmark(self, landmark_id: str) -> str:
@@ -291,8 +508,10 @@ class AIProtocolManager:
     def list_aliases(self) -> Dict[str, Any]:
         return self.global_context
 
-    def get_manifest_md(self, **kwargs) -> str:
-        return self.get_manifest(**kwargs)
+    def get_manifest_dict(self) -> List[Dict[str, Any]]:
+        """Gibt eine Liste aller Landmarken als Dictionary zurück."""
+        return [l.model_dump(exclude_none=True) for l in self.landmarks.values()]
+
 
     def load_metadata(self, path: str):
         """Loads YAML metadata and updates existing landmarks."""
@@ -306,11 +525,10 @@ class AIProtocolManager:
             if meta:
                 landmark.description = meta.description or landmark.description
                 landmark.parameters = meta.parameters or landmark.parameters
+                landmark.returns = meta.returns or landmark.returns
+                landmark.response_schema = meta.response_schema or landmark.response_schema
                 landmark.remedy = meta.remedy or landmark.remedy
 
-    def bind(self, landmark_id: str):
-        """Decorator binding for legacy compatibility."""
-        return self.landmark(landmark_id)
 
 
 class ElemmGateway:
@@ -356,7 +574,7 @@ class ElemmGateway:
         gateway = FastAPIGateway(self.manager)
         gateway.bind_to_app(app)
         
-        print(f"Elemm: Landmark Manifest Protocol active at http://{host}:{port}")
+        # print(f"Elemm: Landmark Manifest Protocol active at http://{host}:{port}")
         uvicorn.run(app, host=host, port=port)
 
     def run_mcp(self):

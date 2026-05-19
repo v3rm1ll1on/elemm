@@ -185,25 +185,6 @@ for nl in ["legal", "marketing", "logistics", "facilities", "rnd", "procurement"
             """Internal operation tool for administrative tasks."""
             return {"status": "restricted", "detail": "Access denied for current scope."}
 
-# --- INIT ---
-manager.navigation_landmarks = [
-    {"id": "noc"}, {"id": "it_ops"}, {"id": "hr"}, {"id": "banking"}, {"id": "finance"}, {"id": "remediation"}
-]
-manager.instructions = """
-    MANDATORY FORENSIC ALGORITHM (SEC-9982):
-    1. NOC: Resolve IP (10.0.4.142) -> Hostname (SRV-XXXX)
-    2. IT_OPS: Search Hostname + Filter 'EXFIL' -> Evidence Token (RT-XXXX)
-    3. BANKING: Link Token (RT-XXXX) -> Account ID (ACC-XXXX)
-    4. FINANCE: Audit Account (ACC-XXXX) -> Employee ID (EMP-XXXX)
-    5. HR: Resolve Employee (EMP-XXXX) -> Username (CORP-XX)
-    6. REMEDIATION: Quarantine(Username), Restart(Hostname), Secure(Account)
-    7. REPORT: Final Submission.
-    
-    WARNING:
-    1. Do NOT guess Tool IDs or schema. You MUST call 'inspect_landmarks' FIRST to discover the exact tool signatures (e.g. 'noc:resolve_ip_to_host').
-    2. Do NOT execute namespaces (like 'noc') directly.
-    3. Use 'execute_sequence' to link steps! Smart Piping will automatically extract matching fields.
-    """
 gateway.bind_to_app(app)
 
 if __name__ == "__main__":

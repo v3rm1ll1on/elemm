@@ -13,6 +13,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import json
 from fastapi import FastAPI, APIRouter, Body, Response, Query
 from typing import Any, Dict, List, Optional, Union
 from ..core.manager import AIProtocolManager
@@ -44,6 +45,9 @@ class FastAPIGateway:
     def bind_to_app(self, app: FastAPI):
         """Bindet die Protokoll-Endpunkte an eine FastAPI-Instanz."""
         self.app = app
+        
+        # 1. Bridge Metadata from FastAPI routes to Elemm Landmarks (Consistency)
+        self._bridge_fastapi_metadata(app)
         
         # Standardisierte Discovery auf Root-Ebene
         from fastapi import Response, Query
@@ -86,10 +90,12 @@ class FastAPIGateway:
         @self.app.get("/.well-known/elemm-inspect.md", tags=["discovery"], include_in_schema=False)
         async def well_known_manifest(
             response: Response, 
-            landmark_id: Optional[str] = Query(None),
-            technical: bool = Query(False),
-            full: bool = Query(False),
-            limit: Optional[int] = Query(None)
+            landmark_id: Optional[Union[List[str], str]] = Query(None),
+            full: bool = False,
+            technical: bool = False,
+            output_format: str = Query("markdown", alias="format"),
+            limit: Optional[int] = Query(None),
+            offset: Optional[int] = Query(0)
         ):
             """Manifest-Discovery im v1-Format."""
             response.headers["Link"] = '</.well-known/elemm-manifest.md>; rel="elemm-manifest"'
@@ -102,29 +108,53 @@ class FastAPIGateway:
             
             # Wenn landmark_id übergeben wird, zeigen wir Details (FOCUS)
             if landmark_id:
-                # Wir konvertieren zu Liste und splitten Kommas
-                if isinstance(landmark_id, str):
-                    query_ids = [id.strip().lower() for id in landmark_id.split(",")]
-                else:
-                    query_ids = [id.lower() for id in landmark_id]
+                query_ids = []
+                raw_ids = [landmark_id] if isinstance(landmark_id, str) else landmark_id
+                for r_id in raw_ids:
+                    for part in r_id.split(","):
+                        query_ids.append(part.strip().lower())
                 
-                # Case-insensitive Lookup
-                lms = []
-                all_lms_lower = {lid.lower(): lm for lid, lm in self.manager.landmarks.items()}
+                # Case-insensitive Lookup: Resolve to original stored IDs
+                lms_to_query = []
+                all_lms_lower = {lid.lower(): lid for lid in self.manager.landmarks.keys()}
                 for qid in query_ids:
-                    if qid in all_lms_lower:
-                        lms.append(all_lms_lower[qid])
+                    original_id = all_lms_lower.get(qid)
+                    if original_id:
+                        lms_to_query.append(original_id)
                 
-                manifest_md = self.manager.presenter.present_manifest(
-                    lms, 
-                    full=True, 
-                    skip_header=False, 
-                    technical=technical,
-                    max_ctx=ctx_limit
-                )
+                # If limit is small (e.g. < 500), treat it as an item limit (max_landmarks)
+                # otherwise treat as character limit.
+                p_kwargs = {"offset": offset, "full": full}
+                if offset is not None: p_kwargs["offset"] = offset
+                if limit is not None:
+                    if limit < 500:
+                        p_kwargs["max_landmarks"] = limit
+                    else:
+                        p_kwargs["limit"] = limit
+
+                p_kwargs["output_format"] = output_format
+                manifest_md = self.manager.get_manifest(lms_to_query, technical=technical, **p_kwargs)
             else:
                 # Standard-Manifest mit v1-Logik (Summary)
-                manifest_md = self.manager.get_manifest_md(technical=technical or full, limit=ctx_limit)
+                p_kwargs = {"technical": technical or full, "offset": offset, "full": full}
+                if limit is not None:
+                    if limit < 500:
+                        p_kwargs["max_landmarks"] = limit
+                    else:
+                        p_kwargs["limit"] = limit
+                else:
+                    p_kwargs["limit"] = limit if limit is not None else ctx_limit
+                
+                p_kwargs["output_format"] = output_format
+                manifest_md = self.manager.get_manifest(**p_kwargs)
+            
+            if output_format == "json":
+                # Ensure we have valid JSON to parse
+                if not manifest_md: return JSONResponse(content=[])
+                try:
+                    return JSONResponse(content=json.loads(manifest_md))
+                except json.JSONDecodeError:
+                    return JSONResponse(status_code=500, content={"error": "Presenter failed to generate valid JSON", "raw": manifest_md})
             
             return Response(content=manifest_md, media_type="text/markdown")
 
@@ -152,15 +182,109 @@ class FastAPIGateway:
                     status_code=400, 
                     content={"status": "error", "message": "Missing 'action_id' or 'actions' in request body."}
                 )
-
+ 
             # Resolve piping if any (global context)
             resolved_params, err = self.manager.sequencer.resolve_all(parameters, self.manager.global_context)
             if err:
                 return JSONResponse(status_code=400, content={"status": "error", "message": f"Piping failed: {err}"})
-
+ 
             result = await self.manager.call_action(action_id, resolved_params)
             return result
 
+        @self.app.get("/.well-known/elemm/search")
+        async def search_landmarks(
+            query: str, 
+            limit: int = None, 
+            offset: int = 0, 
+            technical: bool = False, 
+            landmark_id: Optional[str] = Query(None),
+            type: Optional[str] = Query(None),
+            output_format: str = Query("markdown", alias="format")
+        ):
+            """Suche nach Landmarks."""
+            p_kwargs = {
+                "offset": offset, 
+                "technical": technical, 
+                "output_format": output_format,
+                "landmark_id": landmark_id,
+                "type": type
+            }
+            if limit is not None:
+                if limit < 500: p_kwargs["max_landmarks"] = limit
+                else: p_kwargs["limit"] = limit
+            else:
+                p_kwargs["limit"] = 10000 # Default character budget for search
+                
+            res = self.manager.search_landmarks(query, **p_kwargs)
+            if output_format == "json":
+                if not res: return JSONResponse(content=[])
+                try:
+                    return JSONResponse(content=json.loads(res))
+                except json.JSONDecodeError:
+                    return JSONResponse(status_code=500, content={"error": "Search failed to generate valid JSON", "raw": res})
+            return Response(content=res, media_type="text/markdown")
+ 
         # Technisches Interface via Router
         router = self.get_router()
         app.include_router(router)
+
+    def _bridge_fastapi_metadata(self, app: FastAPI):
+        """
+        Synchronisiert FastAPI-Metadaten (Tags) mit den Elemm-Landmarks.
+        Stellt sicher, dass native Landmarks dieselbe Namespace-Struktur wie OpenAPI haben.
+        """
+        from fastapi.routing import APIRoute
+        
+        # 1. Mappe alle registrierten Handlers zu ihren Landmark-IDs
+        handler_map = {}
+        for lid, lm in self.manager.landmarks.items():
+            if lm.handler:
+                handler_map[lm.handler] = lid
+
+        # 2. Scanne FastAPI Routen
+        for route in app.routes:
+            if isinstance(route, APIRoute):
+                handler = route.endpoint
+                if handler in handler_map:
+                    old_id = handler_map[handler]
+                    tags = getattr(route, "tags", [])
+                    
+                    if tags:
+                        tag = tags[0]
+                        
+                        # Wir wollen den ursprünglichen Namen, den der User im Decorator angegeben hat.
+                        # Wenn old_id "namespace:func" ist, extrahieren wir den "namespace" Teil,
+                        # falls dieser vom User kam.
+                        
+                        parts = old_id.split(":")
+                        # Wir nehmen den letzten Teil der ID als eigentlichen Tool-Namen
+                        base_name = parts[-1]
+                        new_id = f"{tag}:{base_name}"
+                        
+                        if new_id != old_id:
+                            import logging
+                            logger = logging.getLogger("elemm-fastapi-bridge")
+                            logger.info(f"Syncing Namespace: {old_id} -> {new_id} (via FastAPI Tag '{tag}')")
+                            
+                            landmark = self.manager.landmarks[old_id]
+                            
+                            # 1. Wir löschen die alte Landmark (das Leaf)
+                            del self.manager.landmarks[old_id]
+                            
+                            # 2. Wir löschen auch den alten Namespace, falls er jetzt verwaist ist
+                            # (also keine anderen Kinder mehr hat)
+                            old_parts = old_id.split(":")
+                            for j in range(len(old_parts) - 1, 0, -1):
+                                parent_id = ":".join(old_parts[:j])
+                                # Prüfe ob noch andere Landmarks diesen Parent nutzen
+                                has_siblings = any(lid.startswith(f"{parent_id}:") for lid in self.manager.landmarks.keys())
+                                if not has_siblings and parent_id in self.manager.landmarks:
+                                    del self.manager.landmarks[parent_id]
+
+                            self.manager.landmark(new_id, description=landmark.description, 
+                                               parameters=landmark.parameters, returns=landmark.returns,
+                                               response_schema=landmark.response_schema,
+                                               remedy=landmark.remedy, instructions=landmark.instructions)(handler)
+
+        # 3. Wichtig: Hierarchie neu aufbauen, da sich IDs geändert haben
+        self.manager._rebuild_hierarchy()

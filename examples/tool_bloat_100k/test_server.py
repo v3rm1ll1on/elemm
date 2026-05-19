@@ -1,17 +1,23 @@
+import pytest
 import httpx
 import asyncio
 import json
+from examples.tool_bloat_100k.server import app
 
+@pytest.mark.asyncio
 async def test_bloat_server():
-    url = "http://localhost:8010"
+    # We use ASGI transport for standard FastAPI testing, completely avoiding port 8010 and network
+    url = "http://testserver"
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url=url) as client:
         print("--- Testing Manifest ---")
-        resp = await client.get(f"{url}/.well-known/elemm-manifest.md")
+        resp = await client.get("/.well-known/elemm-manifest.md")
+        assert resp.status_code == 200
         print(f"Status: {resp.status_code}")
         
         print("\n--- Testing Landmarks (Root: Regions) ---")
-        resp = await client.get(f"{url}/elemm/landmarks")
+        resp = await client.get("/elemm/landmarks")
+        assert resp.status_code == 200
         landmarks = resp.json()
         print(f"Root Landmarks Count: {len(landmarks)}")
         print(f"Regions: {[l['id'] for l in landmarks]}")
@@ -24,13 +30,15 @@ async def test_bloat_server():
         target_action = f"{target_district}:security:active_alarms"
 
         print(f"\n--- Testing Inspection (Region: {target_region}) ---")
-        resp = await client.get(f"{url}/.well-known/elemm-manifest.md", params={"landmark_id": target_region})
+        resp = await client.get("/.well-known/elemm-manifest.md", params={"landmark_id": target_region})
+        assert resp.status_code == 200
         districts = resp.text
         print(f"Status: {resp.status_code}")
         print(f"Contains Sector_777: {target_district in districts}")
 
         print(f"\n--- Testing Inspection (District: {target_district}) ---")
-        resp = await client.get(f"{url}/.well-known/elemm-manifest.md", params={"landmark_id": target_district})
+        resp = await client.get("/.well-known/elemm-manifest.md", params={"landmark_id": target_district})
+        assert resp.status_code == 200
         print(f"Status: {resp.status_code}")
         
         print(f"\n--- Testing Execution (The Needle: {target_action}) ---")
@@ -38,7 +46,8 @@ async def test_bloat_server():
             "action": target_action,
             "parameters": {"reason": "Testing the nested needle"}
         }
-        resp = await client.post(f"{url}/.well-known/elemm/execute", json=payload)
+        resp = await client.post("/.well-known/elemm/execute", json=payload)
+        assert resp.status_code == 200
         print(f"Status: {resp.status_code}")
         print(json.dumps(resp.json(), indent=2))
 
@@ -46,4 +55,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(test_bloat_server())
     except Exception as e:
-        print(f"Error: {e}. Is the server running on port 8010?")
+        print(f"Error running in-memory test: {e}")

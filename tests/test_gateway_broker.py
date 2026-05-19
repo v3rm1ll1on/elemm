@@ -48,8 +48,10 @@ async def test_gateway_broker_connect_and_proxy():
 
         # 2. Test Get Manifest (Proxied)
         res = await gateway._handle_call_tool("get_manifest", {})
-        assert "PROTOCOL RULES" in res[0].text
-        assert "GATEWAY GLOBALS" in res[0].text
+        assert "PROTOCOL WORKFLOW" in res[0].text
+        assert "SESSION GOVERNANCE" in res[0].text
+        assert "test" in res[0].text
+        assert "Area test" in res[0].text
 
         # 3. Test Call Action (Proxied)
         res = await gateway._handle_call_tool("call_action", {"action": "test_tool", "parameters": {}})
