@@ -54,6 +54,7 @@ class ManifestPresenter:
             for lm in paginated_lms:
                 item = {
                     "id": lm.id,
+                    "type": lm.type,
                     "description": lm.description,
                     "parameters": [p.model_dump() for p in (lm.parameters or [])],
                     "returns": lm.returns or "any",
@@ -184,12 +185,24 @@ class ManifestPresenter:
                         
                     items_rendered += 1
 
-            remaining_landmarks = len(landmarks) - (offset + items_rendered)
-            if remaining_landmarks > 0 or items_rendered < len(visible_lms):
-                # We either have more landmarks in the next page, or we cut off inside this page
-                total_remaining = len(landmarks) - (offset + items_rendered)
-                if total_remaining > 0:
-                    next_offset = offset + items_rendered
+            total_items = kwargs.get("total", len(landmarks))
+            total_remaining = total_items - (offset + items_rendered)
+            has_more = kwargs.get("has_more", total_remaining > 0)
+            
+            if has_more or total_remaining > 0:
+                next_offset = offset + items_rendered
+                is_search = "SEARCH RESULTS FOR" in instructions
+                if is_search:
+                    example_lm_id = "landmark1:landmark2"
+                    if landmarks:
+                        first_id = landmarks[0].id
+                        if ":" in first_id:
+                            parts = first_id.split(":")
+                            example_lm_id = ":".join(parts[:max(1, len(parts)-1)])
+                        else:
+                            example_lm_id = first_id
+                    lines.append(f"\n- (... and {total_remaining} more items are available matching your query. **ACTION REQUIRED**: Use `_offset={next_offset}` to fetch the next page of results, or restrict your search using the `landmark_id` filter (e.g. '{example_lm_id}') to focus on a specific namespace.)")
+                else:
                     lines.append(f"\n- (... and {total_remaining} more items available. **ACTION REQUIRED**: Use `_offset={next_offset}` in your next `inspect_landmark` call to fetch the next page of results.)")
 
         # Summary footer for the agent (Guidance & Metrics)

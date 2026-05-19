@@ -261,3 +261,42 @@ class MCPGateway:
             asyncio.run(main())
         except KeyboardInterrupt:
             pass
+
+    def run_sse(self, host: str = "0.0.0.0", port: int = 8000):
+        """Startet den MCP-Server über SSE (Server-Sent Events)."""
+        from starlette.applications import Starlette
+        from starlette.routing import Route, Mount
+        from mcp.server.sse import SseServerTransport
+        from starlette.middleware import Middleware
+        from starlette.middleware.cors import CORSMiddleware
+        import uvicorn
+
+        sse = SseServerTransport("/messages")
+
+        async def handle_sse(request):
+            async with sse.connect_sse(request.scope, request.receive, request._send) as (read, write):
+                await self.server.run(
+                    read,
+                    write,
+                    self.server.create_initialization_options()
+                )
+
+        app = Starlette(
+            debug=True,
+            routes=[
+                Route("/sse", endpoint=handle_sse),
+                Mount("/messages", app=sse.handle_post_message),
+            ],
+            middleware=[
+                Middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+            ]
+        )
+
+        logger.info(f"Starting native MCP SSE server on http://{host}:{port}/sse")
+        config = uvicorn.Config(app, host=host, port=port, log_level="info")
+        server = uvicorn.Server(config)
+        
+        try:
+            asyncio.run(server.serve())
+        except KeyboardInterrupt:
+            pass

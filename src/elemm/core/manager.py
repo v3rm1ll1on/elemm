@@ -453,16 +453,32 @@ class AIProtocolManager:
             except re.error:
                 patterns.append(re.compile(re.escape(q), re.IGNORECASE))
 
+        landmark_id = kwargs.get("landmark_id") or kwargs.get("namespace")
+        lm_type = kwargs.get("type")
+
         matches_set = set()
         matches = []
         
         for lid, lm in self.landmarks.items():
+            # 1. Filter by namespace prefix (landmark_id) if specified
+            if landmark_id:
+                if not (lid == landmark_id or lid.startswith(f"{landmark_id}:")):
+                    continue
+            
+            # 2. Filter by type (action or navigation) if specified
+            if lm_type:
+                if getattr(lm, "type", None) != lm_type:
+                    continue
+
             for pattern in patterns:
                 if pattern.search(lid) or (lm.description and pattern.search(lm.description)):
                     if lid not in matches_set:
                         matches_set.add(lid)
                         matches.append(lm)
                     break # One match is enough
+        
+        # Prioritize executable actions over navigation namespaces to bypass structural navigation
+        matches.sort(key=lambda x: 0 if getattr(x, "type", None) == "action" else 1)
         
         return self.presenter.present_manifest(
             matches,

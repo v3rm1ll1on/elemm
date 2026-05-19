@@ -84,31 +84,20 @@ CITY_ALERTS[WATER_SECTOR] = f"[CRITICAL] Water: Main pipe burst in {WATER_SECTOR
 CITY_ALERTS[TRANSPORT_SECTOR] = f"[MEDIUM] Transport: Massive gridlock at Main St in {TRANSPORT_SECTOR}. Adjust signals to EMERGENCY_CLEARANCE mode."
 CITY_ALERTS[SECURITY_SECTOR] = f"[CRITICAL] Security: Unauthorized terminal access detected in {SECURITY_SECTOR}! Mechanical brake override active."
 
-# We use a custom welcome message to guide the agent
-WELCOME = f"""# THE 100,000 TOOL CHALLENGE
-Welcome to the ultimate scalability test. 
-This system manages the infrastructure of 'Veridian Prime', a mega-city with 1000 districts.
-Each district has exactly 100 specialized tools for energy, water, transport, security, and more.
-
-### YOUR MISSION
-There are several active infrastructure incidents in the city. Your tasks are:
-1. Scan active alerts via 'city:status_summary' or 'city:get_security_logs'.
-2. Reroute power in {ENERGY_SECTOR} (Energy).
-3. Patch the pipe in {WATER_SECTOR} (Water) reducing pressure first.
-4. Clear the gridlock in {TRANSPORT_SECTOR} (Transport) adjusting signals.
-5. Secure Terminal 0xAF4 in {SECURITY_SECTOR} (Security) by releasing the mechanical brake first.
-
-### PROTOCOL NOTE
-DO NOT attempt to load all tools at once. Use the landmark structure:
-1. 'get_landmarks' for the list of regions.
-2. 'inspect_landmark' for a specific region or district.
-3. 'call_action' for execution.
-"""
-
 manager = AIProtocolManager(
     welcome_message="VERIDIAN PRIME INFRASTRUCTURE OS",
-    instructions=WELCOME,
-    version="2.1.0-BLOAT"
+    instructions="""###  AUDITOR SPECIAL DIRECTIVES & SCENARIO PROTOCOLS
+
+As the system auditor, you must follow these physical and logical operational guidelines:
+1. **CRITICAL SECURITY LOCKDOWN PROTOCOL**:
+   Before executing a security lockdown on any terminal (e.g., calling `lockdown_terminal` inside `security` area), you MUST release the mechanical emergency brake in the infrastructure area of the same district first (e.g., calling `release_emergency_brake` inside `infrastructure` area). Otherwise, the lockdown action will be blocked by safety interlocks!
+2. **WATER SYSTEM PIPE REPAIRS**:
+   When patching a main pipe burst (calling `patch_pipe` inside `water` area), you MUST first reduce the pressure (by calling `reduce_pressure` or similar actions in the same area) to prevent catastrophic secondary pipeline failure.
+3. **ENERGY GRID POWER SURGES**:
+   When a critical power surge occurs, stabilize the grid by rerouting power from the surging source node (typically ending with `_A` or `Substation_A`) to the stable buffer node (ending with `_B` or `Substation_B`) using the `reroute_power` action.
+4. **TRANSPORT GRIDLOCKS**:
+   To clear a massive traffic gridlock, adjust the traffic signals to `EMERGENCY_CLEARANCE` mode using the `adjust_signals` action.
+"""
 )
 
 # Noise alerts
@@ -155,10 +144,7 @@ def get_status_summary():
         "status": "success",
         "timestamp": "2026-05-13T11:15:00Z",
         "total_alerts": len(all_alerts),
-        "alerts": all_alerts,
-        "challenges_resolved": CHALLENGES_RESOLVED,
-        "all_resolved": all_solved,
-        "handbrake": "ON" if not EMERGENCY_BRAKE_RELEASED else "OFF"
+        "alerts": all_alerts
     }
 
 # --- Log Spam Generator ---
@@ -233,7 +219,7 @@ logger.info("Registering 100,000 tools in 10 regions...")
 manager.landmark(
     "city:status_summary",
     description="Get a summary of all active alerts and status reports across all city sectors.",
-    returns="{status: string, timestamp: string, total_alerts: number, alerts: dict, challenges_resolved: dict, all_resolved: boolean}",
+    returns="{status: string, timestamp: string, total_alerts: number, alerts: dict}",
     remedy="Scan the 'alerts' dictionary for [CRITICAL] tags. Use 'inspect_landmark' on the mentioned sector to begin troubleshooting."
 )(get_status_summary)
 
@@ -298,7 +284,7 @@ for i, district in enumerate(DISTRICTS):
                         "data": {
                             "alert_level": "CRITICAL",
                             "secret_code": "ELEMM-BLOAT-100K-SUCCESS",
-                            "message": "Beeindruckend! Du hast die Nadel in 100.000 Tools gefunden."
+                            "message": "Congratulations! You have successfully resolved all alerts in Sector 777."
                         }
                     }
                 
@@ -347,8 +333,7 @@ for i, district in enumerate(DISTRICTS):
                     return {
                         "status": "error",
                         "code": "INVALID_SUBSTATIONS",
-                        "message": "Power surge routing failed. Invalid source or target substations.",
-                        "remedy": f"Please route power from the surging substation '{energy_dist}_A' (or 'Substation_A') to the stable buffer node '{energy_dist}_B' (or 'Substation_B')."
+                        "message": "Power surge routing failed. Invalid source or target substations."
                     }
                 CHALLENGES_RESOLVED[ENERGY_SECTOR] = True
                 CITY_ALERTS[ENERGY_SECTOR] = f"[RESOLVED] Energy: Power surge resolved. Grid stabilized."
@@ -367,7 +352,7 @@ for i, district in enumerate(DISTRICTS):
                     Parameter(name="target", type="string", description="Target destination (e.g. Substation_B)", required=True)
                 ],
                 returns="{status: string, message: string, load_factor: number}",
-                remedy=f"Identify the overloaded substation from the active alerts ({ENERGY_SECTOR.split(':')[1]}_A) and route it to the stable buffer ({ENERGY_SECTOR.split(':')[1]}_B) to stabilize grid frequency."
+                remedy=f"To resolve the power frequency surge, route power from the surging source substation (e.g., '{energy_dist}_A' or 'Substation_A') to the stable buffer node (e.g., '{energy_dist}_B' or 'Substation_B') in the active sector."
             )(reroute_power_handler)
 
         # Scenario 2: Water (WATER_SECTOR)
@@ -377,8 +362,7 @@ for i, district in enumerate(DISTRICTS):
                     return {
                         "status": "error",
                         "code": "PRESSURE_BURST_HAZARD",
-                        "message": "Cannot apply patch under active line pressure. Decompression hazard.",
-                        "remedy": "You must set the 'pressure_reduction' parameter to true to secure the line before patching."
+                        "message": "Cannot apply patch under active line pressure. Decompression hazard."
                     }
                 CHALLENGES_RESOLVED[WATER_SECTOR] = True
                 CITY_ALERTS[WATER_SECTOR] = f"[RESOLVED] Water: Main pipe burst patched. Pressure nominal."
@@ -396,7 +380,7 @@ for i, district in enumerate(DISTRICTS):
                     Parameter(name="pressure_reduction", type="boolean", description="Whether to reduce pressure during patch", required=True)
                 ],
                 returns="{status: string, message: string, leak_rate: number}",
-                remedy="Ensure the 'pressure_reduction' parameter is set to true during patching to prevent secondary pipe bursts."
+                remedy="You must set the 'pressure_reduction' parameter to true to reduce line pressure and safely apply the patch without causing secondary bursts."
             )(patch_pipe_handler)
 
         # Scenario 3: Transport (TRANSPORT_SECTOR)
@@ -407,8 +391,7 @@ for i, district in enumerate(DISTRICTS):
                     return {
                         "status": "error",
                         "code": "INVALID_SIGNAL_MODE",
-                        "message": "Traffic clearance failed. Standard cycles cannot resolve lockup.",
-                        "remedy": "To clear the gridlock, set the 'mode' parameter to 'EMERGENCY_CLEARANCE'."
+                        "message": "Traffic clearance failed. Standard cycles cannot resolve lockup."
                     }
                 CHALLENGES_RESOLVED[TRANSPORT_SECTOR] = True
                 CITY_ALERTS[TRANSPORT_SECTOR] = f"[RESOLVED] Transport: Gridlock cleared. Traffic signals nominal."
@@ -426,7 +409,7 @@ for i, district in enumerate(DISTRICTS):
                     Parameter(name="mode", type="string", description="Signal mode (e.g. EMERGENCY_CLEARANCE)", required=True)
                 ],
                 returns="{status: string, message: string, flow_rate: string}",
-                remedy="Set the 'mode' parameter to 'EMERGENCY_CLEARANCE' to clear the massive gridlock at Main St."
+                remedy="To clear the massive traffic gridlock, set the 'mode' parameter to 'EMERGENCY_CLEARANCE'."
             )(adjust_signals_handler)
 
         # Scenario 4: Security (SECURITY_SECTOR)
@@ -437,8 +420,7 @@ for i, district in enumerate(DISTRICTS):
                     return {
                         "status": "error",
                         "code": "MECHANICAL_LOCK_ACTIVE",
-                        "message": "Lockdown blocked. Mechanical interlock active.",
-                        "remedy": f"You must release the emergency brake first using the action {SECURITY_SECTOR}:infrastructure:release_emergency_brake."
+                        "message": "Lockdown blocked. Mechanical interlock active."
                     }
                 
                 conf_upper = str(confirmation).upper() if confirmation else ""
@@ -446,8 +428,7 @@ for i, district in enumerate(DISTRICTS):
                     return {
                         "status": "error",
                         "code": "SAFETY_ABORT_TRIGGERED",
-                        "message": "Lockdown aborted. Operator authorization missing.",
-                        "remedy": "Provide the confirmation parameter as 'CONFIRM' or 'HIGH_PRIORITY_CONFIRMATION' to execute the lockdown."
+                        "message": "Lockdown aborted. Operator authorization missing."
                     }
                 
                 # Settle state
@@ -474,7 +455,7 @@ for i, district in enumerate(DISTRICTS):
             manager.landmark(
                 f"{category_landmark_id}:lockdown_terminal",
                 description="EMERGENCY ONLY: Locks down Terminal 0xAF4 and revokes unauthorized access.",
-                remedy=f"Lockdown requires releasing the mechanical brake in {SECURITY_SECTOR}:infrastructure:release_emergency_brake first, and providing the confirmation token 'CONFIRM'.",
+                remedy=f"To execute the lockdown, you must first release the emergency brake using the action '{SECURITY_SECTOR}:infrastructure:release_emergency_brake' and then call this action with the confirmation parameter set to 'CONFIRM'.",
                 parameters=[
                     Parameter(name="confirmation", type="string", description="Type 'CONFIRM' to execute lockdown", required=True)
                 ],
@@ -491,14 +472,6 @@ for i, district in enumerate(DISTRICTS):
                     "status": "success",
                     "message": "Emergency brake released. Mechanical systems now available for remote override."
                 }
-
-            manager.landmark(
-                f"{category_landmark_id}:release_emergency_brake",
-                description="Releases the mechanical emergency brake for this sector. Required before any security lockdown.",
-                parameters=[],
-                returns="{status: string, message: string}",
-                remedy="This action is irreversible for the current session. Ensure all personnel have cleared the mechanical bridge before release."
-            )(release_brake_handler)
 
             manager.landmark(
                 f"{category_landmark_id}:release_emergency_brake",

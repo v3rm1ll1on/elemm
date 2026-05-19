@@ -397,13 +397,17 @@ class ElemmGateway:
                 return [types.TextContent(type="text", text="Error: 'query' parameter is required for search_landmarks.")]
             limit = arguments.get("_limit")
             offset = arguments.get("_offset", 0)
+            landmark_id = arguments.get("landmark_id")
+            lm_type = arguments.get("type")
             
             # 2. Fetch search results in JSON format
             res_json = await ManifestService.search_landmarks(
                 url, site_data, query, 
                 limit=limit or self.limit_search_items, 
                 offset=offset, 
-                output_format="json"
+                output_format="json",
+                landmark_id=landmark_id,
+                type=lm_type
             )
             
             # 3. Filter JSON search results using the security policy

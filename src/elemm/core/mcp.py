@@ -131,6 +131,8 @@ class MCPToolFactory:
                 "type": "object",
                 "properties": {
                     "query": {"type": "string", "description": "Regex pattern (e.g. 'noc|it_ops' or '^remediation:.*')"},
+                    "landmark_id": {"type": "string", "description": "Optional landmark ID prefix to restrict search to a specific namespace or functional area (e.g. 'Zentrum:Sector_091')."},
+                    "type": {"type": "string", "enum": ["action", "navigation"], "description": "Optional filter for match type. Use 'action' to return only executable tools, or 'navigation' for namespaces."},
                     "_limit": {"type": "integer", "description": "Maximum number of result items to show (Hygiene)."},
                     "_offset": {"type": "integer", "description": "Starting index for results (Virtual Pagination)."}
                 },

@@ -104,16 +104,28 @@ def run_synth_shop():
     # 2. Launch Gateway
     import sys
     if "--mcp" in sys.argv:
-        # Native MCP Server
+        # Native MCP Server (STDIO)
         server = MCPGateway(manager, server_name="Synth-Genesis-v2")
+        print("Starting Synth Shop v2 in Native MCP STDIO Mode...")
         server.run_stdio()
+    elif "--mcp-sse" in sys.argv:
+        # Native MCP Server (SSE)
+        server = MCPGateway(manager, server_name="Synth-Genesis-v2")
+        port = 8005
+        try:
+            idx = sys.argv.index("--mcp-sse")
+            if idx + 1 < len(sys.argv) and sys.argv[idx + 1].isdigit():
+                port = int(sys.argv[idx + 1])
+        except (ValueError, IndexError):
+            pass
+        server.run_sse(host="0.0.0.0", port=port)
     else:
         from fastapi import FastAPI
         app = FastAPI(title="Synth-Genesis-v2")
         gateway = FastAPIGateway(manager)
         gateway.bind_to_app(app)
         
-        print("Starting Synth Shop v2 on http://localhost:8004")
+        print("Starting Synth Shop v2 FastAPI on http://localhost:8004")
         import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8004)
 

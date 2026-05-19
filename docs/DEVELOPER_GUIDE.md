@@ -113,3 +113,39 @@ Defined within a landmark or as a standalone action in the registry.
 | `description` | `string` | Detailed description of what the tool does. |
 | `remedy` | `string` | Specific guidance for this tool (overrides landmark remedy). |
 | `parameters` | `list` | List of parameter definitions (name, type, description, required). |
+
+---
+
+## 7. Launching the Server (STDIO & SSE Mode)
+
+Once you have defined your landmarks and actions, you can boot your server as a native MCP server using `MCPGateway`. It supports two transport modes: **STDIO** (perfect for local agents like Claude Desktop) and **SSE** (Server-Sent Events, for web, remote, or containerized deployments).
+
+### STDIO Mode (Local Integration)
+This is the standard mode for local integrations. The server communicates via standard input/output.
+
+```python
+from elemm.gateways.mcp_server import MCPGateway
+
+# Initialize the gateway
+server = MCPGateway(manager, server_name="My-Landmark-Server")
+
+# Run in STDIO mode (blocks the execution thread)
+server.run_stdio()
+```
+
+### SSE Mode (Web / Remote Integration)
+This starts an asynchronous Starlette web server powered by Uvicorn, making the landmark server accessible over HTTP via Server-Sent Events.
+
+```python
+from elemm.gateways.mcp_server import MCPGateway
+
+# Initialize the gateway
+server = MCPGateway(manager, server_name="My-Landmark-Server")
+
+# Run in SSE mode on a custom port (blocks the execution thread)
+server.run_sse(host="0.0.0.0", port=8005)
+```
+
+The SSE server exposes two standard endpoints:
+- `GET /sse`: The SSE subscription endpoint.
+- `POST /messages`: The endpoint for sending client commands.

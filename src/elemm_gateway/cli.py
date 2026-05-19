@@ -166,8 +166,6 @@ async def async_main():
             sse = SseServerTransport("/messages")
             # ... rest of the sse logic (I will keep it as is from previous edit)
 
-            from starlette.responses import Response
-
             async def handle_sse(request):
                 from elemm_gateway.services.connected_clients import current_client_id
                 from elemm_gateway.services.monitor import get_monitor
@@ -195,6 +193,7 @@ async def async_main():
                         session_id=sid
                     )
                     current_client_id.reset(token)
+                from starlette.responses import Response
                 return Response()
 
             from starlette.middleware import Middleware

@@ -192,9 +192,23 @@ class FastAPIGateway:
             return result
 
         @self.app.get("/.well-known/elemm/search")
-        async def search_landmarks(query: str, limit: int = None, offset: int = 0, technical: bool = False, output_format: str = Query("markdown", alias="format")):
+        async def search_landmarks(
+            query: str, 
+            limit: int = None, 
+            offset: int = 0, 
+            technical: bool = False, 
+            landmark_id: Optional[str] = Query(None),
+            type: Optional[str] = Query(None),
+            output_format: str = Query("markdown", alias="format")
+        ):
             """Suche nach Landmarks."""
-            p_kwargs = {"offset": offset, "technical": technical, "output_format": output_format}
+            p_kwargs = {
+                "offset": offset, 
+                "technical": technical, 
+                "output_format": output_format,
+                "landmark_id": landmark_id,
+                "type": type
+            }
             if limit is not None:
                 if limit < 500: p_kwargs["max_landmarks"] = limit
                 else: p_kwargs["limit"] = limit

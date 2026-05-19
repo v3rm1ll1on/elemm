@@ -39,8 +39,16 @@ class ManifestService:
     @staticmethod
     def _get_transient_manager(site_data: Dict[str, Any]) -> AIProtocolManager:
         """Erzeugt einen temporären Manager basierend auf Brücken-Daten."""
+        instructions = site_data.get("instructions")
+        if not instructions:
+            info = site_data.get("info")
+            if isinstance(info, dict):
+                instructions = info.get("x-elemm-instructions")
+        if not instructions:
+            instructions = f"Bridged Interface for {site_data.get('title', 'External API')}"
+
         manager = AIProtocolManager(
-            instructions=f"Bridged Interface for {site_data.get('title', 'External API')}",
+            instructions=instructions,
             welcome_message=site_data.get("title", "EXTERNAL API")
         )
         # Landmarks registrieren (Unterstützt Objekte und Dicts für Abwärtskompatibilität)
@@ -57,7 +65,20 @@ class ManifestService:
                         Parameter(name=n, type=p.get("type", "string"), description=p.get("description", ""), required=n in req)
                         for n, p in props.items()
                     ]
-                manager.landmarks[lm.get("id", lm.get("name"))] = Landmark(**lm)
+                if "type" not in lm:
+                    if lm.get("is_tool"):
+                        lm["type"] = "action"
+                    else:
+                        lm["type"] = "navigation"
+                # Strip out keys that are not part of Landmark/LandmarkMetadata fields to prevent any Pydantic issues
+                allowed_keys = {
+                    "id", "handler", "tools", "description", "type", "instructions", 
+                    "remedy", "parameters", "returns", "response_schema", "tags", "groups", "meta"
+                }
+                lm_clean = {k: v for k, v in lm.items() if k in allowed_keys}
+                if "response_schema" not in lm_clean and "outputSchema" in lm:
+                    lm_clean["response_schema"] = lm["outputSchema"]
+                manager.landmarks[lm_clean.get("id")] = Landmark(**lm_clean)
             else:
                 manager.landmarks[lm.id] = lm
         
@@ -249,7 +270,7 @@ class ManifestService:
             return {"status": "error", "message": f"Could not find a supported interface at {url}"}
 
     @classmethod
-    async def search_landmarks(cls, url: str, site_data: dict, query: str, limit: int = 100, offset: int = 0, output_format: str = "markdown") -> Union[str, Dict[str, Any]]:
+    async def search_landmarks(cls, url: str, site_data: dict, query: str, limit: int = 100, offset: int = 0, output_format: str = "markdown", **kwargs) -> Union[str, Dict[str, Any]]:
         """Durchsucht Landmarks via Core-Manager-Logik."""
         site_type = site_data.get("type", "native")
         
@@ -259,12 +280,18 @@ class ManifestService:
                 url = url[:-len("/.well-known/elemm-manifest.md")]
             async with httpx.AsyncClient() as client:
                 params = {"query": query, "limit": limit, "offset": offset, "format": "json" if output_format == "json" else "markdown"}
+                landmark_id = kwargs.get("landmark_id")
+                if landmark_id:
+                    params["landmark_id"] = landmark_id
+                lm_type = kwargs.get("type")
+                if lm_type:
+                    params["type"] = lm_type
                 resp = await client.get(f"{url}/.well-known/elemm/search", params=params, timeout=10.0)
                 return resp.json() if output_format == "json" else resp.text
 
         # Bridge Search via Transient Manager
         manager = ManifestService._get_transient_manager(site_data)
-        res = manager.search_landmarks(query, limit=limit, offset=offset, output_format=output_format)
+        res = manager.search_landmarks(query, limit=limit, offset=offset, output_format=output_format, **kwargs)
         return json.loads(res) if output_format == "json" else res
 
     @staticmethod
