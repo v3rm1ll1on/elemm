@@ -76,11 +76,19 @@ Once connected, tell your agent:
 The Gateway provides **9 core tools** to the agent. All domain-specific actions are discovered on-the-fly via the Elemm protocol.
 
 ### 4. Build Your Own Landmark Server (Optional)
-Elemm uses a decorator-based approach to turn standard Python functions into high-performance landmarks:
+
+You can turn any Python function into a high-performance landmark using decorators. Depending on your needs, you can expose these landmarks in two ways:
+
+#### Option A: FastAPI (Web-based via HTTP/SSE)
+Exposes the landmarks as a standard web service / API:
 
 ```python
+import uvicorn
+from fastapi import FastAPI
 from elemm import AIProtocolManager, MetadataRegistry
+from elemm.gateways.fastapi import FastAPIGateway
 
+app = FastAPI()
 registry = MetadataRegistry("landmarks.yaml")
 manager = AIProtocolManager(registry=registry)
 
@@ -88,6 +96,32 @@ manager = AIProtocolManager(registry=registry)
 async def quarantine_node(node_id: str, urgent: bool = False):
     """Quarantines a compromised server node."""
     return {"status": "success", "node": node_id}
+
+# Expose the Elemm manifest and endpoint dynamically on your FastAPI app
+gateway = FastAPIGateway(manager)
+gateway.bind_to_app(app)
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+```
+
+#### Option B: Standalone MCP (Local via STDIO)
+Exposes the landmarks directly as a local STDIO MCP server:
+
+```python
+from elemm import ElemmGateway
+
+# Initialize the high-level gateway wrapper
+gateway = ElemmGateway(name="MySecurityServer")
+
+@gateway.action("security:quarantine_node")
+async def quarantine_node(node_id: str, urgent: bool = False):
+    """Quarantines a compromised server node."""
+    return {"status": "success", "node": node_id}
+
+# Run directly as a local STDIO MCP Server!
+if __name__ == "__main__":
+    gateway.run_mcp()
 ```
 
 ### Advanced Usage

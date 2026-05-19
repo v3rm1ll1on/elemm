@@ -294,6 +294,7 @@ The gateway seamlessly bridges three API paradigms into the unified Elemm discov
   - Server URL extraction (with relative URL handling).
   - Security scheme detection with vault integration warnings.
   - Tag-based landmark grouping with metadata descriptions.
+  - **Custom Directives (`x-elemm-instructions`)**: Automatic extraction of custom behavioral guidelines from the OpenAPI `info` block or root level, injecting them directly into the transient session manifest as system instructions.
 
 ### GraphQL
 
