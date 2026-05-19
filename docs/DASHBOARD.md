@@ -49,28 +49,21 @@ The MCP Gateway publishes every tool call to the Dashboard Backend via `POST /ap
 
 ## 2. Starting the Dashboard
 
-### Prerequisites
+For standard users, **no Node.js or NPM is required**. A pre-compiled production build of the frontend is already packaged and distributed directly within the PyPI package and Git master branches (under `src/elemm_gateway/ui_backend/dist`). The backend serves these static files automatically.
 
-- The Dashboard Backend requires `fastapi` and `uvicorn`, both included with `elemm`.
-- The Frontend requires `npm` to build (one-time).
+### Option A: Standard Execution (No Build Required)
 
-### Step 1 — Build the Frontend (first time only)
-
-```bash
-cd frontend
-npm install
-npm run build
-```
-
-The build output lands in `frontend/dist/`. The Dashboard Backend automatically serves this directory as static files.
-
-### Step 2 — Start the Dashboard Backend
+Simply run the dashboard server directly using the packaged script or module:
 
 ```bash
+# Using the globally installed CLI script
+elemm-dashboard
+
+# Or using the Python module directly
 python3 -m elemm_gateway.ui_backend.dashboard_server
 ```
 
-Default: `http://127.0.0.1:8090`
+Default URL: 👉 **`http://127.0.0.1:8090`**
 
 **CLI Options:**
 
@@ -80,9 +73,31 @@ Default: `http://127.0.0.1:8090`
 | `--port` | `8090` | Port to listen on |
 | `--reload` | `false` | Enable auto-reload (development) |
 
-### Step 3 — Open the Dashboard
+---
 
-Navigate to `http://127.0.0.1:8090` in your browser. The frontend is served directly from the backend's static file mount.
+### Option B: For Developers (Building from Source)
+
+If you are a developer making custom modifications to the React frontend under `frontend/src/`, you can rebuild the assets using NPM:
+
+```bash
+# 1. Navigate to the frontend directory
+cd frontend
+
+# 2. Install dev dependencies
+npm install
+
+# 3. Build the production bundle
+npm run build
+```
+
+The build output will be compiled into `frontend/dist/`. The backend (`dashboard_server.py`) is designed with intelligent fallback routing that automatically detects and serves your active local build:
+
+1. **Active Dev Path**: First, it attempts to load from `frontend/dist/` (useful for active local frontend development).
+2. **Packaged Fallback Path**: If the dev directory is missing, it falls back to the pre-compiled bundle inside `src/elemm_gateway/ui_backend/dist/`.
+
+### Open the Dashboard
+
+Open your browser and navigate to `http://127.0.0.1:8090`.
 
 > [!TIP]
 > You can run the MCP Gateway and the Dashboard simultaneously. They are fully independent processes.

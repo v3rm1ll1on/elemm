@@ -1057,11 +1057,13 @@ const ObservabilityConsole = ({ history, trace, selectedSessionId, config }) => 
 
     const traceEvent = liveFeed.find(ev => ev.request_id === selectedRequestId);
     if (traceEvent) {
-      const fullEvent = (history || []).find(ev => ev.request_id === selectedRequestId) ||
-                        (trace || []).find(ev => ev.request_id === selectedRequestId);
+      const matchingHistory = (history || []).filter(ev => ev.request_id === selectedRequestId);
+      const matchingTrace = (trace || []).filter(ev => ev.request_id === selectedRequestId);
+      const combinedGroup = [...matchingHistory, ...matchingTrace];
+      
       return {
         id: selectedRequestId,
-        group: fullEvent ? [fullEvent] : [traceEvent],
+        group: combinedGroup.length > 0 ? combinedGroup : [traceEvent],
         children: []
       };
     }

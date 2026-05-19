@@ -97,7 +97,7 @@ async def quarantine_node(node_id: str, urgent: bool = False):
 - **Session Isolation**: Use `session_id` to run parallel tasks without cross-contamination.
 - **Self-Healing**: The SmartRepair engine provides agents with actionable remedies when errors occur.
 - **Search**: Use `search_landmarks(query)` with Python REGEX to locate tools instantly without full hierarchy traversal.
-- **Dashboard**: Start `python3 -m elemm_gateway.ui_backend.dashboard_server` for a real-time observability UI on port 8090.
+- **Dashboard**: Start the dashboard via `elemm-dashboard` for a real-time observability UI on port 8090.
 
 ---
 
