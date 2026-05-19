@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2026-05-17
 
 ### Added
+- **Auditor Special Directives**: Added support for toolset-specific instructions inside the `AIProtocolManager` constructor. Custom directives are seamlessly integrated directly into the markdown manifest to provide critical logical/physical guidelines to LLMs.
+- **x-elemm-instructions support**: Added automatic bridging of custom directives from OpenAPI specifications (via `x-elemm-instructions` under the `info` object or root level) directly into the gateway's transient manifest.
+- **Search Scale & Context-Hygiene Protection**: Implemented dynamic pagination limits and search result caps (defaulting to 10 results) in `search_landmarks` to avoid agent context bloat, with truncation warnings and dynamic namespace recommendations (e.g. `get_manifest(landmark_id="...")`).
 - **Dockerization & CI/CD Automation**: Integrated multi-stage `Dockerfile` and production-ready `docker-compose.yml` for platform-independent, one-click deployment of the gateway. Standardized automated container builds, health-checks, and automatic image publishing targeting **GitHub Container Registry (GHCR)** upon new releases.
 - **Observability Dashboard (Frontend)**: Brand new, high-performance React frontend for gateway monitoring and real-time live debugging.
   - **TokenAnalyzer & TokenCalculator**: Live tracking, visualization, and calculation of token consumption, costs, and real savings achieved via Elemm response hygiene.
@@ -29,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Centralized Versioning**: Version number consolidated under `pyproject.toml` as the single source of truth, dynamically loaded by the CLI and Dashboard.
 - **GraphQL Bridge Refactoring**: Significantly improved type resolution and query generation via recursive type inspection and smart leaf fallbacks.
 - **SmartRepair & Presenter Updates**: Embedded detailed remedy guidelines directly in tool metadata to maximize LLM autonomy when errors occur.
+
+### Fixed
+- **Search Truncation Math**: Corrected the search truncation count calculation in `ManifestPresenter.present_manifest` to accurately determine remaining matches by inspecting the actual total results in transience.
+- **Starlette Connection Close Crash**: Resolved an ASGI runtime `TypeError` crash in the SSE connection handler (`handle_sse` in `cli.py`) by explicitly returning a Starlette `Response()` object upon client disconnection.
 
 ## [1.1.4] - 2026-05-13
 
