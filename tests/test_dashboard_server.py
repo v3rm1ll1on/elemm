@@ -48,8 +48,10 @@ def mock_dashboard_environment(tmp_path, monkeypatch):
     }))
     
     # Override globals on the target dashboard module
+    temp_mcp_config = tmp_path / "mcp_servers.yaml"
     monkeypatch.setattr(dashboard_server, "CONFIG_PATH", str(temp_config))
     monkeypatch.setattr(dashboard_server, "VAULT_PATH", str(temp_vault))
+    monkeypatch.setattr(dashboard_server, "MCP_CONFIG_PATH", str(temp_mcp_config))
     
     # Reset in-memory master state to clean defaults
     dashboard_server.GLOBAL_STATE.clear()
@@ -71,7 +73,8 @@ def mock_dashboard_environment(tmp_path, monkeypatch):
     
     return {
         "config_file": temp_config,
-        "vault_file": temp_vault
+        "vault_file": temp_vault,
+        "mcp_config_file": temp_mcp_config
     }
 
 def test_status_endpoint():
@@ -551,4 +554,223 @@ async def test_inspect_site_error_response(monkeypatch):
     response = client.get("/api/v1/inspect?url=https://failing-host.com&session_id=s-fail")
     assert response.status_code == 400
     assert response.json()["detail"] == "Connection timed out"
+
+
+def test_mcp_config_endpoints():
+    """Verify reading, writing and syntax validation of the MCP servers configuration via dashboard server."""
+    client = TestClient(dashboard_server.app)
+    
+    # 1. GET: Verify auto-creation and initial template structure
+    response = client.get("/api/v1/mcp/config")
+    assert response.status_code == 200
+    data = response.json()
+    assert "yaml" in data
+    assert "version: \"1.0\"" in data["yaml"]
+    assert data["servers"] == {}
+    
+    # 2. POST: Try to upload a valid configuration update
+    valid_yaml = (
+        "version: \"1.0\"\n"
+        "servers:\n"
+        "  github:\n"
+        "    name: \"GitHub Server\"\n"
+        "    transport: \"stdio\"\n"
+        "    command: \"npx\"\n"
+        "    args: [\"-y\", \"@modelcontextprotocol/server-github\"]\n"
+    )
+    
+    response = client.post("/api/v1/mcp/config", json={"yaml": valid_yaml})
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    
+    # 3. GET: Verify that updated YAML persisted and parsed servers correctly
+    response = client.get("/api/v1/mcp/config")
+    assert response.status_code == 200
+    data = response.json()
+    assert "github" in data["servers"]
+    assert data["servers"]["github"]["name"] == "GitHub Server"
+    
+    # 4. POST: Try to upload invalid YAML structure (missing version field)
+    invalid_yaml_struct = (
+        "servers:\n"
+        "  github:\n"
+        "    name: \"Invalid\"\n"
+    )
+    response = client.post("/api/v1/mcp/config", json={"yaml": invalid_yaml_struct})
+    assert response.status_code == 400
+    assert "contain a 'version' field" in response.json()["detail"]
+    
+    # 5. POST: Try to upload invalid syntax
+    invalid_yaml_syntax = (
+        "version: \"1.0\"\n"
+        "servers:\n"
+        "  github: {"
+    )
+    response = client.post("/api/v1/mcp/config", json={"yaml": invalid_yaml_syntax})
+    assert response.status_code == 400
+    assert "Invalid YAML configuration" in response.json()["detail"]
+
+
+def test_mcp_test_endpoint_mocked():
+    """Verify testing connection handshake to a configured MCP server with a mocked subprocess."""
+    from unittest.mock import MagicMock, patch
+    import io
+    import json
+    
+    client = TestClient(dashboard_server.app)
+    
+    # Pre-configure a valid stdio server
+    valid_yaml = (
+        "version: \"1.0\"\n"
+        "servers:\n"
+        "  github:\n"
+        "    name: \"GitHub Server\"\n"
+        "    transport: \"stdio\"\n"
+        "    command: \"npx\"\n"
+        "    args: [\"-y\", \"@modelcontextprotocol/server-github\"]\n"
+    )
+    
+    # Save configuration to the isolated sandbox config
+    response = client.post("/api/v1/mcp/config", json={"yaml": valid_yaml})
+    assert response.status_code == 200
+    
+    # Mock Popen
+    mock_proc = MagicMock()
+    mock_proc.stdin = io.StringIO()
+    
+    # Mock stdout output lines for 'initialize' and 'tools/list'
+    init_response = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05", "capabilities": {}, "serverInfo": {"name": "mock-github", "version": "1.0"}}})
+    tools_response = json.dumps({"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "search_repos", "description": "Search GitHub repositories"}]}})
+    
+    mock_proc.stdout = io.StringIO(f"{init_response}\n{tools_response}\n")
+    mock_proc.stderr = io.StringIO("")
+    mock_proc.poll.return_value = None
+    mock_proc.wait.return_value = 0
+    
+    with patch("subprocess.Popen", return_value=mock_proc), \
+         patch("select.select", return_value=([mock_proc.stdout], [], [])):
+        response = client.get("/api/v1/mcp/test/github")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert len(data["tools"]) == 1
+        assert data["tools"][0]["name"] == "search_repos"
+
+
+def test_mcp_execute_endpoint_mocked():
+    from unittest.mock import MagicMock, patch
+    import io
+    import json
+    
+    client = TestClient(dashboard_server.app)
+    
+    mock_proc = MagicMock()
+    mock_proc.stdin = MagicMock()
+    
+    init_response = json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05", "capabilities": {}, "serverInfo": {"name": "mock-github", "version": "1.0"}}})
+    call_response = json.dumps({"jsonrpc": "2.0", "id": 2, "result": {"content": [{"type": "text", "text": "Mock search results"}]}})
+    
+    mock_proc.stdout = io.StringIO(f"{init_response}\n{call_response}\n")
+    mock_proc.stderr = io.StringIO("")
+    mock_proc.poll.return_value = None
+    mock_proc.wait.return_value = 0
+    
+    with patch("subprocess.Popen", return_value=mock_proc), \
+         patch("select.select", return_value=([mock_proc.stdout], [], [])):
+        response = client.post(
+            "/api/v1/mcp/execute/github/search_repos",
+            json={"arguments": {"query": "test-repo"}}
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert "result" in data
+        assert data["result"]["content"][0]["text"] == "Mock search results"
+
+
+def test_mcp_execute_blocked_by_security_policy():
+    from unittest.mock import MagicMock, patch
+    
+    client = TestClient(dashboard_server.app)
+    
+    mock_policy = MagicMock()
+    mock_policy.is_action_allowed.return_value = {"allowed": False, "reason": "Restricted by Admin"}
+    
+    with patch("elemm_gateway.ui_backend.dashboard_server.get_current_security_policy", return_value=mock_policy):
+        response = client.post(
+            "/api/v1/mcp/execute/github/search_repos",
+            json={"arguments": {}}
+        )
+        assert response.status_code == 403
+        assert "Security Guard" in response.json()["detail"]
+        assert "Restricted by Admin" in response.json()["detail"]
+
+
+def test_mcp_config_vault_resolution():
+    from elemm_gateway.services.mcp_config import MCPConfigManager
+    from unittest.mock import MagicMock
+    
+    mock_vault = MagicMock()
+    mock_vault.get_entry.return_value = {"value": "super-secret-token"}
+    
+    resolved = MCPConfigManager.resolve_value("vault:GITHUB_TOKEN", vault_manager=mock_vault)
+    assert resolved == "super-secret-token"
+    mock_vault.get_entry.assert_called_once_with("GITHUB_TOKEN")
+
+
+def test_mcp_config_import_success():
+    from unittest.mock import patch, mock_open
+    client = TestClient(dashboard_server.app)
+    
+    # Standard Claude config style JSON
+    import_payload = {
+        "text": '{"mcpServers": {"sqlite": {"command": "uv", "args": ["run", "sqlite"], "env": {"SQLITE_DB": "/tmp/test.db", "SQLITE_API_TOKEN": "secret-super-sensitive-api-token"}}}}',
+        "migrate_to_vault": True
+    }
+    
+    with patch("builtins.open", mock_open()) as mock_file, \
+         patch("elemm_gateway.services.mcp_config.MCPConfigManager.load") as mock_load, \
+         patch("elemm_gateway.ui_backend.dashboard_server.vault_manager") as mock_vault:
+         
+        mock_load.return_value = {"version": "1.0", "servers": {}}
+        mock_vault.vault = {}
+        
+        response = client.post("/api/v1/mcp/import", json=import_payload)
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert "1" in data["message"]
+        
+        # Check that SQLITE_API_TOKEN was migrated to Vault
+        assert "IMPORTED_SQLITE_SQLITE_API_TOKEN" in mock_vault.vault
+        assert mock_vault.vault["IMPORTED_SQLITE_SQLITE_API_TOKEN"]["type"] == "envVar"
+        assert mock_vault.vault["IMPORTED_SQLITE_SQLITE_API_TOKEN"]["value"] == "secret-super-sensitive-api-token"
+
+
+def test_delete_mcp_server_success():
+    from unittest.mock import patch, mock_open
+    client = TestClient(dashboard_server.app)
+    
+    with patch("os.path.exists", return_value=True), \
+         patch("builtins.open", mock_open(read_data="version: '1.0'\nservers:\n  sqlite:\n    command: uv")), \
+         patch("yaml.safe_dump") as mock_dump:
+         
+        response = client.delete("/api/v1/mcp/server/sqlite")
+        
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert "sqlite" in data["message"]
+        
+        # Verify safe_dump was called with config missing sqlite
+        mock_dump.assert_called_once()
+        passed_config = mock_dump.call_args[0][0]
+        assert "sqlite" not in passed_config["servers"]
+
+
+
+
+
+
 

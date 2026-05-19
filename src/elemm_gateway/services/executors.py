@@ -294,3 +294,72 @@ class OpenAPIExecutor:
                 return json.dumps(data, indent=2)
         except Exception as e:
             return json.dumps({"status": "error", "message": f"Execution failed: {str(e)}"}, indent=2)
+
+
+class MCPExecutor:
+    """Handles execution of tools on external MCP servers."""
+    def __init__(self, mcp_bridge: Any):
+        self.mcp_bridge = mcp_bridge
+
+    async def execute(self, tool_data: Dict[str, Any], arguments: Dict[str, Any]) -> str:
+        meta = tool_data.get("meta", {})
+        server_id = meta.get("server_id")
+        tool_name = meta.get("tool_name")
+        
+        if not server_id or not tool_name:
+            return json.dumps({
+                "status": "error",
+                "_PROTOCOL_ERROR": "INVALID_LANDMARK",
+                "message": "Landmark is missing server_id or tool_name meta information."
+            }, indent=2)
+
+        # Extract hygiene params
+        select = arguments.pop("_select", None)
+        filter_str = arguments.pop("_filter", None)
+        limit = arguments.pop("_limit", None)
+        offset = arguments.pop("_offset", None)
+        
+        if limit: limit = int(limit)
+        if offset: offset = int(offset)
+
+        try:
+            raw_res = await self.mcp_bridge.call_tool(server_id, tool_name, arguments)
+            
+            # Try parsing as JSON to apply response hygiene
+            try:
+                data = json.loads(raw_res)
+            except:
+                data = raw_res
+                
+            if isinstance(data, (dict, list)):
+                data, was_truncated, total = ResponseSquisher.squish(data, select, filter_str, limit, offset)
+                if was_truncated:
+                    res_obj = {
+                        "status": "success",
+                        "data": data,
+                        "_HYGIENE_NOTICE": f"Output truncated for context hygiene. Showing {len(data)} of {total} items.",
+                        "remedy": f"The result is large. Use '_offset={offset + len(data) if offset else len(data)}' to fetch the next page of results."
+                    }
+                    return json.dumps(res_obj, indent=2)
+                return json.dumps(data, indent=2)
+                
+            return raw_res
+            
+        except Exception as e:
+            error_msg = str(e)
+            remedy = tool_data.get("remedy") or "Überprüfe die Argumente und versuche es erneut."
+            
+            # Determine protocol error type
+            protocol_error = "EXECUTION_FAILED"
+            if "rate limit" in error_msg.lower():
+                protocol_error = "RATE_LIMIT_EXCEEDED"
+            elif "validation" in error_msg.lower() or "invalid parameter" in error_msg.lower():
+                protocol_error = "VALIDATION_FAILED"
+                
+            return json.dumps({
+                "status": "error",
+                "_PROTOCOL_ERROR": protocol_error,
+                "message": f"MCP tool execution failed: {error_msg}",
+                "remedy": remedy
+            }, indent=2)
+

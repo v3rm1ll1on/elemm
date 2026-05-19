@@ -141,7 +141,7 @@ const Vault = () => {
 
       <div className="vault-intro glass">
         <Shield size={20} className="text-accent" />
-        <p>Manage API keys and authentication tokens for external sites. The gateway will automatically inject these credentials based on the hostname.</p>
+        <p>Manage API keys and authentication tokens. They are injected automatically based on target hostname, <strong>or can be securely referenced in MCP Server configs using the <code>vault:KEY_NAME</code> syntax</strong>.</p>
       </div>
 
       <div className="vault-actions">
@@ -163,12 +163,16 @@ const Vault = () => {
               />
             )}
             <div className="vault-card-header">
-              <Globe size={18} className="text-accent" />
+              {item.type === 'envVar' ? (
+                <Key size={18} className="text-accent" />
+              ) : (
+                <Globe size={18} className="text-accent" />
+              )}
               <input 
                 className="host-input"
                 value={item.host} 
                 onChange={(e) => updateVaultEntry(item.id, 'host', e.target.value)}
-                placeholder="api.hostname.com"
+                placeholder={item.type === 'envVar' ? "VARIABLE_NAME (e.g. GITHUB_TOKEN)" : "api.hostname.com or GITHUB_TOKEN"}
               />
               <button className="btn-icon text-error" onClick={() => setDeletingId(item.id)}>
                 <Trash2 size={16} />
@@ -185,6 +189,7 @@ const Vault = () => {
                     <option value="apiKey">API Key</option>
                     <option value="bearer">Bearer Token</option>
                     <option value="basic">Basic Auth</option>
+                    <option value="envVar">Environment Variable (MCP)</option>
                   </select>
                 </div>
                 {item.type === 'apiKey' && (
@@ -201,21 +206,23 @@ const Vault = () => {
                 )}
               </div>
               
-              <div className={`form-group ${item.type !== 'apiKey' ? 'readonly-group' : ''}`}>
-                <label>
-                  <span>{item.type === 'apiKey' ? 'Parameter Name' : 'Identifier'}</span>
-                  <Tooltip text={item.type === 'apiKey' 
-                    ? "The key name (e.g. 'api_key' or 'X-API-Key')." 
-                    : "For Bearer/Basic, this is fixed to 'Authorization'."} 
+              {item.type !== 'envVar' && (
+                <div className={`form-group ${item.type !== 'apiKey' ? 'readonly-group' : ''}`}>
+                  <label>
+                    <span>{item.type === 'apiKey' ? 'Parameter Name' : 'Identifier'}</span>
+                    <Tooltip text={item.type === 'apiKey' 
+                      ? "The key name (e.g. 'api_key' or 'X-API-Key')." 
+                      : "For Bearer/Basic, this is fixed to 'Authorization'."} 
+                    />
+                  </label>
+                  <input 
+                    value={item.type === 'apiKey' ? (item.name || 'key') : 'Authorization'} 
+                    onChange={(e) => item.type === 'apiKey' && updateVaultEntry(item.id, 'name', e.target.value)}
+                    placeholder="e.g. X-API-Key"
+                    readOnly={item.type !== 'apiKey'}
                   />
-                </label>
-                <input 
-                  value={item.type === 'apiKey' ? (item.name || 'key') : 'Authorization'} 
-                  onChange={(e) => item.type === 'apiKey' && updateVaultEntry(item.id, 'name', e.target.value)}
-                  placeholder="e.g. X-API-Key"
-                  readOnly={item.type !== 'apiKey'}
-                />
-              </div>
+                </div>
+              )}
 
               {item.type === 'basic' ? (
                 <div className="form-row">

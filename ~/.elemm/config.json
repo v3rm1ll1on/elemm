@@ -1,0 +1,29 @@
+{
+  "limit_standard": 30000,
+  "limit_inspect": 20000,
+  "limit_search_items": 10,
+  "max_landmarks_per_view": 20,
+  "max_tools_per_landmark": 5,
+  "timeout_seconds": 30,
+  "retry_attempts": 3,
+  "retry_delay_ms": 1000,
+  "user_agent": "ElemmGateway/1.0 (Autonomous Agent)",
+  "security": {
+    "prevent_key_leakage": true,
+    "disallowed_patterns": [
+      "delete",
+      "remove",
+      "purge",
+      "destroy"
+    ],
+    "allowed_methods": [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE"
+    ],
+    "disallowed_landmarks": [],
+    "disallowed_actions": []
+  }
+}
