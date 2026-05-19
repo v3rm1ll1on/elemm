@@ -4,7 +4,7 @@
 [![Downloads](https://img.shields.io/pypi/dm/elemm?style=flat-square&color=darkgreen)](https://pypi.org/project/elemm/)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/v3rm1ll1on/elemm/workflow.yml?branch=main&style=flat-square)](https://github.com/v3rm1ll1on/elemm/actions/workflows/workflow.yml)
 [![License](https://img.shields.io/github/license/v3rm1ll1on/elemm?style=flat-square&color=orange)](https://github.com/v3rm1ll1on/elemm/blob/main/LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/EHSgYDScGj)
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/Na5aBca8bR)
 [![Python versions](https://img.shields.io/badge/python-3.10+-blue?style=flat-square)](https://pypi.org/project/elemm/)
 
 **The Infrastructure for the Agentic Web.**
