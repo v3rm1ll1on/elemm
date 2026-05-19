@@ -41,7 +41,7 @@ jobs:
     - name: Run connection health check
       run: |
         curl -i --fail http://localhost:8090/api/v1/status || (docker logs test-container && exit 1)
-        code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:8000/sse)
+        code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 http://localhost:8000/sse || true)
         if [ "$code" != "200" ]; then
           echo "SSE Gateway check failed: HTTP $code"
           docker logs test-container
