@@ -328,7 +328,7 @@ class ElemmGateway:
 
         if name == "get_manifest":
             self.manifest_loaded = True
-            if site_data.get("type") == "native":
+            if site_data.get("type") == "native" and not url.lower().startswith("mcp://"):
                 try:
                     params = {}
                     if arguments.get("full"):
@@ -365,7 +365,7 @@ class ElemmGateway:
         if name == "get_landmarks":
             # For discovery, we also imply manifest is known
             self.manifest_loaded = True
-            if site_data.get("type") == "native":
+            if site_data.get("type") == "native" and not url.lower().startswith("mcp://"):
                 try:
                     res_text = await ManifestService.fetch_native_manifest(url, vault_manager=self.vault_manager)
                 except Exception as e:
@@ -734,6 +734,20 @@ class ElemmGateway:
         self.manifest_loaded = False
         
         sid = session_id or self.session_id
+        
+        # Support pure virtual local MCP environment connection
+        if url.lower() in ["mcp://local", "local", "mcp"]:
+            connected_sites = self._get_connected_sites(sid)
+            connected_sites[url] = {
+                "status": "success",
+                "type": "native",
+                "url": url,
+                "landmarks": [],
+                "tools": []
+            }
+            self.active_site_urls[sid] = url
+            return [types.TextContent(type="text", text="SUCCESS: CONNECTED to Pure Local MCP Environment.\n\nNEXT: Call 'get_manifest'.")]
+
         self.vault_manager.vault = self.vault_manager.load()
         limit = self.config_manager.get("max_tools_per_landmark", 5)
         res = await ManifestService.inspect_url(url, vault_manager=self.vault_manager, limit=limit)
@@ -761,6 +775,17 @@ class ElemmGateway:
         if not servers:
             return
 
+        url = site_data.get("url", "")
+        is_local_mcp = url.lower() in ["mcp://local", "local", "mcp"]
+        
+        mode = self.config_manager.get("mcp_injection_mode", "global")
+        allowed_servers = self.config_manager.get("injected_mcp_servers", [])
+        allowed_tools = self.config_manager.get("injected_mcp_tools", [])
+        
+        # If we are not in virtual local mode and mode is 'local', we skip injection completely
+        if not is_local_mcp and mode == "local":
+            return
+
         landmarks = site_data.setdefault("landmarks", [])
         
         # Keep track of existing landmark IDs to prevent duplicates
@@ -771,8 +796,55 @@ class ElemmGateway:
         
         from elemm.core.models import Landmark
         for server_id, server_conf in servers.items():
-            # 1. Add top-level navigation landmark if it doesn't exist
+            # Check if this server is allowed under 'selected' mode
+            if not is_local_mcp and mode == "selected":
+                server_is_allowed = server_id in allowed_servers
+                any_tool_allowed = any(
+                    t.startswith(f"{server_id}:") or t.startswith(f"mcp:{server_id}:")
+                    for t in allowed_tools
+                )
+                if not server_is_allowed and not any_tool_allowed:
+                    continue
+
+            # Discover external tools as action landmarks
+            external_landmarks = await self.mcp_bridge.discover_landmarks(server_id)
+            
+            # Filter tools according to selected mode & security policy
+            filtered_tools = []
+            for lm in external_landmarks:
+                # Security Check: Security policy always overrides first!
+                if self.security_policy:
+                    sec_check = self.security_policy.is_action_allowed(lm.id)
+                    if not sec_check["allowed"]:
+                        logger.warning(f"Security Policy: Injection of '{lm.id}' blocked.")
+                        continue
+                
+                # Selection check in selected mode
+                if not is_local_mcp and mode == "selected":
+                    tool_name = lm.meta.get("tool_name", "") if lm.meta else ""
+                    is_server_whitelisted = server_id in allowed_servers
+                    is_tool_whitelisted = (
+                        lm.id in allowed_tools or
+                        f"{server_id}:{tool_name}" in allowed_tools or
+                        tool_name in allowed_tools
+                    )
+                    if not is_server_whitelisted and not is_tool_whitelisted:
+                        continue
+
+                filtered_tools.append(lm)
+
+            # If no tools are allowed/available from this server, do not even inject the navigation landmark
+            if not filtered_tools:
+                continue
+
+            # 1. Add top-level navigation landmark if it doesn't exist and is allowed by Security
             nav_id = f"mcp:{server_id}"
+            if self.security_policy:
+                nav_check = self.security_policy.is_action_allowed(nav_id)
+                if not nav_check["allowed"]:
+                    logger.warning(f"Security Policy: Injection of navigation landmark '{nav_id}' blocked.")
+                    continue
+
             if nav_id not in existing_ids:
                 landmarks.append(Landmark(
                     id=nav_id,
@@ -784,9 +856,8 @@ class ElemmGateway:
                 ))
                 existing_ids.add(nav_id)
 
-            # 2. Discover and add external tools as action landmarks
-            external_landmarks = await self.mcp_bridge.discover_landmarks(server_id)
-            for lm in external_landmarks:
+            # 2. Add filtered action landmarks
+            for lm in filtered_tools:
                 if lm.id not in existing_ids:
                     landmarks.append(lm)
                     existing_ids.add(lm.id)

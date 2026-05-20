@@ -239,16 +239,63 @@ async def test_elemm_gateway_mcp_integration():
             assert exec_res == "executed_successfully"
             gateway.mcp_bridge.call_tool.assert_called_once_with("demo", "test_action", {"arg": "value"})
             
-            # 2. Test injection of landmarks into connected site data
+            # 2. Test injection: LEVEL A - GLOBAL Mode (default/fallback behavior)
+            gateway.config_manager.config["mcp_injection_mode"] = "global"
             site_data = {
                 "type": "openapi",
                 "landmarks": []
             }
             await gateway._inject_mcp_landmarks(site_data)
-            
-            # Should have injected both mcp:demo (navigation) and mcp:demo:test_action (action)
             landmark_ids = [getattr(lm, "id") for lm in site_data["landmarks"]]
             assert "mcp:demo" in landmark_ids
             assert "mcp:demo:test_action" in landmark_ids
+
+            # 3. Test injection: LEVEL B - LOCAL Mode (strict separation)
+            gateway.config_manager.config["mcp_injection_mode"] = "local"
+            
+            # External site should NOT receive MCP tools in local mode
+            site_data_ext = {
+                "type": "openapi",
+                "url": "https://api.example.com",
+                "landmarks": []
+            }
+            await gateway._inject_mcp_landmarks(site_data_ext)
+            assert not site_data_ext["landmarks"]
+            
+            # Virtual local connection SHOULD receive MCP tools in local mode
+            site_data_local = {
+                "type": "native",
+                "url": "mcp://local",
+                "landmarks": []
+            }
+            await gateway._inject_mcp_landmarks(site_data_local)
+            landmark_ids_local = [getattr(lm, "id") for lm in site_data_local["landmarks"]]
+            assert "mcp:demo" in landmark_ids_local
+            assert "mcp:demo:test_action" in landmark_ids_local
+
+            # 4. Test injection: LEVEL C - SELECTED Mode (granular)
+            gateway.config_manager.config["mcp_injection_mode"] = "selected"
+            gateway.config_manager.config["injected_mcp_servers"] = []
+            gateway.config_manager.config["injected_mcp_tools"] = ["mcp:demo:test_action"]
+            
+            site_data_sel = {
+                "type": "openapi",
+                "url": "https://api.example.com",
+                "landmarks": []
+            }
+            await gateway._inject_mcp_landmarks(site_data_sel)
+            landmark_ids_sel = [getattr(lm, "id") for lm in site_data_sel["landmarks"]]
+            assert "mcp:demo" in landmark_ids_sel
+            assert "mcp:demo:test_action" in landmark_ids_sel
+
+            # If tool is not selected and server is not selected, should NOT inject
+            gateway.config_manager.config["injected_mcp_tools"] = []
+            site_data_empty = {
+                "type": "openapi",
+                "url": "https://api.example.com",
+                "landmarks": []
+            }
+            await gateway._inject_mcp_landmarks(site_data_empty)
+            assert not site_data_empty["landmarks"]
 
 

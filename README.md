@@ -1,11 +1,17 @@
 # Elemm: The Landmark Manifest Protocol
 
-[![PyPI version](https://img.shields.io/pypi/v/elemm?style=flat-square&color=blue)](https://pypi.org/project/elemm/)
-[![Downloads](https://img.shields.io/pypi/dm/elemm?style=flat-square&color=darkgreen)](https://pypi.org/project/elemm/)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/v3rm1ll1on/elemm/workflow.yml?branch=main&style=flat-square)](https://github.com/v3rm1ll1on/elemm/actions/workflows/workflow.yml)
-[![License](https://img.shields.io/github/license/v3rm1ll1on/elemm?style=flat-square&color=orange)](https://github.com/v3rm1ll1on/elemm/blob/main/LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/EHSgYDScGj)
-[![Python versions](https://img.shields.io/badge/python-3.10+-blue?style=flat-square)](https://pypi.org/project/elemm/)
+<p align="center">
+  <a href="https://pypi.org/project/elemm/"><img src="https://img.shields.io/pypi/v/elemm?style=flat-square&color=blue" alt="PyPI version" /></a>
+  <a href="https://pypi.org/project/elemm/"><img src="https://img.shields.io/pypi/dm/elemm?style=flat-square&color=darkgreen" alt="Downloads" /></a>
+  <a href="https://github.com/v3rm1ll1on/elemm/actions/workflows/workflow.yml"><img src="https://img.shields.io/github/actions/workflow/status/v3rm1ll1on/elemm/workflow.yml?branch=main&style=flat-square" alt="Build Status" /></a>
+  <a href="https://github.com/v3rm1ll1on/elemm/blob/main/LICENSE"><img src="https://img.shields.io/github/license/v3rm1ll1on/elemm?style=flat-square&color=orange" alt="License" /></a>
+  <a href="https://discord.gg/Na5aBca8bR"><img src="https://img.shields.io/badge/Discord-%235865F2.svg?style=flat-square&logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="https://pypi.org/project/elemm/"><img src="https://img.shields.io/badge/python-3.10+-blue?style=flat-square" alt="Python versions" /></a>
+</p>
+
+<p align="center">
+  <img src="docs/images/elemm_logo.png" alt="Elemm Logo" width="600" />
+</p>
 
 **The Infrastructure for the Agentic Web.**
 

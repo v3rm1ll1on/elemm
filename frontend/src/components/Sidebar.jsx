@@ -43,11 +43,19 @@ const Sidebar = ({ activeTab, setActiveTab, isOnline }) => {
       onMouseLeave={handleMouseLeave}
     >
       <div className="sidebar-header">
-        <div className="logo-container">
+        <div className="logo-wrapper">
           <div className="logo-glow"></div>
-          <span className="logo-text">EL</span>
+          <img 
+            src="/elemm-logo.webp" 
+            alt="Elemm Logo" 
+            className={`logo-img expanded ${isExpanded ? 'visible' : 'hidden'}`}
+          />
+          <img 
+            src="/elemm-el.webp" 
+            alt="Elemm" 
+            className={`logo-img collapsed ${!isExpanded ? 'visible' : 'hidden'}`}
+          />
         </div>
-        {isExpanded && <span className="brand-name">ELEMM Gateway</span>}
       </div>
 
       <nav className="sidebar-nav">

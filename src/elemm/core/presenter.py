@@ -118,7 +118,11 @@ class ManifestPresenter:
         if not landmarks:
             lines.append("_No landmarks discovered in this scope._")
         else:
-            visible_lms = landmarks[offset : offset + max_landmarks]
+            is_single_lm_drilldown = (len(landmarks) == 1 and not is_root and hasattr(landmarks[0], 'tools') and landmarks[0].tools)
+            if is_single_lm_drilldown:
+                visible_lms = landmarks
+            else:
+                visible_lms = landmarks[offset : offset + max_landmarks]
             items_rendered = 0
             for lm in visible_lms:
                 if items_rendered >= max_landmarks:
@@ -135,10 +139,14 @@ class ManifestPresenter:
                         items_rendered += 1
                         rendered_landmarks += 1
                         
-                        # Show tools but respect remaining budget
+                        # Show tools but respect remaining budget and offset
                         remaining_budget = max_landmarks - items_rendered
-                        visible_tools = lm.tools[:remaining_budget]
-                        hidden_tools = len(lm.tools) - len(visible_tools)
+                        if is_single_lm_drilldown:
+                            visible_tools = lm.tools[offset : offset + remaining_budget]
+                            hidden_tools = len(lm.tools) - (offset + len(visible_tools))
+                        else:
+                            visible_tools = lm.tools[:remaining_budget]
+                            hidden_tools = len(lm.tools) - len(visible_tools)
                         
                         for t in visible_tools:
                             t_desc = t.description or "No description."
@@ -160,7 +168,7 @@ class ManifestPresenter:
                                 
                             items_rendered += 1
                             
-                        if hidden_tools > 0:
+                        if hidden_tools > 0 and not is_single_lm_drilldown:
                             lines.append(f"  - (... and {hidden_tools} more tools.)")
                     else:
                         # Budget ueberschritten oder Gruppe zu gross -> nur Obergruppe listen mit Info
@@ -185,12 +193,19 @@ class ManifestPresenter:
                         
                     items_rendered += 1
 
-            total_items = kwargs.get("total", len(landmarks))
-            total_remaining = total_items - (offset + items_rendered)
-            has_more = kwargs.get("has_more", total_remaining > 0)
+            if is_single_lm_drilldown:
+                total_items = len(landmarks[0].tools)
+                rendered_count = len(visible_tools)
+                total_remaining = total_items - (offset + rendered_count)
+                next_offset = offset + rendered_count
+                has_more = total_remaining > 0
+            else:
+                total_items = kwargs.get("total", len(landmarks))
+                total_remaining = total_items - (offset + items_rendered)
+                next_offset = offset + items_rendered
+                has_more = kwargs.get("has_more", total_remaining > 0)
             
             if has_more or total_remaining > 0:
-                next_offset = offset + items_rendered
                 is_search = "SEARCH RESULTS FOR" in instructions
                 if is_search:
                     example_lm_id = "landmark1:landmark2"
@@ -202,6 +217,8 @@ class ManifestPresenter:
                         else:
                             example_lm_id = first_id
                     lines.append(f"\n- (... and {total_remaining} more items are available matching your query. **ACTION REQUIRED**: Use `_offset={next_offset}` to fetch the next page of results, or restrict your search using the `landmark_id` filter (e.g. '{example_lm_id}') to focus on a specific namespace.)")
+                elif is_single_lm_drilldown:
+                    lines.append(f"\n- (... and {total_remaining} more tools available. **ACTION REQUIRED**: Use `_offset={next_offset}` in your next `inspect_landmark` call to fetch the next page of results.)")
                 else:
                     lines.append(f"\n- (... and {total_remaining} more items available. **ACTION REQUIRED**: Use `_offset={next_offset}` in your next `inspect_landmark` call to fetch the next page of results.)")
 

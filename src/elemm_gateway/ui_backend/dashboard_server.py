@@ -491,11 +491,113 @@ async def get_vault():
 
 @app.post("/api/v1/vault")
 async def update_vault(vault: dict):
+    # 1. Load existing vault to check for deletions
+    existing_keys = set()
+    if os.path.exists(VAULT_PATH):
+        try:
+            with open(VAULT_PATH, "r") as f:
+                existing_keys = set(json.load(f).keys())
+        except Exception as e:
+            logger.error(f"Failed to load existing vault for delete check: {e}")
+
+    # Determine deleted keys
+    new_keys = set(vault.keys())
+    deleted_keys = existing_keys - new_keys
+
+    # 2. Check if any deleted key is in use in MCP Server Config
+    if deleted_keys:
+        mcp_servers = {}
+        if os.path.exists(MCP_CONFIG_PATH):
+            try:
+                with open(MCP_CONFIG_PATH, "r", encoding="utf-8") as f:
+                    mcp_data = yaml.safe_load(f) or {}
+                    mcp_servers = mcp_data.get("servers", {}) or {}
+            except Exception as e:
+                logger.error(f"Failed to load MCP configuration for vault delete validation: {e}")
+
+        conflicts = {}
+        for key in deleted_keys:
+            using_servers = []
+            target = f"vault:{key}"
+            
+            def check_value(val: Any) -> bool:
+                if isinstance(val, str):
+                    return val == target or val.startswith(target + ":") or val.startswith(target)
+                if isinstance(val, list):
+                    return any(check_value(item) for item in val)
+                if isinstance(val, dict):
+                    return any(check_value(v) for v in val.values())
+                return False
+            
+            for srv_id, srv_conf in mcp_servers.items():
+                if srv_conf and check_value(srv_conf):
+                    using_servers.append(srv_id)
+            
+            if using_servers:
+                conflicts[key] = using_servers
+
+        if conflicts:
+            conflict_details = []
+            for key, servers in conflicts.items():
+                servers_str = ", ".join(servers)
+                conflict_details.append(f"Key '{key}' is actively used by the following MCP servers: {servers_str}")
+            detail_msg = "; ".join(conflict_details)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Deletion blocked: {detail_msg}. Please remove vault references from your MCP configuration first."
+            )
+
     try:
         os.makedirs(os.path.dirname(VAULT_PATH), exist_ok=True)
         with open(VAULT_PATH, "w") as f:
             json.dump(vault, f, indent=2)
         return {"status": "success", "message": "Vault updated successfully"}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/vault/check-delete/{key}")
+async def check_vault_delete(key: str):
+    try:
+        # Load MCP config
+        mcp_servers = {}
+        if os.path.exists(MCP_CONFIG_PATH):
+            with open(MCP_CONFIG_PATH, "r", encoding="utf-8") as f:
+                try:
+                    mcp_data = yaml.safe_load(f) or {}
+                    mcp_servers = mcp_data.get("servers", {}) or {}
+                except Exception as e:
+                    logger.error(f"Failed to parse MCP config during check-delete: {e}")
+
+        # Check if the key is used in MCP config
+        using_servers = []
+        target = f"vault:{key}"
+        
+        def check_value(val: Any) -> bool:
+            if isinstance(val, str):
+                return val == target or val.startswith(target + ":") or val.startswith(target)
+            if isinstance(val, list):
+                return any(check_value(item) for item in val)
+            if isinstance(val, dict):
+                return any(check_value(v) for v in val.values())
+            return False
+        
+        for srv_id, srv_conf in mcp_servers.items():
+            if srv_conf and check_value(srv_conf):
+                using_servers.append(srv_id)
+
+        if using_servers:
+            servers_str = ", ".join(using_servers)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Deletion blocked: Key '{key}' is actively used by the following MCP servers: {servers_str}. Please remove vault references from your MCP configuration first."
+            )
+
+        return {"status": "success", "message": "Credential is safe to delete"}
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -646,16 +748,39 @@ async def import_mcp_config(payload: dict):
             continue
             
         name = server_conf.get("name") or server_id.capitalize()
-        transport = server_conf.get("transport") or "stdio"
+        url = server_conf.get("url")
         command = server_conf.get("command")
-        if not command:
+        
+        # Determine transport: if 'url' is present, default to "sse", else "stdio"
+        default_transport = "sse" if url else "stdio"
+        transport = server_conf.get("transport") or default_transport
+        
+        if not command and not url:
             continue
             
         args = server_conf.get("args") or []
         env = server_conf.get("env") or {}
         instructions = server_conf.get("instructions") or ""
         remedies = server_conf.get("remedies") or {}
-        
+
+        # Avoid overwriting existing MCP server definitions by renaming!
+        base_server_id = server_id
+        server_id_counter = 1
+        while server_id in active_servers:
+            existing = active_servers[server_id]
+            if (existing.get("command") == command and 
+                existing.get("url") == url and
+                existing.get("args") == args and 
+                existing.get("env") == env and
+                existing.get("transport") == transport):
+                # Perfectly identical server already exists, we can reuse/overwrite without renaming
+                break
+            
+            # Different configuration, rename server_id to avoid conflict!
+            server_id = f"{base_server_id}_{server_id_counter}"
+            server_id_counter += 1
+            name = f"{server_conf.get('name') or base_server_id.capitalize()} ({server_id_counter - 1})"
+            
         # Migrate env variables to Vault if requested
         if migrate_to_vault and isinstance(env, dict):
             migrated_env = {}
@@ -664,7 +789,17 @@ async def import_mcp_config(payload: dict):
                     sensitive_words = ["token", "key", "secret", "password", "pat", "auth", "pwd"]
                     is_sensitive = any(word in k.lower() for word in sensitive_words) or len(v) > 15
                     if is_sensitive:
-                        vault_key = f"IMPORTED_{server_id.upper()}_{k.upper()}"
+                        base_key = f"IMPORTED_{server_id.upper()}_{k.upper()}"
+                        vault_key = base_key
+                        vault_key_counter = 1
+                        while vault_key in vault:
+                            # If the existing key has the exact same value/type, reuse it!
+                            if vault[vault_key].get("value") == v and vault[vault_key].get("type") == "envVar":
+                                break
+                            # Different value, rename key to avoid conflict!
+                            vault_key = f"{base_key}_{vault_key_counter}"
+                            vault_key_counter += 1
+                        
                         vault[vault_key] = {
                             "type": "envVar",
                             "value": v
@@ -679,6 +814,7 @@ async def import_mcp_config(payload: dict):
             "name": name,
             "transport": transport,
             "command": command,
+            "url": url,
             "args": args,
             "env": env,
             "instructions": instructions,
@@ -687,7 +823,7 @@ async def import_mcp_config(payload: dict):
         imported_count += 1
         
     if imported_count == 0:
-        raise HTTPException(status_code=400, detail="No valid MCP servers with a 'command' could be imported.")
+        raise HTTPException(status_code=400, detail="No valid MCP servers with a 'command' or 'url' could be imported.")
         
     # Save vault if updated
     if vault_updated:
@@ -728,7 +864,70 @@ async def test_mcp_server(server_id: str):
     if not server_conf:
         raise HTTPException(status_code=404, detail=f"Server '{server_id}' not found in configuration.")
         
+    transport = server_conf.get("transport", "stdio")
+    url = server_conf.get("url")
     command = server_conf.get("command")
+    
+    if transport == "sse" or url:
+        if not url:
+            raise HTTPException(status_code=400, detail="SSE transport requires a 'url' configuration.")
+            
+        # Resolve env vars (only what is explicitly configured for this server in its 'env' section!)
+        resolved_env = manager.get_resolved_env(server_id, vault_manager=vault_manager)
+        headers = {}
+        for k, v in resolved_env.items():
+            k_upper = k.upper()
+            if k_upper == "AUTHORIZATION":
+                headers["Authorization"] = v
+            elif k_upper in ("API_KEY", "API-KEY"):
+                headers["X-API-Key"] = v
+            elif k_upper in ("TOKEN", "BEARER_TOKEN") or k_upper in ("NOTION", "NOTION_TOKEN") or v.startswith("ntn_"):
+                headers["Authorization"] = v if v.startswith("Bearer ") else f"Bearer {v}"
+            else:
+                headers[k] = v
+                
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                response = await client.get(url, headers=headers)
+                if response.status_code == 401:
+                    try:
+                        resp_body = response.text
+                    except Exception:
+                        resp_body = ""
+                    return {
+                        "status": "warning",
+                        "message": f"Server reached, but authentication is required (HTTP 401 Unauthorized).\nResponse from server: {resp_body}",
+                        "tools": []
+                    }
+                elif response.status_code == 403:
+                    try:
+                        resp_body = response.text
+                    except Exception:
+                        resp_body = ""
+                    return {
+                        "status": "warning",
+                        "message": f"Server reached, but access was forbidden (HTTP 403 Forbidden).\nResponse from server: {resp_body}",
+                        "tools": []
+                    }
+                elif response.status_code >= 400:
+                    return {
+                        "status": "error",
+                        "message": f"Remote SSE server returned error code {response.status_code} at {url} (HTTP {response.status_code}).",
+                        "tools": []
+                    }
+                return {
+                    "status": "success",
+                    "message": f"Successfully reached remote SSE server at {url} (HTTP {response.status_code}).",
+                    "tools": []
+                }
+        except httpx.RequestError as exc:
+            return {
+                "status": "error",
+                "message": f"Failed to connect to remote SSE server at {url}: {exc}",
+                "tools": []
+            }
+            
     if not command:
         raise HTTPException(status_code=400, detail="Server has no command configured.")
         
@@ -737,7 +936,6 @@ async def test_mcp_server(server_id: str):
     resolved_env = manager.get_resolved_env(server_id, vault_manager=vault_manager)
     env.update(resolved_env)
     
-    transport = server_conf.get("transport", "stdio")
     if transport != "stdio":
         return {
             "status": "success",

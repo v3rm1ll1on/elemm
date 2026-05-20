@@ -161,12 +161,57 @@ const Settings = () => {
                 value={config.ui?.char_to_token_ratio || 4.0} 
                 onChange={(e) => updateNested('ui.char_to_token_ratio', parseFloat(e.target.value))} 
               />
-              <div className="range-labels">
+             <div className="range-labels">
                 <span>Tight (2.0)</span>
                 <span>Standard (4.0)</span>
                 <span>Loose (6.0)</span>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* MCP Blending & Discovery Section */}
+        <div className="settings-card glass">
+          <div className="card-header">
+            <Zap size={20} className="text-accent" />
+            <h3>MCP Blending & Discovery</h3>
+          </div>
+          <div className="card-body">
+            <div className="form-group">
+              <label>MCP Injection Mode <Tooltip text="Select how external MCP server tools are discovered and injected as landmarks by your AI agent." /></label>
+              <select 
+                value={config.mcp_injection_mode || 'global'} 
+                onChange={(e) => updateNested('mcp_injection_mode', e.target.value)}
+              >
+                <option value="global">Global (Inject into all connected sites)</option>
+                <option value="local">Pure Local Sandbox (mcp://local only)</option>
+                <option value="selected">Selected Mode (Granular server/tool list)</option>
+              </select>
+            </div>
+            {config.mcp_injection_mode === 'selected' && (
+              <>
+                <div className="form-group">
+                  <label>Selected MCP Servers <Tooltip text="Comma-separated list of server identifiers to allow globally, e.g. github, sqlite" /></label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. github, sqlite" 
+                    value={(config.injected_mcp_servers || []).join(', ')} 
+                    onChange={(e) => handleArrayChange('injected_mcp_servers', e.target.value)} 
+                  />
+                  <small style={{ color: 'var(--text-secondary)', opacity: 0.6, fontSize: '0.75rem' }}>Only tools belonging to these servers will be injected into connected sites.</small>
+                </div>
+                <div className="form-group">
+                  <label>Selected MCP Tools <Tooltip text="Comma-separated list of specific tools/actions to allow globally, e.g. sqlite:query_db" /></label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. sqlite:query_db, github:create_issue" 
+                    value={(config.injected_mcp_tools || []).join(', ')} 
+                    onChange={(e) => handleArrayChange('injected_mcp_tools', e.target.value)} 
+                  />
+                  <small style={{ color: 'var(--text-secondary)', opacity: 0.6, fontSize: '0.75rem' }}>Only these specific tools will be injected into connected sites.</small>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

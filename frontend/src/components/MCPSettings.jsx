@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Cpu, Save, AlertTriangle, CheckCircle, Terminal, Plus, Trash2, 
-  Settings2, Key, HelpCircle, ShieldAlert, FileText, ChevronRight, X, Zap, Wrench
+  Settings2, Key, HelpCircle, ShieldAlert, FileText, ChevronRight, ChevronDown, X, Zap, Wrench, Search, MoreVertical
 } from 'lucide-react';
 import { API_BASE } from '../config';
 import Slide2Delete from './Slide2Delete';
@@ -49,6 +49,9 @@ const MCPSettings = () => {
   const [savedServers, setSavedServers] = useState({});
   const [activeServerId, setActiveServerId] = useState(null);
   const [editMode, setEditMode] = useState('form'); // 'form' or 'yaml'
+  const [serverStatuses, setServerStatuses] = useState({}); // { [id]: 'online' | 'offline' | 'checking' | 'unknown' }
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeMenuId, setActiveMenuId] = useState(null);
   const [status, setStatus] = useState({ type: null, message: '' });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -64,6 +67,8 @@ const MCPSettings = () => {
   const [deletingServerId, setDeletingServerId] = useState(null);
   const [deletingEnvKey, setDeletingEnvKey] = useState(null);
   const [deletingRemedyTool, setDeletingRemedyTool] = useState(null);
+  const [toolSearch, setToolSearch] = useState('');
+  const [expandedTools, setExpandedTools] = useState({});
 
   // Helper: Convert JS state back to clean YAML
   const serializeToYaml = (serversObj) => {
@@ -76,13 +81,17 @@ const MCPSettings = () => {
       yaml += `  ${id}:\n`;
       if (srv.name) yaml += `    name: "${srv.name}"\n`;
       if (srv.transport) yaml += `    transport: "${srv.transport}"\n`;
-      if (srv.command) yaml += `    command: "${srv.command}"\n`;
       
-      if (srv.args && srv.args.length > 0) {
-        yaml += `    args:\n`;
-        srv.args.forEach(arg => {
-          yaml += `      - "${arg}"\n`;
-        });
+      if (srv.transport === 'sse') {
+        if (srv.url) yaml += `    url: "${srv.url}"\n`;
+      } else {
+        if (srv.command) yaml += `    command: "${srv.command}"\n`;
+        if (srv.args && srv.args.length > 0) {
+          yaml += `    args:\n`;
+          srv.args.forEach(arg => {
+            yaml += `      - "${arg}"\n`;
+          });
+        }
       }
       
       if (srv.env && Object.keys(srv.env).length > 0) {
@@ -261,10 +270,29 @@ const MCPSettings = () => {
 
   // Triggered when clicking save in UI
   const triggerSave = () => {
+    let currentServers = servers;
+    if (editMode !== 'yaml' && newEnvKey.trim() && activeServerId) {
+      const currentEnv = servers[activeServerId].env || {};
+      const updatedServers = {
+        ...servers,
+        [activeServerId]: {
+          ...servers[activeServerId],
+          env: {
+            ...currentEnv,
+            [newEnvKey.trim()]: newEnvVal.trim()
+          }
+        }
+      };
+      setServers(updatedServers);
+      currentServers = updatedServers;
+      setNewEnvKey('');
+      setNewEnvVal('');
+    }
+
     if (editMode === 'yaml') {
       handleSaveAndVerify(yamlConfig);
     } else {
-      const generatedYaml = serializeToYaml(servers);
+      const generatedYaml = serializeToYaml(currentServers);
       handleSaveAndVerify(generatedYaml);
     }
   };
@@ -527,34 +555,117 @@ const MCPSettings = () => {
     }
   };
 
+  const testServer = async (serverId) => {
+    if (!serverId) return;
+    try {
+      setServerStatuses(prev => ({ ...prev, [serverId]: 'checking' }));
+      const res = await fetch(`${API_BASE}/api/v1/mcp/test/${serverId}`);
+      const data = await res.json();
+      if (res.ok) {
+        if (data.status === 'warning') {
+          setServerStatuses(prev => ({ ...prev, [serverId]: 'warning' }));
+          if (serverId === activeServerId) {
+            setTestResult({
+              success: 'warning',
+              message: data.message,
+              tools: []
+            });
+          }
+        } else if (data.status === 'success') {
+          setServerStatuses(prev => ({ ...prev, [serverId]: 'online' }));
+          if (serverId === activeServerId) {
+            setTestResult({
+              success: true,
+              message: data.message,
+              tools: data.tools || []
+            });
+          }
+        } else {
+          setServerStatuses(prev => ({ ...prev, [serverId]: 'offline' }));
+          if (serverId === activeServerId) {
+            setTestResult({
+              success: false,
+              message: data.message || 'Connection test returned an error status.'
+            });
+          }
+        }
+      } else {
+        setServerStatuses(prev => ({ ...prev, [serverId]: 'offline' }));
+        if (serverId === activeServerId) {
+          setTestResult({
+            success: false,
+            message: data.detail || 'Connection testing handshake failed.'
+          });
+        }
+      }
+    } catch (e) {
+      setServerStatuses(prev => ({ ...prev, [serverId]: 'offline' }));
+      if (serverId === activeServerId) {
+        setTestResult({
+          success: false,
+          message: 'Network error occurred while executing connection test.'
+        });
+      }
+    }
+  };
+
   // Connection tester
   const handleTestConnection = async () => {
     if (!activeServerId) return;
-    try {
-      setTesting(true);
-      setTestResult(null);
-      const res = await fetch(`${API_BASE}/api/v1/mcp/test/${activeServerId}`);
-      const data = await res.json();
-      if (res.ok) {
-        setTestResult({
-          success: true,
-          message: data.message,
-          tools: data.tools || []
-        });
-      } else {
-        setTestResult({
-          success: false,
-          message: data.detail || 'Connection testing handshake failed.'
-        });
-      }
-    } catch (e) {
-      setTestResult({
-        success: false,
-        message: 'Network error occurred while executing connection test.'
-      });
-    } finally {
-      setTesting(false);
+    setTesting(true);
+    setTestResult(null);
+    
+    let currentServers = servers;
+    if (newEnvKey.trim()) {
+      const currentEnv = servers[activeServerId].env || {};
+      const updatedServers = {
+        ...servers,
+        [activeServerId]: {
+          ...servers[activeServerId],
+          env: {
+            ...currentEnv,
+            [newEnvKey.trim()]: newEnvVal.trim()
+          }
+        }
+      };
+      setServers(updatedServers);
+      currentServers = updatedServers;
+      setNewEnvKey('');
+      setNewEnvVal('');
     }
+    
+    // Auto-save pending changes first so the backend actually knows about this new/updated server!
+    if (JSON.stringify(currentServers) !== JSON.stringify(savedServers)) {
+      const generatedYaml = serializeToYaml(currentServers);
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/mcp/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ yaml: generatedYaml })
+        });
+        if (res.ok) {
+          const configData = await res.json();
+          setSavedServers(configData.servers || {});
+          setYamlConfig(generatedYaml);
+        }
+      } catch (e) {
+        console.error("Auto-save before test failed:", e);
+      }
+    }
+    
+    await testServer(activeServerId);
+    setTesting(false);
+  };
+
+  // Parallel verify all servers
+  const verifyAllServers = async () => {
+    const ids = Object.keys(servers);
+    if (ids.length === 0) return;
+    setStatus({ type: 'info', message: `Verifying all ${ids.length} MCP servers...` });
+    
+    // Run them in parallel!
+    await Promise.all(ids.map(id => testServer(id)));
+    setStatus({ type: 'success', message: 'Verification handshake complete for all servers.' });
   };
 
   if (loading) {
@@ -569,29 +680,69 @@ const MCPSettings = () => {
   const hasPendingChanges = editMode === 'yaml' ? false : (JSON.stringify(servers) !== JSON.stringify(savedServers));
   const activeServer = activeServerId ? servers[activeServerId] : null;
 
+  const filteredServers = Object.entries(servers).filter(([id, srv]) => {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return true;
+    const name = (srv.name || '').toLowerCase();
+    const serverId = id.toLowerCase();
+    const command = (srv.command || '').toLowerCase();
+    return name.includes(query) || serverId.includes(query) || command.includes(query);
+  });
+
   return (
     <div className="mcp-settings-container animate-slide-up custom-scrollbar">
       {/* Main Master-Detail split workspace */}
       <div className="mcp-workspace">
         {/* Left Sidebar: Servers Menu */}
         <div className="mcp-sidebar-menu">
-          <div className="mcp-sidebar-title">
-            <span>Server List ({Object.keys(servers).length})</span>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button 
-                className="mcp-add-server-btn secondary" 
-                onClick={() => {
-                  setImportText('');
-                  setShowImportModal(true);
-                }} 
-                title="Import existing Claude/Elemm configuration"
-                style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}
-              >
-                Import
-              </button>
-              <button className="mcp-add-server-btn" onClick={addNewServer} title="Add new server">
-                <Plus size={16} /> Add
-              </button>
+          <div className="mcp-sidebar-header">
+            <div className="mcp-sidebar-header-top">
+              <div className="mcp-sidebar-title-pill">
+                <h2>Servers</h2>
+                <span className="count-badge">{Object.keys(servers).length}</span>
+              </div>
+              <div className="mcp-sidebar-actions">
+                <button 
+                  className="mcp-action-btn secondary"
+                  onClick={verifyAllServers}
+                  title="Verify all servers in parallel"
+                >
+                  <Zap size={14} />
+                </button>
+                <button 
+                  className="mcp-action-btn secondary" 
+                  onClick={() => {
+                    setImportText('');
+                    setShowImportModal(true);
+                  }} 
+                  title="Import existing Claude/Elemm configuration"
+                >
+                  <FileText size={14} />
+                </button>
+                <button 
+                  className="mcp-action-btn primary" 
+                  onClick={addNewServer} 
+                  title="Add new server"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+            </div>
+
+            <div className="mcp-sidebar-search">
+              <Search size={14} className="search-icon" />
+              <input 
+                type="text" 
+                placeholder="Search servers..." 
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="search-input"
+              />
+              {searchQuery && (
+                <button className="clear-search-btn" onClick={() => setSearchQuery('')}>
+                  ×
+                </button>
+              )}
             </div>
           </div>
           
@@ -600,14 +751,19 @@ const MCPSettings = () => {
               <div className="mcp-sidebar-empty">
                 No servers configured.
               </div>
+            ) : filteredServers.length === 0 ? (
+              <div className="mcp-sidebar-empty">
+                No matching servers found.
+              </div>
             ) : (
-              Object.entries(servers).map(([id, srv]) => (
+              filteredServers.map(([id, srv]) => (
                 <div 
                   key={id} 
                   className={`mcp-sidebar-item ${activeServerId === id ? 'active' : ''} ${deletingServerId === id ? 'deleting' : ''}`}
                   onClick={() => {
                     if (deletingServerId !== id) {
                       setActiveServerId(id);
+                      setActiveMenuId(null);
                     }
                   }}
                 >
@@ -622,22 +778,61 @@ const MCPSettings = () => {
                     />
                   )}
                   <div className="mcp-sidebar-item-info">
-                    <Cpu size={16} />
+                    <div className="mcp-server-icon-container">
+                      <Cpu size={16} />
+                      <span className={`status-dot ${serverStatuses[id] || 'unknown'}`} title={`Status: ${serverStatuses[id] || 'unknown'}`} />
+                    </div>
                     <div className="mcp-sidebar-item-names">
                       <span className="name">{srv.name || id}</span>
                       <span className="id">mcp:{id}</span>
                     </div>
                   </div>
-                  <button 
-                    className="mcp-delete-item-btn" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeletingServerId(id);
-                    }}
-                    title="Delete server"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  
+                  <div className="mcp-item-menu-container">
+                    <button 
+                      className={`mcp-more-btn ${activeMenuId === id ? 'active' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveMenuId(activeMenuId === id ? null : id);
+                      }}
+                      title="Server actions"
+                    >
+                      <MoreVertical size={16} />
+                    </button>
+                    
+                    {activeMenuId === id && (
+                      <>
+                        <div className="mcp-dropdown-backdrop" onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveMenuId(null);
+                        }} />
+                        <div className="mcp-item-dropdown glass animate-fade-in" onClick={(e) => e.stopPropagation()}>
+                          <button 
+                            className="dropdown-item" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              testServer(id);
+                              setActiveMenuId(null);
+                            }}
+                          >
+                            <Zap size={14} className="text-accent" />
+                            <span>Verify Status</span>
+                          </button>
+                          <button 
+                            className="dropdown-item delete" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeletingServerId(id);
+                              setActiveMenuId(null);
+                            }}
+                          >
+                            <Trash2 size={14} />
+                            <span>Delete Server</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               ))
             )}
@@ -748,19 +943,77 @@ const MCPSettings = () => {
                       <small>Communication protocol for data exchange.</small>
                     </div>
                     
-                    <div className="mcp-input-group">
-                      <label>
-                        Executable Command (Command)*
-                        <Tooltip text="The main CLI command to boot your server process, e.g. npx, python3, node, or a direct binary path." />
-                      </label>
-                      <input 
-                        type="text" 
-                        value={activeServer.command || ''} 
-                        onChange={(e) => updateActiveServerField('command', e.target.value)}
-                        placeholder="e.g. npx, python3, node"
-                      />
-                      <small>CLI command used to boot the subprocess.</small>
-                    </div>
+                    {activeServer.transport === 'sse' ? (
+                      <div className="mcp-input-group">
+                        <label>
+                          Remote Server URL (URL)*
+                          <Tooltip text="The full HTTP/HTTPS URL of the remote SSE MCP server, e.g. https://tandem.ac/mcp." />
+                        </label>
+                        <input 
+                          type="text" 
+                          value={activeServer.url || ''} 
+                          onChange={(e) => {
+                            const newUrl = e.target.value;
+                            updateActiveServerField('url', newUrl);
+                            
+                            try {
+                              if (newUrl && (newUrl.startsWith('http://') || newUrl.startsWith('https://'))) {
+                                const parsedUrl = new URL(newUrl);
+                                const host = parsedUrl.hostname; // e.g. mcp.notion.com
+                                let cleanName = host.replace('www.', '');
+                                
+                                // Make clean ID like "notion-mcp"
+                                const domainParts = cleanName.split('.');
+                                const mainDomain = domainParts.length > 1 ? domainParts[domainParts.length - 2] : domainParts[0];
+                                const cleanId = `${mainDomain}-mcp`.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+
+                                // Update display name if it's default or empty
+                                if (!activeServer.name || activeServer.name === 'New MCP Server' || activeServer.name === 'New Server') {
+                                  updateActiveServerField('name', cleanName.split('.').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' '));
+                                }
+
+                                // Update server id if it's still the default new_server_x
+                                if (activeServerId.startsWith('new_server_')) {
+                                  let finalId = cleanId;
+                                  let counter = 1;
+                                  while (servers[finalId] && finalId !== activeServerId) {
+                                    finalId = `${cleanId}_${counter}`;
+                                    counter++;
+                                  }
+                                  
+                                  const oldId = activeServerId;
+                                  setServers(prev => {
+                                    const updated = { ...prev };
+                                    updated[finalId] = updated[oldId];
+                                    delete updated[oldId];
+                                    return updated;
+                                  });
+                                  setActiveServerId(finalId);
+                                }
+                              }
+                            } catch (err) {
+                              // Not a valid URL yet, skip auto-fill
+                            }
+                          }}
+                          placeholder="e.g. https://tandem.ac/mcp"
+                        />
+                        <small>Endpoint URL of the remote SSE landmark.</small>
+                      </div>
+                    ) : (
+                      <div className="mcp-input-group">
+                        <label>
+                          Executable Command (Command)*
+                          <Tooltip text="The main CLI command to boot your server process, e.g. npx, python3, node, or a direct binary path." />
+                        </label>
+                        <input 
+                          type="text" 
+                          value={activeServer.command || ''} 
+                          onChange={(e) => updateActiveServerField('command', e.target.value)}
+                          placeholder="e.g. npx, python3, node"
+                        />
+                        <small>CLI command used to boot the subprocess.</small>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -785,14 +1038,14 @@ const MCPSettings = () => {
                     </div>
                     
                     {testResult && (
-                      <div className={`mcp-test-result-box ${testResult.success ? 'success' : 'error'}`}>
+                      <div className={`mcp-test-result-box ${testResult.success === 'warning' ? 'warning' : testResult.success ? 'success' : 'error'}`}>
                         <div className="mcp-test-result-header">
-                          {testResult.success ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
-                          <strong>{testResult.success ? 'Connection Successful!' : 'Connection Failed!'}</strong>
+                          {testResult.success === 'warning' ? <AlertTriangle size={16} /> : testResult.success ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+                          <strong>{testResult.success === 'warning' ? 'Connection Warning' : testResult.success ? 'Connection Successful!' : 'Connection Failed!'}</strong>
                         </div>
-                        <p className="mcp-test-result-msg">{testResult.message}</p>
+                        <p className="mcp-test-result-msg" style={{ whiteSpace: 'pre-wrap' }}>{testResult.message}</p>
                         
-                        {testResult.success && (
+                        {testResult.success === true && (
                           <div className="mcp-test-tools-discovered">
                             <h6>Tools Discovered ({testResult.tools.length}):</h6>
                             {testResult.tools.length === 0 ? (
@@ -822,36 +1075,38 @@ const MCPSettings = () => {
                 </div>
 
                 {/* Section 2: Command Arguments */}
-                <div className="mcp-form-section">
-                  <h5>
-                    Startup Arguments (args)
-                    <Tooltip text="Pass command line arguments one by one to the process startup command, e.g. -y or paths to local scripts." />
-                  </h5>
-                  <div className="mcp-args-box">
-                    <div className="mcp-args-list">
-                      {(activeServer.args || []).length === 0 ? (
-                        <span className="no-args-text">No arguments configured.</span>
-                      ) : (
-                        (activeServer.args || []).map((arg, i) => (
-                          <div key={i} className="mcp-arg-badge">
-                            <span>{arg}</span>
-                            <button onClick={() => removeArgument(i)}><X size={12} /></button>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                    <div className="mcp-args-input-row">
-                      <input 
-                        type="text" 
-                        value={newArgText} 
-                        onChange={(e) => setNewArgText(e.target.value)}
-                        placeholder="New argument (e.g. -y)"
-                        onKeyDown={(e) => { if (e.key === 'Enter') addArgument(); }}
-                      />
-                      <button onClick={addArgument} className="btn-secondary-sm"><Plus size={14} /> Add</button>
+                {activeServer.transport !== 'sse' && (
+                  <div className="mcp-form-section">
+                    <h5>
+                      Startup Arguments (args)
+                      <Tooltip text="Pass command line arguments one by one to the process startup command, e.g. -y or paths to local scripts." />
+                    </h5>
+                    <div className="mcp-args-box">
+                      <div className="mcp-args-list">
+                        {(activeServer.args || []).length === 0 ? (
+                          <span className="no-args-text">No arguments configured.</span>
+                        ) : (
+                          (activeServer.args || []).map((arg, i) => (
+                            <div key={i} className="mcp-arg-badge">
+                              <span>{arg}</span>
+                              <button onClick={() => removeArgument(i)}><X size={12} /></button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div className="mcp-args-input-row">
+                        <input 
+                          type="text" 
+                          value={newArgText} 
+                          onChange={(e) => setNewArgText(e.target.value)}
+                          placeholder="New argument (e.g. -y)"
+                          onKeyDown={(e) => { if (e.key === 'Enter') addArgument(); }}
+                        />
+                        <button onClick={addArgument} className="btn-secondary-sm"><Plus size={14} /> Add</button>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
                 {/* Section 3: Environment Variables */}
                 <div className="mcp-form-section">
@@ -1032,138 +1287,201 @@ const MCPSettings = () => {
                 )}
 
                 {testResult && testResult.success && (
-                  <div className="mcp-tools-grid">
-                    {testResult.tools.length === 0 ? (
-                      <div className="mcp-table-empty">No tools returned by this server.</div>
-                    ) : (
-                      testResult.tools.map((tool, idx) => {
-                        const currentRemedy = activeServer.remedies?.[tool.name] || '';
-                        return (
-                          <div key={idx} className="mcp-tool-card">
-                            <div className="mcp-tool-card-header">
-                              <code>{tool.name}</code>
-                              <span className="tool-card-desc">{tool.description}</span>
-                            </div>
+                  <>
+                    {testResult.tools.length > 0 && (
+                      <div className="mcp-tools-search-bar">
+                        <Search size={16} className="search-icon" />
+                        <input
+                          type="text"
+                          placeholder="Search tools by name or description..."
+                          value={toolSearch}
+                          onChange={(e) => setToolSearch(e.target.value)}
+                          className="tools-search-input"
+                        />
+                        {toolSearch && (
+                          <button className="clear-search-btn" onClick={() => setToolSearch('')}>
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    )}
 
-                            {tool.inputSchema && (
-                              <div className="mcp-tool-schema-section">
-                                <span className="schema-label">Parameters Schema:</span>
-                                {renderParameterSchema(tool.inputSchema)}
-                              </div>
-                            )}
+                    <div className="mcp-tools-grid">
+                      {testResult.tools.length === 0 ? (
+                        <div className="mcp-table-empty">No tools returned by this server.</div>
+                      ) : (
+                        testResult.tools
+                          .filter(tool => {
+                            const q = toolSearch.toLowerCase().trim();
+                            if (!q) return true;
+                            return tool.name.toLowerCase().includes(q) || (tool.description || '').toLowerCase().includes(q);
+                          })
+                          .map((tool, idx) => {
+                            const isExpanded = !!expandedTools[tool.name];
+                            const currentRemedy = activeServer.remedies?.[tool.name] || '';
+                            const hasRemedy = !!currentRemedy;
+                            return (
+                              <div key={idx} className={`mcp-tool-card ${isExpanded ? 'expanded' : 'collapsed'}`}>
+                                <div 
+                                  className="mcp-tool-card-header"
+                                  onClick={() => {
+                                    setExpandedTools(prev => ({
+                                      ...prev,
+                                      [tool.name]: !prev[tool.name]
+                                    }));
+                                  }}
+                                >
+                                  <div className="mcp-tool-card-header-left">
+                                    <div className="tool-name-container">
+                                      <Wrench size={16} className="tool-card-icon" />
+                                      <span className="tool-card-name">{tool.name}</span>
+                                    </div>
+                                    <p className="tool-card-desc">
+                                      {isExpanded 
+                                        ? tool.description 
+                                        : (tool.description ? tool.description.split('\n')[0].substring(0, 120) + (tool.description.length > 120 ? '...' : '') : 'No description.')
+                                      }
+                                    </p>
+                                  </div>
+                                  <div className="mcp-tool-card-header-right">
+                                    {hasRemedy && (
+                                      <span className="tool-remedy-badge">
+                                        <ShieldAlert size={12} />
+                                        Remedy set
+                                      </span>
+                                    )}
+                                    {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                                  </div>
+                                </div>
 
-                            {/* Testing arguments input form */}
-                            {tool.inputSchema && tool.inputSchema.properties && (
-                              <div className="mcp-tool-test-inputs">
-                                <span className="schema-label">Execution Arguments:</span>
-                                <div className="mcp-tool-params-grid">
-                                  {Object.entries(tool.inputSchema.properties).map(([pName, pProp]) => {
-                                    const inputKey = `${activeServerId}:${tool.name}:${pName}`;
-                                    const isRequired = (tool.inputSchema.required || []).includes(pName);
-                                    return (
-                                      <div key={pName} className="mcp-tool-param-field">
-                                        <label className="param-field-label">
-                                          <code>{pName}</code>
-                                          <span className="param-field-type">{pProp.type || 'string'}</span>
-                                          {isRequired && <span className="param-required-star">*</span>}
+                                {isExpanded && (
+                                  <div className="mcp-tool-card-body">
+                                    <div className="mcp-tool-body-left">
+                                      {tool.inputSchema && (
+                                        <div className="mcp-tool-schema-section">
+                                          <span className="schema-label">Parameters Schema:</span>
+                                          {renderParameterSchema(tool.inputSchema)}
+                                        </div>
+                                      )}
+
+                                      {/* Testing arguments input form */}
+                                      {tool.inputSchema && tool.inputSchema.properties && (
+                                        <div className="mcp-tool-test-inputs">
+                                          <span className="schema-label">Execution Arguments:</span>
+                                          <div className="mcp-tool-params-grid">
+                                            {Object.entries(tool.inputSchema.properties).map(([pName, pProp]) => {
+                                              const inputKey = `${activeServerId}:${tool.name}:${pName}`;
+                                              const isRequired = (tool.inputSchema.required || []).includes(pName);
+                                              return (
+                                                <div key={pName} className="mcp-tool-param-field">
+                                                  <label className="param-field-label">
+                                                    <code>{pName}</code>
+                                                    <span className="param-field-type">{pProp.type || 'string'}</span>
+                                                    {isRequired && <span className="param-required-star">*</span>}
+                                                  </label>
+                                                  <input
+                                                    type="text"
+                                                    className="mcp-tool-param-input"
+                                                    placeholder={pProp.description || `Enter ${pName}...`}
+                                                    value={toolInputs[inputKey] || ''}
+                                                    onChange={(e) => {
+                                                      setToolInputs(prev => ({
+                                                        ...prev,
+                                                        [inputKey]: e.target.value
+                                                      }));
+                                                    }}
+                                                  />
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Execute Button Row */}
+                                      <div className="mcp-tool-execute-row">
+                                        <button
+                                          type="button"
+                                          className="btn-secondary-sm mcp-execute-btn"
+                                          onClick={() => handleExecuteTool(tool.name, tool.inputSchema)}
+                                          disabled={executingTool !== null}
+                                        >
+                                          <Zap size={13} className={executingTool === tool.name ? 'mcp-pulse animate-spin' : ''} />
+                                          {executingTool === tool.name ? 'Executing...' : 'Execute now (Interactive Test)'}
+                                        </button>
+                                      </div>
+
+                                      {/* Execution Results box */}
+                                      {execResults[tool.name] && (
+                                        <div className={`mcp-tool-exec-result ${execResults[tool.name].success ? 'success' : 'error'}`}>
+                                          <div className="exec-result-header">
+                                            <strong>Execution Result:</strong>
+                                            <button 
+                                              className="btn-clear-close"
+                                              onClick={() => setExecResults(prev => {
+                                                const updated = { ...prev };
+                                                delete updated[tool.name];
+                                                return updated;
+                                              })}
+                                            >
+                                              Close Output
+                                            </button>
+                                          </div>
+                                          {execResults[tool.name].loading ? (
+                                            <div className="exec-loading-spinner">
+                                              <Cpu size={14} className="mcp-pulse animate-spin" />
+                                              Executing tool on external MCP server...
+                                            </div>
+                                          ) : execResults[tool.name].success ? (
+                                            <pre className="exec-result-pre custom-scrollbar">
+                                              {JSON.stringify(execResults[tool.name].data, null, 2)}
+                                            </pre>
+                                          ) : (
+                                            <div className="exec-error-msg">
+                                              {execResults[tool.name].error}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className="mcp-tool-body-right">
+                                      {/* Remedy configuration inline under this specific tool */}
+                                      <div className="mcp-tool-remedy-section">
+                                        <label className="remedy-label">
+                                          <ShieldAlert size={14} />
+                                          Active Tool Remedy (on_error prompt)
+                                          <Tooltip text="A prompt/guidance shown to the AI agent if this specific tool fails. Tell the agent how to fix typical errors for this tool." />
                                         </label>
-                                        <input
-                                          type="text"
-                                          className="mcp-tool-param-input"
-                                          placeholder={pProp.description || `Enter ${pName}...`}
-                                          value={toolInputs[inputKey] || ''}
+                                        <textarea
+                                          className="mcp-tool-remedy-textarea"
+                                          value={typeof currentRemedy === 'object' ? currentRemedy.on_error : currentRemedy}
                                           onChange={(e) => {
-                                            setToolInputs(prev => ({
-                                              ...prev,
-                                              [inputKey]: e.target.value
-                                            }));
+                                            const val = e.target.value;
+                                            const currentRemedies = activeServer.remedies || {};
+                                            if (val.trim() === '') {
+                                              const updated = { ...currentRemedies };
+                                              delete updated[tool.name];
+                                              updateActiveServerField('remedies', updated);
+                                            } else {
+                                              updateActiveServerField('remedies', {
+                                                ...currentRemedies,
+                                                [tool.name]: val
+                                              });
+                                            }
                                           }}
+                                          placeholder="e.g. Ensure GITHUB_TOKEN environment variable is configured and your key has repository write permission..."
                                         />
                                       </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Execute Button Row */}
-                            <div className="mcp-tool-execute-row">
-                              <button
-                                type="button"
-                                className="btn-secondary-sm mcp-execute-btn"
-                                onClick={() => handleExecuteTool(tool.name, tool.inputSchema)}
-                                disabled={executingTool !== null}
-                              >
-                                <Zap size={13} className={executingTool === tool.name ? 'mcp-pulse animate-spin' : ''} />
-                                {executingTool === tool.name ? 'Executing...' : 'Execute now (Interactive Test)'}
-                              </button>
-                            </div>
-
-                            {/* Execution Results box */}
-                            {execResults[tool.name] && (
-                              <div className={`mcp-tool-exec-result ${execResults[tool.name].success ? 'success' : 'error'}`}>
-                                <div className="exec-result-header">
-                                  <strong>Execution Result:</strong>
-                                  <button 
-                                    className="btn-clear-close"
-                                    onClick={() => setExecResults(prev => {
-                                      const updated = { ...prev };
-                                      delete updated[tool.name];
-                                      return updated;
-                                    })}
-                                  >
-                                    Close Output
-                                  </button>
-                                </div>
-                                {execResults[tool.name].loading ? (
-                                  <div className="exec-loading-spinner">
-                                    <Cpu size={14} className="mcp-pulse animate-spin" />
-                                    Executing tool on external MCP server...
-                                  </div>
-                                ) : execResults[tool.name].success ? (
-                                  <pre className="exec-result-pre custom-scrollbar">
-                                    {JSON.stringify(execResults[tool.name].data, null, 2)}
-                                  </pre>
-                                ) : (
-                                  <div className="exec-error-msg">
-                                    {execResults[tool.name].error}
+                                    </div>
                                   </div>
                                 )}
                               </div>
-                            )}
-
-                            {/* Remedy configuration inline under this specific tool */}
-                            <div className="mcp-tool-remedy-section">
-                              <label className="remedy-label">
-                                <ShieldAlert size={14} />
-                                Active Tool Remedy (on_error prompt)
-                                <Tooltip text="A prompt/guidance shown to the AI agent if this specific tool fails. Tell the agent how to fix typical errors for this tool." />
-                              </label>
-                              <textarea
-                                className="mcp-tool-remedy-textarea"
-                                value={typeof currentRemedy === 'object' ? currentRemedy.on_error : currentRemedy}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  const currentRemedies = activeServer.remedies || {};
-                                  if (val.trim() === '') {
-                                    const updated = { ...currentRemedies };
-                                    delete updated[tool.name];
-                                    updateActiveServerField('remedies', updated);
-                                  } else {
-                                    updateActiveServerField('remedies', {
-                                      ...currentRemedies,
-                                      [tool.name]: val
-                                    });
-                                  }
-                                }}
-                                placeholder="e.g. Ensure GITHUB_TOKEN environment variable is configured and your key has repository write permission..."
-                              />
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
+                            );
+                          })
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
             ) : (

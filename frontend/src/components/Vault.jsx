@@ -37,6 +37,8 @@ const Vault = () => {
   const [lastSaved, setLastSaved] = useState(null);
   const [showKeys, setShowKeys] = useState({});
   const [deletingId, setDeletingId] = useState(null);
+  const [error, setError] = useState(null);
+  const isRestoring = useRef(false);
 
   useEffect(() => {
     fetchVault();
@@ -45,6 +47,11 @@ const Vault = () => {
   // Auto-Save effect
   useEffect(() => {
     if (loading) return;
+    if (isRestoring.current) {
+      // Skip auto-saving this update since it's a restore from the backend!
+      isRestoring.current = false;
+      return;
+    }
     const timer = setTimeout(() => saveVault(vaultItems), 500);
     return () => clearTimeout(timer);
   }, [vaultItems]);
@@ -64,11 +71,13 @@ const Vault = () => {
     } catch (e) {
       console.error("Failed to fetch vault", e);
       setLoading(false);
+      isRestoring.current = false;
     }
   };
 
   const saveVault = async (items) => {
     setSaving(true);
+    setError(null);
     try {
       // Transform back to map for backend
       const vaultMap = {};
@@ -77,13 +86,24 @@ const Vault = () => {
         vaultMap[host] = config;
       });
 
-      await fetch(`${API_BASE}/api/v1/vault`, {
+      const res = await fetch(`${API_BASE}/api/v1/vault`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(vaultMap)
       });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || "Failed to save vault.");
+      }
       setLastSaved(new Date().toLocaleTimeString());
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Failed to save vault.");
+      // Mark that we are actively restoring
+      isRestoring.current = true;
+      // Automatic restore by refetching
+      fetchVault();
+    }
     setSaving(false);
   };
 
@@ -119,6 +139,23 @@ const Vault = () => {
     setVaultItems(prev => prev.filter(item => item.id !== id));
   };
 
+  const confirmDelete = async (host, id) => {
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/vault/check-delete/${encodeURIComponent(host)}`);
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || "This credential cannot be deleted.");
+      }
+      deleteVaultEntry(id);
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Failed to delete credential.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   if (loading) return <div className="loading-state">Accessing Secure Vault...</div>;
 
   return (
@@ -144,6 +181,14 @@ const Vault = () => {
         <p>Manage API keys and authentication tokens. They are injected automatically based on target hostname, <strong>or can be securely referenced in MCP Server configs using the <code>vault:KEY_NAME</code> syntax</strong>.</p>
       </div>
 
+      {error && (
+        <div className="vault-error-banner glass animate-fade-in">
+          <Info size={20} className="text-error" />
+          <p>{error}</p>
+          <button className="close-btn" onClick={() => setError(null)}>×</button>
+        </div>
+      )}
+
       <div className="vault-actions">
         <button className="btn-secondary" onClick={addVaultEntry}>
           <Plus size={16} /> Add New Credential
@@ -155,10 +200,7 @@ const Vault = () => {
           <div key={item.id} className={`vault-card type-${(item.type || 'apiKey').toLowerCase()} glass ${deletingId === item.id ? 'deleting-mode' : ''}`}>
             {deletingId === item.id && (
               <Slide2Delete 
-                onConfirm={() => {
-                  deleteVaultEntry(item.id);
-                  setDeletingId(null);
-                }}
+                onConfirm={() => confirmDelete(item.host, item.id)}
                 onCancel={() => setDeletingId(null)}
               />
             )}

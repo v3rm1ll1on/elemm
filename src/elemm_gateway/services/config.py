@@ -38,6 +38,9 @@ class ConfigManager:
             "retry_attempts": 3,
             "retry_delay_ms": 1000,
             "user_agent": "ElemmGateway/1.0 (Autonomous Agent)",
+            "mcp_injection_mode": "global",
+            "injected_mcp_servers": [],
+            "injected_mcp_tools": [],
             "security": {
                 "prevent_key_leakage": True,
                 "disallowed_patterns": ["delete", "remove", "purge", "destroy"],

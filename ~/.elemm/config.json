@@ -25,5 +25,8 @@
     ],
     "disallowed_landmarks": [],
     "disallowed_actions": []
-  }
+  },
+  "mcp_injection_mode": "local",
+  "injected_mcp_servers": [],
+  "injected_mcp_tools": []
 }

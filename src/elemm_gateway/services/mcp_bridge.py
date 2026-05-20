@@ -14,6 +14,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import logging
+import asyncio
 from contextlib import AsyncExitStack
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -27,29 +28,60 @@ from elemm_gateway.services.mcp_config import MCPConfigManager
 logger = logging.getLogger("elemm-gateway")
 
 class MCPProcessManager:
-    """Manages active external MCP client subprocesses and persistent sessions."""
+    """Manages active external MCP client subprocesses as background asyncio tasks."""
     
     def __init__(self):
-        self.active_sessions: Dict[str, Tuple[ClientSession, AsyncExitStack]] = {}
+        self.active_sessions: Dict[str, Dict[str, Any]] = {}
 
-    async def get_session(self, server_id: str, config: Dict[str, Any], env: Dict[str, str]) -> ClientSession:
-        """Returns an active ClientSession for a server, starting it if not already running."""
-        if server_id in self.active_sessions:
-            session, _ = self.active_sessions[server_id]
-            return session
-            
-        logger.info(f"MCPProcessManager: Starting server '{server_id}'...")
+    async def _run_server_loop(
+        self,
+        server_id: str,
+        config: Dict[str, Any],
+        env: Dict[str, str],
+        ready_event: asyncio.Event,
+        stop_event: asyncio.Event,
+        result_dict: Dict[str, Any]
+    ):
+        """Runs the server client context manager loop inside a dedicated background task."""
+        transport = config.get("transport", "stdio")
+        url = config.get("url")
+        
         exit_stack = AsyncExitStack()
         try:
-            server_params = StdioServerParameters(
-                command=config["command"],
-                args=config.get("args", []),
-                env=env
-            )
-            # Enter the stdio_client context
-            read_stream, write_stream = await exit_stack.enter_async_context(
-                stdio_client(server_params)
-            )
+            if transport == "sse" or url:
+                if not url:
+                    raise ValueError(f"SSE transport for server '{server_id}' requires a 'url' configuration.")
+                
+                from mcp.client.sse import sse_client
+                
+                # Extract headers from explicitly configured env vars
+                headers = {}
+                for k, v in env.items():
+                    k_upper = k.upper()
+                    if k_upper == "AUTHORIZATION":
+                        headers["Authorization"] = v
+                    elif k_upper in ("API_KEY", "API-KEY"):
+                        headers["X-API-Key"] = v
+                    elif k_upper in ("TOKEN", "BEARER_TOKEN") or k_upper in ("NOTION", "NOTION_TOKEN") or v.startswith("ntn_"):
+                        headers["Authorization"] = v if v.startswith("Bearer ") else f"Bearer {v}"
+                    else:
+                        headers[k] = v
+                
+                # Connect via SSE client
+                read_stream, write_stream = await exit_stack.enter_async_context(
+                    sse_client(url, headers=headers)
+                )
+            else:
+                server_params = StdioServerParameters(
+                    command=config["command"],
+                    args=config.get("args", []),
+                    env=env
+                )
+                # Enter the stdio_client context
+                read_stream, write_stream = await exit_stack.enter_async_context(
+                    stdio_client(server_params)
+                )
+                
             # Enter the ClientSession context
             session = await exit_stack.enter_async_context(
                 ClientSession(read_stream, write_stream)
@@ -57,20 +89,75 @@ class MCPProcessManager:
             # Perform MCP Handshake
             await session.initialize()
             
-            self.active_sessions[server_id] = (session, exit_stack)
-            logger.info(f"MCPProcessManager: Server '{server_id}' successfully initialized.")
-            return session
+            result_dict["session"] = session
+            ready_event.set()
+            
+            # Run indefinitely until stopped
+            await stop_event.wait()
+            
         except Exception as e:
+            logger.error(f"MCPProcessManager: Error in background loop for '{server_id}': {e}")
+            result_dict["error"] = e
+            ready_event.set()
+        finally:
             await exit_stack.aclose()
-            logger.error(f"MCPProcessManager: Failed to start server '{server_id}': {e}")
-            raise e
+
+    async def get_session(self, server_id: str, config: Dict[str, Any], env: Dict[str, str]) -> ClientSession:
+        """Returns an active ClientSession for a server, starting it if not already running."""
+        if server_id in self.active_sessions:
+            conf = self.active_sessions[server_id]
+            if not conf["task"].done():
+                return conf["session"]
+            else:
+                logger.warning(f"MCPProcessManager: Server '{server_id}' background task was done/terminated. Cleaning up.")
+                await self.stop_server(server_id)
+            
+        logger.info(f"MCPProcessManager: Starting server '{server_id}' (transport: {config.get('transport', 'stdio')}) in background task...")
+        ready_event = asyncio.Event()
+        stop_event = asyncio.Event()
+        result_dict = {}
+        
+        # Start background loop
+        task = asyncio.create_task(
+            self._run_server_loop(server_id, config, env, ready_event, stop_event, result_dict)
+        )
+        
+        # Wait for initialize to complete
+        await ready_event.wait()
+        
+        if "error" in result_dict:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+            raise result_dict["error"]
+            
+        self.active_sessions[server_id] = {
+            "session": result_dict["session"],
+            "stop_event": stop_event,
+            "task": task
+        }
+        logger.info(f"MCPProcessManager: Server '{server_id}' successfully initialized in background.")
+        return result_dict["session"]
 
     async def stop_server(self, server_id: str):
         """Stops an active server and cleans up its resources."""
         if server_id in self.active_sessions:
             logger.info(f"MCPProcessManager: Stopping server '{server_id}'...")
-            _, exit_stack = self.active_sessions.pop(server_id)
-            await exit_stack.aclose()
+            conf = self.active_sessions.pop(server_id)
+            conf["stop_event"].set()
+            try:
+                # Give task a moment to shut down, or cancel it if needed
+                await asyncio.wait_for(conf["task"], timeout=2.0)
+            except asyncio.TimeoutError:
+                conf["task"].cancel()
+                try:
+                    await conf["task"]
+                except (asyncio.CancelledError, Exception):
+                    pass
+            except (asyncio.CancelledError, Exception) as e:
+                logger.debug(f"MCPProcessManager: Background task '{server_id}' exited with: {e}")
 
     async def stop_all(self):
         """Stops all active servers."""
@@ -88,7 +175,7 @@ class MCPBridge:
         self.config_manager = config_manager
         self.process_manager = process_manager or MCPProcessManager()
 
-    async def discover_landmarks(self, server_id: str) -> List[Landmark]:
+    async def discover_landmarks(self, server_id: str, vault_manager: Optional[Any] = None) -> List[Landmark]:
         """
         Discovers tools on the external MCP server and translates them
         into a list of Elemm Landmark actions.
@@ -99,7 +186,7 @@ class MCPBridge:
             logger.warning(f"MCPBridge: Server config for '{server_id}' not found.")
             return []
 
-        resolved_env = self.config_manager.get_resolved_env(server_id)
+        resolved_env = self.config_manager.get_resolved_env(server_id, vault_manager=vault_manager)
         
         try:
             session = await self.process_manager.get_session(server_id, server_conf, resolved_env)
