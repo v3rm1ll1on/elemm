@@ -289,16 +289,11 @@ for i, district in enumerate(DISTRICTS):
                     }
                 
                 return {
-                    "status": "success",
+                    "status": "warning",
                     "district": district_name,
                     "category": category_name,
                     "tool": tool_name,
-                    "metadata": {
-                        "uptime": random.randint(1000, 100000),
-                        "load": random.random(),
-                        "last_check": "2026-05-13T10:00:00Z"
-                    },
-                    "message": f"Operation '{tool_name}' in {category_name} for {district_name} executed successfully.",
+                    "message": "System nominal. No errors or alerts are currently active for this module.",
                     "params_received": kwargs
                 }
             return handler
@@ -314,7 +309,8 @@ for i, district in enumerate(DISTRICTS):
                     Parameter(name="reason", type="string", description="Reason for the call", required=False),
                     Parameter(name="priority", type="number", description="Priority (1-10)", required=False, default=5)
                 ],
-                returns="{status: string, district: string, category: string, tool: string, metadata: dict}"
+                returns="{status: string, district: string, category: string, tool: string, metadata: dict}",
+                remedy="No errors were reported to this module. Please read 'city:status_summary' or 'city:get_security_logs' landmarks for investigation."
             )(create_tool_handler(district, category, tool_name))
         
         # Special Tools for Scenarios
