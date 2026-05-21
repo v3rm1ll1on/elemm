@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-05-21
+
+### Added
+- **Elemm MCP Client (Hub) / Dynamic Bridging**: Internal `mcp_registry` to seamlessly mount pre-configured external MCP servers into the Elemm protocol without adding new root tools. This includes a new `MCPSettings` UI in the dashboard and full support for Vault keys and Guardian WAF filtering for external servers (`mcp_servers.yaml`).
+
 ## [1.2.0] - 2026-05-17
 
 ### Added

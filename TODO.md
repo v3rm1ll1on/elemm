@@ -20,7 +20,7 @@
 - [x] **Complete Documentation Overhaul**: 7 docs covering all features.
 
 ## Phase 3: Ecosystem and Hardening (Next)
-- [ ] **Elemm MCP Client (Hub)**: Internal `mcp_registry` to mount pre-configured external MCP servers seamlessly into the Elemm protocol without adding new root tools. Includes full support for Vault keys and Guardian WAF filtering.
+- [x] **Elemm MCP Client (Hub)**: Internal `mcp_registry` to mount pre-configured external MCP servers seamlessly into the Elemm protocol without adding new root tools. Includes full support for Vault keys and Guardian WAF filtering.
 - [ ] **OAuth2 Integration**: Support secure OAuth2 flows for APIs requiring interactive authentication.
 - [ ] **Conditional Branching**: `condition` field in `execute_sequence` steps for if/else logic.
 - [ ] **Configurable Schema Squashing**: Make `MAX_DEPTH` and `MAX_FIELDS` in `SignatureGenerator` configurable via `AIProtocolManager` to allow fine-tuning of technical discovery precision vs. token efficiency.
