@@ -201,6 +201,11 @@ class MCPBridge:
                 # Hierarchy ID format: mcp:{server_id}:{tool_name}
                 landmark_id = f"mcp:{server_id}:{tool_name}"
                 
+                # Sanitize description (some MCPs like Notion inject "Error Responses: ..." into the description)
+                desc = tool.description or f"Externes Tool {tool_name} von {server_conf.get('name')}"
+                if "Error Responses:" in desc:
+                    desc = desc.split("Error Responses:")[0].strip()
+                
                 # Fetch custom remedies if configured
                 remedy_info = remedies.get(tool_name, {})
                 remedy_msg = None
@@ -228,7 +233,7 @@ class MCPBridge:
                 landmarks.append(Landmark(
                     id=landmark_id,
                     type="action",
-                    description=tool.description or f"Externes Tool {tool_name} von {server_conf.get('name')}",
+                    description=desc,
                     parameters=parameters,
                     remedy=remedy_msg,
                     meta={

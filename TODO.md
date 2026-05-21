@@ -24,6 +24,7 @@
 - [ ] **OAuth2 Integration**: Support secure OAuth2 flows for APIs requiring interactive authentication.
 - [ ] **Conditional Branching**: `condition` field in `execute_sequence` steps for if/else logic.
 - [ ] **Configurable Schema Squashing**: Make `MAX_DEPTH` and `MAX_FIELDS` in `SignatureGenerator` configurable via `AIProtocolManager` to allow fine-tuning of technical discovery precision vs. token efficiency.
+- [ ] **Configurable MCP Description Filter**: Add an option in `config.json` / Dashboard Settings to toggle the automatic removal of `"Error Responses:"` strings from external MCP tools to avoid truncating legitimate descriptions.
 
 - [x] **Dashboard Telemetry Intermediate Layer**: Built a high-performance un-truncated telemetry layer that pushes raw, un-squished logs and JSON payloads to the Observability Console before gateway context-hygiene limits kick in.
 - [x] **Dockerization**: Developed optimized multi-stage `Dockerfile` and `docker-compose.yml` for dynamic packaging and seamless host/port routing.
