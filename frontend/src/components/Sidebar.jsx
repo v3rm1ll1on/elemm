@@ -6,7 +6,8 @@ import {
   Settings, 
   Activity,
   Shield,
-  ChevronRight
+  ChevronRight,
+  Cpu
 } from 'lucide-react';
 import './Sidebar.css';
 
@@ -30,6 +31,7 @@ const Sidebar = ({ activeTab, setActiveTab, isOnline }) => {
     { id: 'manifest', icon: <Search size={20} />, label: 'Manifest Debugger' },
     { id: 'security', icon: <Shield size={20} />, label: 'Security' },
     { id: 'vault', icon: <Key size={20} />, label: 'Vault / Auth' },
+    { id: 'mcp', icon: <Cpu size={20} />, label: 'MCP Servers' },
     { id: 'tokens', icon: <Activity size={20} />, label: 'Token Analysis' },
     { id: 'settings', icon: <Settings size={20} />, label: 'Settings' },
   ];
@@ -41,11 +43,19 @@ const Sidebar = ({ activeTab, setActiveTab, isOnline }) => {
       onMouseLeave={handleMouseLeave}
     >
       <div className="sidebar-header">
-        <div className="logo-container">
+        <div className="logo-wrapper">
           <div className="logo-glow"></div>
-          <span className="logo-text">EL</span>
+          <img 
+            src="/elemm-logo.webp" 
+            alt="Elemm Logo" 
+            className={`logo-img expanded ${isExpanded ? 'visible' : 'hidden'}`}
+          />
+          <img 
+            src="/elemm-el.webp" 
+            alt="Elemm" 
+            className={`logo-img collapsed ${!isExpanded ? 'visible' : 'hidden'}`}
+          />
         </div>
-        {isExpanded && <span className="brand-name">ELEMM Gateway</span>}
       </div>
 
       <nav className="sidebar-nav">

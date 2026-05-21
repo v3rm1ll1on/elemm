@@ -3,6 +3,7 @@ import { Shield, ShieldAlert, ShieldCheck, Zap, AlertTriangle, MessageSquare, Pl
 import Tooltip from './Tooltip';
 import './Security.css';
 import { API_BASE } from '../config';
+import { Input, Switch, Button, FormGroup } from './ui';
 
 // Reusable interactive Tag Input Component
 const TagInput = ({ tags, onChange, placeholder, variant = 'simple' }) => {
@@ -40,7 +41,7 @@ const TagInput = ({ tags, onChange, placeholder, variant = 'simple' }) => {
           </span>
         ))}
       </div>
-      <input
+      <Input
         type="text"
         value={input}
         onChange={(e) => setInput(e.target.value)}
@@ -166,14 +167,10 @@ const Security = () => {
         </div>
         <div className="mode-toggle-zone">
           <span className="mode-label">Zero-Trust Mode</span>
-          <label className="switch big">
-            <input 
-              type="checkbox" 
-              checked={config.security.enforce_whitelist} 
-              onChange={(e) => updateSecurity('enforce_whitelist', e.target.checked)} 
-            />
-            <span className="slider round"></span>
-          </label>
+          <Switch 
+            checked={config.security.enforce_whitelist} 
+            onChange={(e) => updateSecurity('enforce_whitelist', e.target.checked)} 
+          />
         </div>
       </div>
 
@@ -188,24 +185,22 @@ const Security = () => {
             {!config.security.enforce_whitelist && <span className="inactive-badge">Inactive</span>}
           </div>
           <div className="card-body">
-            <div className="form-group-custom">
-              <label>Allowed Landmarks <Tooltip text="Broad functional areas allowed in Zero-Trust mode." /></label>
+            <FormGroup label={<>Allowed Landmarks <Tooltip text="Broad functional areas allowed in Zero-Trust mode." /></>} className="form-group-custom">
               <TagInput 
                 tags={config.security.allowed_landmarks} 
                 onChange={(tags) => updateSecurity('allowed_landmarks', tags)}
                 placeholder="e.g. weather, public"
                 variant="success"
               />
-            </div>
-            <div className="form-group-custom">
-              <label>Allowed Actions <Tooltip text="Specific tool/endpoint IDs permitted in Zero-Trust mode." /></label>
+            </FormGroup>
+            <FormGroup label={<>Allowed Actions <Tooltip text="Specific tool/endpoint IDs permitted in Zero-Trust mode." /></>} className="form-group-custom">
               <TagInput 
                 tags={config.security.allowed_actions} 
                 onChange={(tags) => updateSecurity('allowed_actions', tags)}
                 placeholder="e.g. users:get_profile"
                 variant="success"
               />
-            </div>
+            </FormGroup>
           </div>
         </div>
 
@@ -216,24 +211,22 @@ const Security = () => {
             <h3>Explicit Blacklists</h3>
           </div>
           <div className="card-body">
-            <div className="form-group-custom">
-              <label>Disallowed Landmarks <Tooltip text="Block entire namespaces or categories (e.g. banking)." /></label>
+            <FormGroup label={<>Disallowed Landmarks <Tooltip text="Block entire namespaces or categories (e.g. banking)." /></>} className="form-group-custom">
               <TagInput 
                 tags={config.security.disallowed_landmarks} 
                 onChange={(tags) => updateSecurity('disallowed_landmarks', tags)}
                 placeholder="e.g. admin, finance"
                 variant="warning"
               />
-            </div>
-            <div className="form-group-custom">
-              <label>Disallowed Actions <Tooltip text="Specific tool names or full IDs to blacklist." /></label>
+            </FormGroup>
+            <FormGroup label={<>Disallowed Actions <Tooltip text="Specific tool names or full IDs to blacklist." /></>} className="form-group-custom">
               <TagInput 
                 tags={config.security.disallowed_actions} 
                 onChange={(tags) => updateSecurity('disallowed_actions', tags)}
                 placeholder="e.g. iplookup, reset_key"
                 variant="warning"
               />
-            </div>
+            </FormGroup>
           </div>
         </div>
 
@@ -244,27 +237,22 @@ const Security = () => {
             <h3>Guard Rails & HTTP</h3>
           </div>
           <div className="card-body">
-            <div className="form-group-custom">
-              <label>Restricted Patterns <Tooltip text="Checks tool names AND argument values. Use 're:pattern' for Regex." /></label>
+            <FormGroup label={<>Restricted Patterns <Tooltip text="Checks tool names AND argument values. Use 're:pattern' for Regex." /></>} className="form-group-custom">
               <TagInput 
                 tags={config.security.disallowed_patterns} 
                 onChange={(tags) => updateSecurity('disallowed_patterns', tags)}
                 placeholder="e.g. re:.*secret.*, rm -rf"
                 variant="danger"
               />
-            </div>
+            </FormGroup>
             
             <div className="form-group-custom" style={{ marginTop: '20px', marginBottom: '15px', paddingBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
               <label>Data Loss Prevention (DLP) <Tooltip text="Automatically scrubs all vault secrets from LLM responses to prevent leakage. Turn off only for debugging." /></label>
               <div style={{ display: 'flex', alignItems: 'center', marginTop: '10px' }}>
-                <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    checked={config.security.prevent_key_leakage} 
-                    onChange={(e) => updateSecurity('prevent_key_leakage', e.target.checked)} 
-                  />
-                  <span className="slider round"></span>
-                </label>
+                <Switch 
+                  checked={config.security.prevent_key_leakage} 
+                  onChange={(e) => updateSecurity('prevent_key_leakage', e.target.checked)} 
+                />
                 <span style={{ marginLeft: '12px', fontSize: '13px', color: config.security.prevent_key_leakage ? '#22c55e' : '#94a3b8', fontWeight: config.security.prevent_key_leakage ? '500' : 'normal' }}>
                   {config.security.prevent_key_leakage ? 'Active (Secrets Scrubbed)' : 'Disabled (Keys Visible)'}
                 </span>
@@ -274,20 +262,16 @@ const Security = () => {
             <div className="form-group-custom" style={{ marginBottom: '20px', paddingBottom: '15px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
               <label>Global UI Policy Masking <Tooltip text="When active, the Visualizer Landmark TreeView and Token Analyzer will persistently filter out all blocked/disallowed endpoints based on this security policy." /></label>
               <div style={{ display: 'flex', alignItems: 'center', marginTop: '10px' }}>
-                <label className="switch">
-                  <input 
-                    type="checkbox" 
-                    checked={config.ui?.simulate_security_policy || false} 
-                    onChange={(e) => {
-                      const nextUi = { ...(config.ui || {}), simulate_security_policy: e.target.checked };
-                      setConfig(prev => ({
-                        ...prev,
-                        ui: nextUi
-                      }));
-                    }} 
-                  />
-                  <span className="slider round"></span>
-                </label>
+                <Switch 
+                  checked={config.ui?.simulate_security_policy || false} 
+                  onChange={(e) => {
+                    const nextUi = { ...(config.ui || {}), simulate_security_policy: e.target.checked };
+                    setConfig(prev => ({
+                      ...prev,
+                      ui: nextUi
+                    }));
+                  }} 
+                />
                 <span style={{ marginLeft: '12px', fontSize: '13px', color: config.ui?.simulate_security_policy ? 'var(--accent-primary)' : '#94a3b8', fontWeight: config.ui?.simulate_security_policy ? '600' : 'normal' }}>
                   {config.ui?.simulate_security_policy ? 'Active (Strict UI Masking)' : 'Disabled (All Tools Visible)'}
                 </span>
@@ -349,7 +333,7 @@ const Security = () => {
                     <tr key={key}>
                       <td className="remedy-key-cell"><code>{key}</code></td>
                       <td>
-                        <input 
+                        <Input 
                           type="text" 
                           value={msg} 
                           onChange={(e) => updateRemedy(key, e.target.value)} 
@@ -357,9 +341,9 @@ const Security = () => {
                         />
                       </td>
                       <td style={{ textAlign: 'center' }}>
-                        <button className="btn-icon-delete" onClick={() => updateRemedy(key, '')}>
+                        <Button variant="icon" className="btn-icon-delete" onClick={() => updateRemedy(key, '')}>
                           <Trash2 size={15} />
-                        </button>
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -372,23 +356,23 @@ const Security = () => {
           <div className="remedy-quick-add-form">
             <h4><Plus size={16} className="text-accent" /> Configure New Guidance</h4>
             <div className="quick-add-row">
-              <input 
+              <Input 
                 type="text" 
                 placeholder="ID (e.g. admin, rm -rf)" 
                 value={newRemedyKey} 
                 onChange={(e) => setNewRemedyKey(e.target.value)}
                 className="quick-add-input-key"
               />
-              <input 
+              <Input 
                 type="text" 
                 placeholder="Remedy message to return when blocked..." 
                 value={newRemedyVal} 
                 onChange={(e) => setNewRemedyVal(e.target.value)}
                 className="quick-add-input-val"
               />
-              <button className="btn-primary-compact" onClick={addCustomRemedy}>
+              <Button className="btn-primary-compact" onClick={addCustomRemedy}>
                 <Plus size={14} /> Add Rule
-              </button>
+              </Button>
             </div>
           </div>
 

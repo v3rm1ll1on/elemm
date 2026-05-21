@@ -64,6 +64,9 @@
   font-family: 'Inter', sans-serif;
   font-size: 0.9375rem;
   transition: var(--transition-base);
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .form-group textarea {
@@ -80,12 +83,13 @@
 }
 
 .form-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
 }
 
 .form-row .form-group {
-  flex: 1;
+  min-width: 0;
 }
 
 .settings-footer {

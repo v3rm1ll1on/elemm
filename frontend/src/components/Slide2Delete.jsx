@@ -7,21 +7,39 @@ const Slide2Delete = ({ onConfirm, onCancel, label = "Slide to delete" }) => {
   const [isConfirming, setIsConfirming] = useState(false);
   const [timeLeft, setTimeLeft] = useState(3);
   const trackRef = useRef(null);
-  const maxDrag = 210;
+  const [maxDrag, setMaxDrag] = useState(210);
+
+  useEffect(() => {
+    if (trackRef.current) {
+      const trackWidth = trackRef.current.clientWidth;
+      const handleElement = trackRef.current.querySelector('.slide-handle');
+      const handleWidth = handleElement ? handleElement.clientWidth : 38;
+      const computedMax = trackWidth - handleWidth - 8;
+      setMaxDrag(computedMax > 0 ? computedMax : 210);
+    }
+  }, []);
+
+  const cancelRef = useRef(onCancel);
+  const confirmRef = useRef(onConfirm);
+
+  useEffect(() => {
+    cancelRef.current = onCancel;
+    confirmRef.current = onConfirm;
+  }, [onCancel, onConfirm]);
 
   useEffect(() => {
     if (isConfirming) return;
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          onCancel();
+          cancelRef.current();
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [onCancel, isConfirming]);
+  }, [isConfirming]);
 
   const handleStart = (e) => {
     if (isConfirming) return;
@@ -42,7 +60,7 @@ const Slide2Delete = ({ onConfirm, onCancel, label = "Slide to delete" }) => {
       setIsDragging(false);
       setIsConfirming(true);
       setTimeout(() => {
-        onConfirm();
+        confirmRef.current();
       }, 1000);
     }
   };

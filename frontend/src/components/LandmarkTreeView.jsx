@@ -168,7 +168,7 @@ const LandmarkTreeView = ({
             <input 
               type="text" 
               className="connect-input"
-              placeholder="https://api.example.com..."
+              placeholder="https://api.example.com or mcp://local..."
               value={manualUrl}
               onChange={(e) => setManualUrl(e.target.value)}
             />
@@ -210,7 +210,7 @@ const LandmarkTreeView = ({
           >
             {Object.entries(sessions).map(([sid, data]) => {
               const clientName = sid.length > 20 ? `Session ${sid.substring(0, 6)}...` : sid;
-              const apiName = data?.active_url ? data.active_url.replace(/^https?:\/\//, '') : 'No Active Connection';
+              const apiName = data?.active_url ? data.active_url.replace(/^(https?|mcp):\/\//, '') : 'No Active Connection';
               return (
                 <option key={sid} value={sid} style={{ background: '#090d16', color: '#cbd5e1' }}>
                   {clientName} ➔ {apiName}

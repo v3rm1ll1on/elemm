@@ -1,4 +1,5 @@
 # Copyright (C) 2026 Marc Stöcker
+# Website: https://elemm.dev
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -137,6 +138,87 @@ class ManifestService:
     async def inspect_url(url: str, landmark_id: Optional[str] = None, vault_manager=None, limit: int = 5000, output_format: str = "markdown") -> Dict[str, Any]:
         """Probes a URL for various Elemm interfaces with maximum precision."""
         url = url.strip().rstrip("/")
+        
+        if url.lower().startswith("mcp://") or url.lower() in ["local", "mcp"]:
+            from elemm_gateway.services.mcp_config import MCPConfigManager
+            from elemm_gateway.services.mcp_bridge import MCPBridge
+            import os
+            
+            mcp_config_path = os.path.expanduser("~/.elemm/mcp_servers.yaml")
+            mcp_config = MCPConfigManager(mcp_config_path)
+            bridge = MCPBridge(mcp_config)
+            
+            servers = mcp_config.get_servers()
+            landmarks = []
+            
+            for server_id, server_conf in servers.items():
+                try:
+                    # Discover landmarks from this local MCP server!
+                    server_landmarks = await bridge.discover_landmarks(server_id, vault_manager=vault_manager)
+                    
+                    # Add the navigation landmark for this server
+                    nav_id = f"mcp:{server_id}"
+                    landmarks.append({
+                        "id": nav_id,
+                        "type": "navigation",
+                        "description": server_conf.get("description", f"MCP Server {server_id}"),
+                        "instructions": server_conf.get("instructions", ""),
+                        "tools": [],
+                        "meta": {"server_id": server_id}
+                    })
+                    
+                    # Add all tool landmarks
+                    for lm in server_landmarks:
+                        landmarks.append({
+                            "id": lm.id,
+                            "type": "action",
+                            "name": lm.id,
+                            "description": lm.description,
+                            "is_tool": True,
+                            "isTool": True,
+                            "parameters": [
+                                {
+                                    "name": p.name,
+                                    "type": p.type,
+                                    "required": p.required,
+                                    "description": p.description,
+                                    "location": p.location
+                                } for p in lm.parameters
+                            ] if lm.parameters else [],
+                            "returns": getattr(lm, "returns", "any"),
+                            "method": getattr(lm, "method", None) or (lm.meta.get("method") if lm.meta else None)
+                        })
+                except Exception as e:
+                    logger.error(f"Error discovering landmarks for {server_id}: {e}")
+            
+            # Clean up processes in background so we don't block the HTTP response
+            import asyncio
+            asyncio.create_task(bridge.process_manager.stop_all())
+            
+            site_data = {
+                "landmarks": landmarks,
+                "tools": [],
+                "title": "Local MCP Environment",
+                "type": "native",
+                "url": url
+            }
+            
+            if output_format == "json":
+                return {
+                    "status": "success",
+                    "type": "native",
+                    "url": url,
+                    "data": site_data,
+                    "landmarks": landmarks,
+                    "tools": []
+                }
+            return {
+                "status": "success",
+                "type": "native",
+                "url": url,
+                "manifest": json.dumps(site_data, indent=2)
+            }
+
         if url.endswith("/.well-known/elemm-manifest.md"):
             url = url[:-len("/.well-known/elemm-manifest.md")]
         if vault_manager:
@@ -274,7 +356,7 @@ class ManifestService:
         """Durchsucht Landmarks via Core-Manager-Logik."""
         site_type = site_data.get("type", "native")
         
-        if site_type == "native":
+        if site_type == "native" and not url.lower().startswith("mcp://"):
             url = url.strip().rstrip("/")
             if url.endswith("/.well-known/elemm-manifest.md"):
                 url = url[:-len("/.well-known/elemm-manifest.md")]
@@ -298,12 +380,18 @@ class ManifestService:
     async def inspect_landmark(site_url: str, landmark_id: str, vault_manager=None, limit: int = 5000, offset: int = 0, output_format: str = "markdown", site_type: str = "native", site_data: dict = None) -> Dict[str, Any]:
         """Technische Einsicht via Core-Manager."""
         
-        if site_type == "native":
+        if site_type == "native" and not site_url.lower().startswith("mcp://"):
             url = site_url.strip().rstrip("/")
             if url.endswith("/.well-known/elemm-manifest.md"):
                 url = url[:-len("/.well-known/elemm-manifest.md")]
             async with httpx.AsyncClient() as client:
-                params = {"landmark_id": landmark_id, "technical": "true", "format": "json" if output_format == "json" else "markdown"}
+                params = {
+                    "landmark_id": landmark_id, 
+                    "technical": "true", 
+                    "format": "json" if output_format == "json" else "markdown",
+                    "limit": limit,
+                    "offset": offset
+                }
                 resp = await client.get(f"{url}/.well-known/elemm-manifest.md", params=params)
                 if output_format == "json":
                     return {"status": "success", "type": "native", "data": resp.json()}
@@ -312,7 +400,13 @@ class ManifestService:
         # Bridge Inspection
         if not site_data: return {"status": "error", "message": "Missing site_data for bridge inspection"}
         manager = ManifestService._get_transient_manager(site_data)
-        manifest = manager.get_manifest(landmark_ids=landmark_id, technical=True, output_format=output_format)
+        manifest = manager.get_manifest(
+            landmark_ids=landmark_id, 
+            technical=True, 
+            output_format=output_format,
+            max_landmarks=limit,
+            offset=offset
+        )
         
         if output_format == "json":
             return {"status": "success", "type": site_type, "data": json.loads(manifest)}

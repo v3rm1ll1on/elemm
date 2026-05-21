@@ -712,7 +712,6 @@
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
-  max-height: 380px;
   padding-right: 4px;
 }
 
@@ -742,10 +741,9 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  max-width: 80%;
+  flex: 1;
+  min-width: 0;
+  max-width: calc(100% - 50px);
 }
 
 .tool-row-name {
@@ -753,6 +751,17 @@
   font-size: 0.8rem;
   font-weight: 700;
   color: #ffffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-row-id {
+  font-size: 10px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tool-row-desc {
@@ -760,6 +769,7 @@
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tool-row-savings {
@@ -802,12 +812,16 @@
 }
 
 .tab-btn {
-  padding: 6px 12px;
+  flex: 1 !important;
+  justify-content: center !important;
+  padding: 6px 12px !important;
+  min-height: auto !important;
+  height: auto !important;
   border-radius: 6px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 0.725rem;
+  font-size: 0.725rem !important;
   font-weight: 600;
   cursor: pointer;
   display: flex;
@@ -1053,14 +1067,14 @@
 }
 
 .landmark-tree-children {
-  padding-left: 16px;
+  padding-left: 8px;
   margin-top: 4px;
   margin-bottom: 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   border-left: 1px solid rgba(255, 255, 255, 0.04);
-  margin-left: 20px;
+  margin-left: 12px;
 }
 
 .tool-row-path {
@@ -1229,7 +1243,7 @@
 /* Spectacular 3-Column Live Report Dashboard */
 .live-report-dashboard {
   display: grid;
-  grid-template-columns: 320px 1fr 360px;
+  grid-template-columns: 320px minmax(0, 1fr) 320px;
   gap: 24px;
   width: 100%;
   align-items: stretch;

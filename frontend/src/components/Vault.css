@@ -251,7 +251,7 @@
 
 .form-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -565,4 +565,63 @@
   100% {
     transform: translateY(0px) rotate(0deg);
   }
+}
+
+/* Vault Error Banner */
+.vault-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 24px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: 16px;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+}
+
+.vault-error-banner::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: #ef4444;
+}
+
+.vault-error-banner p {
+  flex: 1;
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #f87171;
+  line-height: 1.5;
+}
+
+.vault-error-banner .text-error {
+  color: #ef4444;
+  flex-shrink: 0;
+}
+
+.vault-error-banner .close-btn {
+  background: transparent;
+  border: none;
+  color: #f87171;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  line-height: 1;
+}
+
+.vault-error-banner .close-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
 }

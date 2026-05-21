@@ -1,4 +1,5 @@
 # Copyright (C) 2026 Marc Stöcker
+# Website: https://elemm.dev
 # Part of Elemm v1.2.0 - Dashboard Backend Module
 
 import os
@@ -12,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
+import yaml
 
 # Ensure project root is in path for absolute imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
@@ -451,6 +453,40 @@ async def reset_dashboard():
     
     return {"status": "success", "message": "History and statistics cleared. Active sessions preserved."}
 
+@app.get("/api/v1/system/env")
+async def get_system_env():
+    import getpass
+    import platform
+    import shutil
+    import sys
+
+    os_type = "linux"
+    wsl_distro = ""
+    if platform.system().lower() == "windows":
+        os_type = "windows"
+    elif "microsoft" in platform.release().lower() or "wsl" in platform.release().lower():
+        os_type = "wsl"
+        wsl_distro = os.environ.get("WSL_DISTRO_NAME", "Ubuntu")
+    elif platform.system().lower() == "darwin":
+        os_type = "mac"
+
+    user = getpass.getuser()
+    
+    # Try to find the wrapper script directly
+    executable_path = shutil.which("elemm-gateway")
+    if not executable_path:
+        # Fallback to absolute python path
+        executable_path = f"{sys.executable} -m elemm_gateway.cli"
+
+    return {
+        "os": os_type,
+        "wsl_distro": wsl_distro,
+        "user": user,
+        "executable_path": executable_path,
+        "host_ip": "localhost",
+        "port": 8000
+    }
+
 CONFIG_PATH = os.path.expanduser("~/.elemm/config.json")
 
 @app.get("/api/v1/config")
@@ -490,13 +526,675 @@ async def get_vault():
 
 @app.post("/api/v1/vault")
 async def update_vault(vault: dict):
+    # 1. Load existing vault to check for deletions
+    existing_keys = set()
+    if os.path.exists(VAULT_PATH):
+        try:
+            with open(VAULT_PATH, "r") as f:
+                existing_keys = set(json.load(f).keys())
+        except Exception as e:
+            logger.error(f"Failed to load existing vault for delete check: {e}")
+
+    # Determine deleted keys
+    new_keys = set(vault.keys())
+    deleted_keys = existing_keys - new_keys
+
+    # 2. Check if any deleted key is in use in MCP Server Config
+    if deleted_keys:
+        mcp_servers = {}
+        if os.path.exists(MCP_CONFIG_PATH):
+            try:
+                with open(MCP_CONFIG_PATH, "r", encoding="utf-8") as f:
+                    mcp_data = yaml.safe_load(f) or {}
+                    mcp_servers = mcp_data.get("servers", {}) or {}
+            except Exception as e:
+                logger.error(f"Failed to load MCP configuration for vault delete validation: {e}")
+
+        conflicts = {}
+        for key in deleted_keys:
+            using_servers = []
+            target = f"vault:{key}"
+            
+            def check_value(val: Any) -> bool:
+                if isinstance(val, str):
+                    return val == target or val.startswith(target + ":") or val.startswith(target)
+                if isinstance(val, list):
+                    return any(check_value(item) for item in val)
+                if isinstance(val, dict):
+                    return any(check_value(v) for v in val.values())
+                return False
+            
+            for srv_id, srv_conf in mcp_servers.items():
+                if srv_conf and check_value(srv_conf):
+                    using_servers.append(srv_id)
+            
+            if using_servers:
+                conflicts[key] = using_servers
+
+        if conflicts:
+            conflict_details = []
+            for key, servers in conflicts.items():
+                servers_str = ", ".join(servers)
+                conflict_details.append(f"Key '{key}' is actively used by the following MCP servers: {servers_str}")
+            detail_msg = "; ".join(conflict_details)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Deletion blocked: {detail_msg}. Please remove vault references from your MCP configuration first."
+            )
+
     try:
         os.makedirs(os.path.dirname(VAULT_PATH), exist_ok=True)
         with open(VAULT_PATH, "w") as f:
             json.dump(vault, f, indent=2)
         return {"status": "success", "message": "Vault updated successfully"}
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/v1/vault/check-delete/{key}")
+async def check_vault_delete(key: str):
+    try:
+        # Load MCP config
+        mcp_servers = {}
+        if os.path.exists(MCP_CONFIG_PATH):
+            with open(MCP_CONFIG_PATH, "r", encoding="utf-8") as f:
+                try:
+                    mcp_data = yaml.safe_load(f) or {}
+                    mcp_servers = mcp_data.get("servers", {}) or {}
+                except Exception as e:
+                    logger.error(f"Failed to parse MCP config during check-delete: {e}")
+
+        # Check if the key is used in MCP config
+        using_servers = []
+        target = f"vault:{key}"
+        
+        def check_value(val: Any) -> bool:
+            if isinstance(val, str):
+                return val == target or val.startswith(target + ":") or val.startswith(target)
+            if isinstance(val, list):
+                return any(check_value(item) for item in val)
+            if isinstance(val, dict):
+                return any(check_value(v) for v in val.values())
+            return False
+        
+        for srv_id, srv_conf in mcp_servers.items():
+            if srv_conf and check_value(srv_conf):
+                using_servers.append(srv_id)
+
+        if using_servers:
+            servers_str = ", ".join(using_servers)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Deletion blocked: Key '{key}' is actively used by the following MCP servers: {servers_str}. Please remove vault references from your MCP configuration first."
+            )
+
+        return {"status": "success", "message": "Credential is safe to delete"}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+MCP_CONFIG_PATH = os.path.expanduser("~/.elemm/mcp_servers.yaml")
+
+@app.get("/api/v1/mcp/config")
+async def get_mcp_config():
+    try:
+        if os.path.exists(MCP_CONFIG_PATH):
+            with open(MCP_CONFIG_PATH, "r", encoding="utf-8") as f:
+                yaml_content = f.read()
+        else:
+            yaml_content = (
+                "version: \"1.0\"\n"
+                "servers:\n"
+                "  # Beispiel-Server:\n"
+                "  # github:\n"
+                "  #   name: \"GitHub MCP Server\"\n"
+                "  #   transport: \"stdio\"\n"
+                "  #   command: \"npx\"\n"
+                "  #   args: [\"-y\", \"@modelcontextprotocol/server-github\"]\n"
+                "  #   env:\n"
+                "  #     GITHUB_PERSONAL_ACCESS_TOKEN: \"env:GITHUB_TOKEN\"\n"
+            )
+            os.makedirs(os.path.dirname(MCP_CONFIG_PATH), exist_ok=True)
+            with open(MCP_CONFIG_PATH, "w", encoding="utf-8") as f:
+                f.write(yaml_content)
+                
+        try:
+            parsed = yaml.safe_load(yaml_content)
+            if not isinstance(parsed, dict):
+                parsed = {}
+        except:
+            parsed = {}
+            
+        parsed_servers = parsed.get("servers", {})
+        if parsed_servers is None:
+            parsed_servers = {}
+            
+        return {
+            "yaml": yaml_content,
+            "servers": parsed_servers
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/mcp/config")
+async def update_mcp_config(payload: dict):
+    yaml_content = payload.get("yaml")
+    if not yaml_content:
+        raise HTTPException(status_code=400, detail="Missing 'yaml' content in payload")
+        
+    try:
+        parsed = yaml.safe_load(yaml_content)
+        if not isinstance(parsed, dict) or "version" not in parsed:
+            raise ValueError("Configuration must be a dictionary and contain a 'version' field.")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML configuration: {str(e)}")
+        
+    try:
+        with open(MCP_CONFIG_PATH, "w", encoding="utf-8") as f:
+            f.write(yaml_content)
+        return {"status": "success", "message": "MCP Configuration updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/v1/mcp/server/{server_id}")
+async def delete_mcp_server(server_id: str):
+    try:
+        # Load existing config
+        if os.path.exists(MCP_CONFIG_PATH):
+            with open(MCP_CONFIG_PATH, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+        else:
+            config = {"version": "1.0", "servers": {}}
+
+        # Ensure servers dictionary exists
+        if "servers" not in config:
+            config["servers"] = {}
+
+        # Check if server exists
+        if server_id not in config["servers"]:
+            raise HTTPException(status_code=404, detail=f"Server '{server_id}' not found.")
+
+        # Remove server
+        del config["servers"][server_id]
+
+        # Write config back
+        with open(MCP_CONFIG_PATH, "w", encoding="utf-8") as f:
+            yaml.safe_dump(config, f, sort_keys=False)
+
+        return {"status": "success", "message": f"Server '{server_id}' deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/v1/mcp/import")
+async def import_mcp_config(payload: dict):
+    text = payload.get("text", "")
+    migrate_to_vault = payload.get("migrate_to_vault", True)
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Import text cannot be empty.")
+        
+    import json
+    import yaml
+    
+    # 1. Parse JSON or YAML
+    parsed_config = None
+    try:
+        parsed_config = json.loads(text)
+    except Exception:
+        try:
+            parsed_config = yaml.safe_load(text)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse as JSON or YAML: {str(e)}")
+            
+    if not isinstance(parsed_config, dict):
+        raise HTTPException(status_code=400, detail="Configuration must be an object/dictionary.")
+        
+    # 2. Extract server dictionary
+    imported_servers = {}
+    if "mcpServers" in parsed_config:
+        imported_servers = parsed_config["mcpServers"]
+    elif "servers" in parsed_config:
+        imported_servers = parsed_config["servers"]
+    else:
+        imported_servers = parsed_config
+        
+    if not isinstance(imported_servers, dict):
+        raise HTTPException(status_code=400, detail="No server definitions found in imported configuration.")
+        
+    # 3. Load active config
+    from elemm_gateway.services.mcp_config import MCPConfigManager
+    manager = MCPConfigManager(MCP_CONFIG_PATH)
+    active_servers = manager.get_servers()
+    
+    # Load current vault
+    vault = vault_manager.vault
+    vault_updated = False
+    
+    imported_count = 0
+    for server_id, server_conf in imported_servers.items():
+        if not isinstance(server_conf, dict):
+            continue
+            
+        name = server_conf.get("name") or server_id.capitalize()
+        url = server_conf.get("url")
+        command = server_conf.get("command")
+        
+        # Determine transport: if 'url' is present, default to "sse", else "stdio"
+        default_transport = "sse" if url else "stdio"
+        transport = server_conf.get("transport") or default_transport
+        
+        if not command and not url:
+            continue
+            
+        args = server_conf.get("args") or []
+        env = server_conf.get("env") or {}
+        instructions = server_conf.get("instructions") or ""
+        remedies = server_conf.get("remedies") or {}
+
+        # Avoid overwriting existing MCP server definitions by renaming!
+        base_server_id = server_id
+        server_id_counter = 1
+        while server_id in active_servers:
+            existing = active_servers[server_id]
+            if (existing.get("command") == command and 
+                existing.get("url") == url and
+                existing.get("args") == args and 
+                existing.get("env") == env and
+                existing.get("transport") == transport):
+                # Perfectly identical server already exists, we can reuse/overwrite without renaming
+                break
+            
+            # Different configuration, rename server_id to avoid conflict!
+            server_id = f"{base_server_id}_{server_id_counter}"
+            server_id_counter += 1
+            name = f"{server_conf.get('name') or base_server_id.capitalize()} ({server_id_counter - 1})"
+            
+        # Migrate env variables to Vault if requested
+        if migrate_to_vault and isinstance(env, dict):
+            migrated_env = {}
+            for k, v in env.items():
+                if isinstance(v, str) and v.strip() and not v.startswith("env:") and not v.startswith("vault:"):
+                    sensitive_words = ["token", "key", "secret", "password", "pat", "auth", "pwd"]
+                    is_sensitive = any(word in k.lower() for word in sensitive_words) or len(v) > 15
+                    if is_sensitive:
+                        base_key = f"IMPORTED_{server_id.upper()}_{k.upper()}"
+                        vault_key = base_key
+                        vault_key_counter = 1
+                        while vault_key in vault:
+                            # If the existing key has the exact same value/type, reuse it!
+                            if vault[vault_key].get("value") == v and vault[vault_key].get("type") == "envVar":
+                                break
+                            # Different value, rename key to avoid conflict!
+                            vault_key = f"{base_key}_{vault_key_counter}"
+                            vault_key_counter += 1
+                        
+                        vault[vault_key] = {
+                            "type": "envVar",
+                            "value": v
+                        }
+                        migrated_env[k] = f"vault:{vault_key}"
+                        vault_updated = True
+                        continue
+                migrated_env[k] = v
+            env = migrated_env
+            
+        active_servers[server_id] = {
+            "name": name,
+            "transport": transport,
+            "command": command,
+            "url": url,
+            "args": args,
+            "env": env,
+            "instructions": instructions,
+            "remedies": remedies
+        }
+        imported_count += 1
+        
+    if imported_count == 0:
+        raise HTTPException(status_code=400, detail="No valid MCP servers with a 'command' or 'url' could be imported.")
+        
+    # Save vault if updated
+    if vault_updated:
+        vault_manager.vault = vault
+        try:
+            with open(VAULT_PATH, "w") as f:
+                json.dump(vault, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save vault during import: {e}")
+            
+    # Save configuration
+    new_config = {
+        "version": manager.config.get("version", "1.0"),
+        "servers": active_servers
+    }
+    
+    try:
+        with open(MCP_CONFIG_PATH, "w", encoding="utf-8") as f:
+            yaml.safe_dump(new_config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to write updated YAML config: {e}")
+        
+    return {
+        "status": "success",
+        "message": f"Successfully imported {imported_count} server(s) to configuration.",
+        "vault_migrated": vault_updated
+    }
+
+@app.get("/api/v1/mcp/test/{server_id}")
+async def test_mcp_server(server_id: str):
+    import subprocess
+    import json
+    import select
+    from elemm_gateway.services.mcp_config import MCPConfigManager
+    
+    manager = MCPConfigManager(MCP_CONFIG_PATH)
+    server_conf = manager.get_server(server_id)
+    if not server_conf:
+        raise HTTPException(status_code=404, detail=f"Server '{server_id}' not found in configuration.")
+        
+    transport = server_conf.get("transport", "stdio")
+    url = server_conf.get("url")
+    command = server_conf.get("command")
+    
+    if transport == "sse" or url:
+        if not url:
+            raise HTTPException(status_code=400, detail="SSE transport requires a 'url' configuration.")
+            
+        # Resolve env vars (only what is explicitly configured for this server in its 'env' section!)
+        resolved_env = manager.get_resolved_env(server_id, vault_manager=vault_manager)
+        headers = {}
+        for k, v in resolved_env.items():
+            k_upper = k.upper()
+            if k_upper == "AUTHORIZATION":
+                headers["Authorization"] = v
+            elif k_upper in ("API_KEY", "API-KEY"):
+                headers["X-API-Key"] = v
+            elif k_upper in ("TOKEN", "BEARER_TOKEN") or k_upper in ("NOTION", "NOTION_TOKEN") or v.startswith("ntn_"):
+                headers["Authorization"] = v if v.startswith("Bearer ") else f"Bearer {v}"
+            else:
+                headers[k] = v
+                
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                response = await client.get(url, headers=headers)
+                if response.status_code == 401:
+                    try:
+                        resp_body = response.text
+                    except Exception:
+                        resp_body = ""
+                    return {
+                        "status": "warning",
+                        "message": f"Server reached, but authentication is required (HTTP 401 Unauthorized).\nResponse from server: {resp_body}",
+                        "tools": []
+                    }
+                elif response.status_code == 403:
+                    try:
+                        resp_body = response.text
+                    except Exception:
+                        resp_body = ""
+                    return {
+                        "status": "warning",
+                        "message": f"Server reached, but access was forbidden (HTTP 403 Forbidden).\nResponse from server: {resp_body}",
+                        "tools": []
+                    }
+                elif response.status_code >= 400:
+                    return {
+                        "status": "error",
+                        "message": f"Remote SSE server returned error code {response.status_code} at {url} (HTTP {response.status_code}).",
+                        "tools": []
+                    }
+                return {
+                    "status": "success",
+                    "message": f"Successfully reached remote SSE server at {url} (HTTP {response.status_code}).",
+                    "tools": []
+                }
+        except httpx.RequestError as exc:
+            return {
+                "status": "error",
+                "message": f"Failed to connect to remote SSE server at {url}: {exc}",
+                "tools": []
+            }
+            
+    if not command:
+        raise HTTPException(status_code=400, detail="Server has no command configured.")
+        
+    args = server_conf.get("args", [])
+    env = os.environ.copy()
+    resolved_env = manager.get_resolved_env(server_id, vault_manager=vault_manager)
+    env.update(resolved_env)
+    
+    if transport != "stdio":
+        return {
+            "status": "success",
+            "message": f"Transport '{transport}' configured. Connection testing only simulated for non-stdio.",
+            "tools": []
+        }
+        
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            [command] + args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            text=True,
+            bufsize=1
+        )
+        
+        # 1. Send initialize
+        init_req = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "elemm-gateway-tester", "version": "1.0"}
+            }
+        }
+        proc.stdin.write(json.dumps(init_req) + "\n")
+        proc.stdin.flush()
+        
+        # Wait up to 3 seconds for response
+        r, _, _ = select.select([proc.stdout], [], [], 3.0)
+        if not r:
+            proc.kill()
+            _, stderr = proc.communicate(timeout=1.0)
+            raise Exception(f"Timeout waiting for 'initialize' response from MCP server. Stderr: {stderr}")
+            
+        init_resp_line = proc.stdout.readline()
+        if not init_resp_line:
+            raise Exception("Process closed stdout unexpectedly during handshake.")
+            
+        init_resp = json.loads(init_resp_line)
+        if "error" in init_resp:
+            raise Exception(f"Initialize error: {init_resp['error']}")
+            
+        # 2. Send initialized notification
+        init_notif = {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }
+        proc.stdin.write(json.dumps(init_notif) + "\n")
+        proc.stdin.flush()
+        
+        # 3. Send tools/list
+        list_req = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+            "params": {}
+        }
+        proc.stdin.write(json.dumps(list_req) + "\n")
+        proc.stdin.flush()
+        
+        r, _, _ = select.select([proc.stdout], [], [], 3.0)
+        if not r:
+            proc.kill()
+            raise Exception("Timeout waiting for 'tools/list' response from MCP server.")
+            
+        list_resp_line = proc.stdout.readline()
+        if not list_resp_line:
+            raise Exception("Process closed stdout unexpectedly during tools/list query.")
+            
+        list_resp = json.loads(list_resp_line)
+        if "error" in list_resp:
+            raise Exception(f"Tools list query returned error: {list_resp['error']}")
+            
+        tools = list_resp.get("result", {}).get("tools", [])
+        
+        # Cleanup
+        proc.terminate()
+        try:
+            proc.wait(timeout=1.0)
+        except:
+            proc.kill()
+            
+        return {
+            "status": "success",
+            "message": "Connection and JSON-RPC handshake successful!",
+            "tools": tools
+        }
+    except Exception as e:
+        if proc:
+            try:
+                proc.kill()
+            except:
+                pass
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/mcp/execute/{server_id}/{tool_name}")
+async def execute_mcp_tool(server_id: str, tool_name: str, payload: dict):
+    import subprocess
+    import json
+    import select
+    from elemm_gateway.services.mcp_config import MCPConfigManager
+    
+    manager = MCPConfigManager(MCP_CONFIG_PATH)
+    server_conf = manager.get_server(server_id)
+    if not server_conf:
+        raise HTTPException(status_code=404, detail=f"Server '{server_id}' not found in configuration.")
+        
+    command = server_conf.get("command")
+    if not command:
+        raise HTTPException(status_code=400, detail="Server has no command configured.")
+        
+    args = server_conf.get("args", [])
+    
+    # 0. Check Security Guard Policy
+    policy = get_current_security_policy()
+    if policy:
+        allowed_res = policy.is_action_allowed(tool_name, method="mcp")
+        if not allowed_res["allowed"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Security Guard: Execution of tool '{tool_name}' blocked. Reason: {allowed_res.get('reason', 'Access Denied')}"
+            )
+            
+    env = os.environ.copy()
+    resolved_env = manager.get_resolved_env(server_id, vault_manager=vault_manager)
+    env.update(resolved_env)
+    
+    arguments = payload.get("arguments", {})
+    
+    transport = server_conf.get("transport", "stdio")
+    if transport != "stdio":
+        raise HTTPException(status_code=400, detail=f"Execution not supported for non-stdio transport '{transport}'.")
+        
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            [command] + args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            text=True,
+            bufsize=1
+        )
+        
+        # 1. Initialize Handshake
+        init_req = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "elemm-gateway-tester", "version": "1.0"}
+            }
+        }
+        proc.stdin.write(json.dumps(init_req) + "\n")
+        proc.stdin.flush()
+        
+        r, _, _ = select.select([proc.stdout], [], [], 3.0)
+        if not r:
+            proc.kill()
+            raise Exception("Timeout during handshake initialize stage.")
+        init_resp_line = proc.stdout.readline()
+        
+        init_notif = {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }
+        proc.stdin.write(json.dumps(init_notif) + "\n")
+        proc.stdin.flush()
+        
+        # 2. Call the tool!
+        call_req = {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": arguments
+            }
+        }
+        proc.stdin.write(json.dumps(call_req) + "\n")
+        proc.stdin.flush()
+        
+        r, _, _ = select.select([proc.stdout], [], [], 10.0) # Allow up to 10 seconds for tool execution!
+        if not r:
+            proc.kill()
+            raise Exception(f"Timeout waiting for tool '{tool_name}' to complete execution.")
+            
+        call_resp_line = proc.stdout.readline()
+        if not call_resp_line:
+            raise Exception("Process closed stdout unexpectedly during tool execution.")
+            
+        call_resp = json.loads(call_resp_line)
+        if "error" in call_resp:
+            raise Exception(f"Tool execution returned error: {call_resp['error']}")
+            
+        result = call_resp.get("result", {})
+        
+        proc.terminate()
+        try:
+            proc.wait(timeout=1.0)
+        except:
+            proc.kill()
+            
+        return {
+            "status": "success",
+            "result": result
+        }
+    except Exception as e:
+        if proc:
+            try:
+                proc.kill()
+            except:
+                pass
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/v1/sessions")
 async def get_sessions():

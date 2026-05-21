@@ -272,7 +272,7 @@ const ManifestDebugger = ({ sessions: externalSessions, selectedSession: externa
     if (session?.active_url) return session.active_url;
     if (session?.history) {
       for (const event of session.history) {
-        const match = JSON.stringify(event).match(/https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9+&@#/%?=~_|!:,.;]*/);
+        const match = JSON.stringify(event).match(/(https?|mcp):\/\/[a-zA-Z0-9][-a-zA-Z0-9+&@#/%?=~_|!:,.;]*/);
         if (match) return match[0].split('"')[0].split("'")[0];
       }
     }

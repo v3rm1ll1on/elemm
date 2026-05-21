@@ -6,6 +6,13 @@
 [![License](https://img.shields.io/github/license/v3rm1ll1on/elemm?style=flat-square&color=orange)](https://github.com/v3rm1ll1on/elemm/blob/main/LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/Na5aBca8bR)
 [![Python versions](https://img.shields.io/badge/python-3.10+-blue?style=flat-square)](https://pypi.org/project/elemm/)
+[![Website](https://img.shields.io/badge/Website-elemm.dev-teal?style=flat-square)](https://elemm.dev)
+
+<p align="center">
+  <a href="https://elemm.dev">
+    <img src="docs/images/elemm_logo.png" alt="Elemm Logo" width="600" />
+  </a>
+</p>
 
 **The Infrastructure for the Agentic Web.**
 
@@ -22,7 +29,26 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install elemm
 ```
 
-### 2. Option A: Connect your AI Agent (Local Setup)
+### 2. Generate your MCP Client Configuration
+
+The easiest way to connect your MCP Client (e.g., Cursor, Claude Desktop) is to use the built-in configuration generator. It automatically detects your OS, paths, and WSL environment:
+
+```bash
+elemm-gateway cfg-gen
+```
+
+Follow the interactive prompts to generate your JSON config snippet, then copy and paste it into your MCP client's configuration file.
+
+### 3. Start the Dashboard (Optional but Recommended)
+
+Launch the interactive dashboard to monitor tokens, manage credentials (Vault), configure security policies, and generate configs visually:
+
+```bash
+elemm-dashboard
+```
+Open `http://localhost:5173` in your browser.
+
+### 4. Option A: Connect your AI Agent (Local Setup)
 The fastest way to use Elemm locally is via the built-in **Gateway**. It acts as a universal MCP server that turns any OpenAPI or GraphQL API into a tool server.
 
 **Do not run this manually in your terminal.** Instead, configure your AI agent (like Claude Desktop or Cursor) to run the `elemm-gateway` command.
@@ -176,6 +202,7 @@ Standard protocols like MCP often struggle with large-scale toolsets. Elemm prov
 
 ## Documentation
 
+*   **[Website & Live Docs](https://elemm.dev)**: Visit our official website for the latest documentation and updates.
 *   **[Getting Started](docs/GETTING_STARTED.md)**: Install and run your first Elemm setup.
 *   **[Gateway Reference](docs/GATEWAY.md)**: Complete reference for the Elemm Gateway (OpenAPI, GraphQL, Security, Vault).
 *   **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Build your own landmark servers with decorators and Pydantic.

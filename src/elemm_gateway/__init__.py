@@ -1,4 +1,5 @@
 # Copyright (C) 2026 Marc Stöcker
+# Website: https://elemm.dev
 #
 # This file is part of Elemm.
 # Elemm is free software: you can redistribute it and/or modify

@@ -1,0 +1,63 @@
+.config-generator-card {
+  grid-column: 1 / -1;
+  margin-top: 1rem;
+}
+
+.config-generator-split {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr;
+  gap: 32px;
+}
+
+@media (max-width: 900px) {
+  .config-generator-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.config-form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.desc-text {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.config-output-area {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-deep);
+}
+
+.config-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  background: var(--surface-medium);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.file-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.config-output-area pre.code-block {
+  margin: 0;
+  padding: 1rem;
+  font-size: 0.85rem;
+  color: var(--accent-cyan);
+  background: transparent;
+  max-height: 300px;
+  overflow-y: auto;
+}

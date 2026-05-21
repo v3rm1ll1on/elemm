@@ -50,54 +50,29 @@ Because it uses the STDIO transport by default, **you do not run it directly in 
 
 ### Platform-Specific MCP Configuration
 
-AI agents like Claude Desktop or Cursor require a JSON configuration to start the gateway via STDIO. Use the example that matches your operating system.
+AI agents like Claude Desktop or Cursor require a JSON configuration to start the gateway. **The easiest way to generate this is using the built-in Config Generator:**
 
-#### Windows (Native)
-File: `%APPDATA%\Claude\claude_desktop_config.json`
+```bash
+elemm-gateway cfg-gen
+```
+
+This interactive tool will automatically detect your operating system, paths, and WSL environment, and generate a ready-to-use JSON block like this:
+
 ```json
 {
   "mcpServers": {
     "elemm-gateway": {
-      "command": "C:\\Users\\<USER>\\project\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "elemm_gateway.cli"]
+      "command": "/path/to/project/.venv/bin/elemm-gateway",
+      "args": ["--transport", "stdio"]
     }
   }
 }
 ```
 
-#### WSL (Ubuntu/Debian)
-If your project lives in WSL but you run the AI agent on Windows:
-File: `%APPDATA%\Claude\claude_desktop_config.json`
-```json
-{
-  "mcpServers": {
-    "elemm-gateway": {
-      "command": "wsl.exe",
-      "args": [
-        "-d", "Ubuntu",
-        "-u", "<USER>",
-        "bash", "-c",
-        "cd /home/<USER>/project && ./.venv/bin/python3 -m elemm_gateway.cli"
-      ]
-    }
-  }
-}
-```
-
-#### Linux / macOS
-File: `~/.config/Claude/claude_desktop_config.json` (Linux) or `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
-```json
-{
-  "mcpServers": {
-    "elemm-gateway": {
-      "command": "/path/to/project/.venv/bin/python3",
-      "args": ["-m", "elemm_gateway.cli"]
-    }
-  }
-}
-```
-
-*(Note: Always prefer absolute paths to both the python executable and the project directory).*
+Copy the generated output and place it in your client's config file:
+- **Windows / WSL:** `%APPDATA%\Claude\claude_desktop_config.json`
+- **Linux:** `~/.config/Claude/claude_desktop_config.json`
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 Then start Claude and tell your agent: 
 > *"Use Elemm to connect to https://petstore.swagger.io/v2/swagger.json and list all available pets."*

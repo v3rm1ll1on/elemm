@@ -1,4 +1,5 @@
 # Copyright (C) 2026 Marc Stöcker
+# Website: https://elemm.dev
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -31,6 +32,11 @@ async def async_main():
     parser.add_argument("--session-id", default=None, help="Session ID for the gateway instance (defaults to --name)")
 
     args = parser.parse_args()
+
+    if args.url == "cfg-gen":
+        from elemm_gateway.config_gen import run_config_generator
+        run_config_generator()
+        sys.exit(0)
 
     # Configure logging to STDERR strictly (essential for STDIO transport)
     log_level = logging.DEBUG if args.verbose else logging.INFO

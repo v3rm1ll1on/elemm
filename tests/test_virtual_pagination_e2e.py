@@ -39,12 +39,13 @@ def test_presenter_strict_limit(manager):
     # Count lines that look like items (starting with -)
     item_lines = [l for l in md.split("\n") if l.strip().startswith("-")]
     
-    # Header (1) + 2 Tools (2) + Info-Item (1) = 4 items starting with '-'
+    # Header (1) + 2 Tools (2) + Hint (1) = 4 items starting with '-'
     assert len(item_lines) == 4
     assert "tool_0" in md
     assert "tool_1" in md
     assert "tool_2" not in md
     assert "and 8 more tools" in md
+    assert "_offset=2" in md
 
 def test_presenter_offset_on_tools(manager):
     """Test that offset correctly shifts tools within a landmark."""

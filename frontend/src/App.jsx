@@ -9,6 +9,7 @@ import Settings from './components/Settings';
 import Security from './components/Security';
 import Vault from './components/Vault';
 import ManifestDebugger from './components/ManifestDebugger';
+import MCPSettings from './components/MCPSettings';
 import './App.css';
 import './Layout.css';
 import { API_BASE, WS_BASE } from './config';
@@ -237,6 +238,12 @@ function App() {
             <Security />
           </div>
         );
+      case 'mcp':
+        return (
+          <div className="premium-page-container animate-slide-up" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+            <MCPSettings />
+          </div>
+        );
       default:
         return (
           <GlassCard title={activeTab.toUpperCase()}>
@@ -255,7 +262,7 @@ function App() {
         <header className="content-header">
           <div className="title-group">
             <span className="breadcrumb">Elemm / Gateway /</span>
-            <h1>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h1>
+            <h1>{activeTab === 'mcp' ? 'MCP Servers' : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}</h1>
           </div>
           {(activeTab === 'dashboard' || activeTab === 'manifest') && (
             <div className="controls-group">

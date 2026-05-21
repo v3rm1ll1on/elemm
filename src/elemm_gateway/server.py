@@ -1,4 +1,5 @@
 # Copyright (C) 2026 Marc Stöcker
+# Website: https://elemm.dev
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -36,11 +37,13 @@ from elemm_gateway.services.monitor import get_monitor
 from elemm_gateway.services.vault import VaultManager
 from elemm_gateway.services.config import ConfigManager
 from elemm_gateway.services.security import SecurityPolicy
-from elemm_gateway.services.executors import OpenAPIExecutor, GraphQLExecutor
+from elemm_gateway.services.executors import OpenAPIExecutor, GraphQLExecutor, MCPExecutor
 from elemm_gateway.services.hygiene import ResponseSquisher
 from elemm_gateway.services.sequencer import SequenceEngine
 from elemm_gateway.services.tool_registry import GatewayToolRegistry
 from elemm_gateway.services.telemetry import MonitoredReadStream, MonitoredWriteStream
+from elemm_gateway.services.mcp_config import MCPConfigManager
+from elemm_gateway.services.mcp_bridge import MCPBridge, MCPProcessManager
 from elemm_gateway import __version__
 
 logger = logging.getLogger("elemm-gateway")
@@ -51,14 +54,14 @@ class ElemmGateway:
     and hygienic execution across Native, OpenAPI, and GraphQL interfaces.
     """
     
-    def __init__(self, session_id: str = "default", server_name: str = "elemm-gateway"):
+    def __init__(self, session_id: str = "default", server_name: str = "elemm-gateway", config_path: Optional[str] = None, vault_path: Optional[str] = None):
         self.session_id = session_id
         self.server = Server(server_name)
         self.monitor = get_monitor()
         
         # Paths
-        config_path = os.path.expanduser("~/.elemm/config.json")
-        vault_path = os.path.expanduser("~/.elemm/vault.json")
+        config_path = config_path or os.path.expanduser("~/.elemm/config.json")
+        vault_path = vault_path or os.path.expanduser("~/.elemm/vault.json")
 
         # Core Services
         self.config_manager = ConfigManager(config_path)
@@ -70,9 +73,15 @@ class ElemmGateway:
         self.squisher = ResponseSquisher()
         self.sequence_engine = SequenceEngine(self)
         
+        # MCP Services
+        self.mcp_config = MCPConfigManager()
+        self.mcp_process_manager = MCPProcessManager()
+        self.mcp_bridge = MCPBridge(self.mcp_config, self.mcp_process_manager)
+        
         # Executors
         self.openapi_executor = OpenAPIExecutor(self.vault_manager)
         self.graphql_executor = GraphQLExecutor(self.vault_manager)
+        self.mcp_executor = MCPExecutor(self.mcp_bridge)
 
         # State (isolated by connected client session_id)
         self._connected_sites_data: Dict[str, Dict[str, Dict[str, Any]]] = {}  # session_id -> {url -> site_data}
@@ -298,7 +307,8 @@ class ElemmGateway:
         
         if name == "clear_session":
             self.sequence_engine.clear_session(sid)
-            return [types.TextContent(type="text", text=f"Session memory cleared for: {sid}")]
+            await self.mcp_process_manager.stop_all()
+            return [types.TextContent(type="text", text=f"Session memory and active MCP processes cleared for: {sid}")]
 
         if name == "list_aliases":
             return [types.TextContent(type="text", text=self.sequence_engine.format_aliases_markdown(sid))]
@@ -311,13 +321,15 @@ class ElemmGateway:
         url = self._get_active_url(sid)
         if not url: return [types.TextContent(type="text", text="Error: Not connected to any site.")]
         site_data = self._get_connected_sites(sid).get(url)
+        if site_data:
+            await self._inject_mcp_landmarks(site_data)
         
         if not site_data:
             return [types.TextContent(type="text", text="Error: Connection state lost for active site.")]
 
         if name == "get_manifest":
             self.manifest_loaded = True
-            if site_data.get("type") == "native":
+            if site_data.get("type") == "native" and not url.lower().startswith("mcp://"):
                 try:
                     params = {}
                     if arguments.get("full"):
@@ -354,7 +366,7 @@ class ElemmGateway:
         if name == "get_landmarks":
             # For discovery, we also imply manifest is known
             self.manifest_loaded = True
-            if site_data.get("type") == "native":
+            if site_data.get("type") == "native" and not url.lower().startswith("mcp://"):
                 try:
                     res_text = await ManifestService.fetch_native_manifest(url, vault_manager=self.vault_manager)
                 except Exception as e:
@@ -568,6 +580,39 @@ class ElemmGateway:
                 res_obj["remedy"] = check["remedy"]
             return json.dumps(res_obj, indent=2)
 
+        # Route external MCP tools directly
+        if tool_name.startswith("mcp:"):
+            parts = tool_name.split(":", 2)
+            if len(parts) >= 3:
+                server_id = parts[1]
+                t_name = parts[2]
+                
+                server_conf = self.mcp_config.get_server(server_id)
+                if not server_conf:
+                    return json.dumps({
+                        "status": "error",
+                        "_PROTOCOL_ERROR": "NOT_FOUND",
+                        "message": f"MCP Server '{server_id}' is not configured in ~/.elemm/mcp_servers.yaml."
+                    }, indent=2)
+                
+                remedy_msg = None
+                remedies = server_conf.get("remedies", {})
+                remedy_info = remedies.get(t_name, {})
+                if isinstance(remedy_info, dict):
+                    remedy_msg = remedy_info.get("on_error")
+                elif isinstance(remedy_info, str):
+                    remedy_msg = remedy_info
+
+                tool_data = {
+                    "name": tool_name,
+                    "remedy": remedy_msg,
+                    "meta": {
+                        "server_id": server_id,
+                        "tool_name": t_name
+                    }
+                }
+                return await self.mcp_executor.execute(tool_data, arguments)
+
         active_url = self._get_active_url(sid)
         if not active_url and tool_name != "connect_to_site":
             return json.dumps({
@@ -586,6 +631,7 @@ class ElemmGateway:
                 "remedy": "You must discover the manifest before executing tools. Please call 'get_manifest' or 'get_landmarks' first.",
                 "example": "call_action(action='get_manifest')"
             }, indent=2)
+
 
         # Handle internal tool calls routed via execute_single
         if tool_name in GatewayToolRegistry.CORE_TOOL_NAMES:
@@ -689,6 +735,20 @@ class ElemmGateway:
         self.manifest_loaded = False
         
         sid = session_id or self.session_id
+        
+        # Support pure virtual local MCP environment connection
+        if url.lower() in ["mcp://local", "local", "mcp"]:
+            connected_sites = self._get_connected_sites(sid)
+            connected_sites[url] = {
+                "status": "success",
+                "type": "native",
+                "url": url,
+                "landmarks": [],
+                "tools": []
+            }
+            self.active_site_urls[sid] = url
+            return [types.TextContent(type="text", text="SUCCESS: CONNECTED to Pure Local MCP Environment.\n\nNEXT: Call 'get_manifest'.")]
+
         self.vault_manager.vault = self.vault_manager.load()
         limit = self.config_manager.get("max_tools_per_landmark", 5)
         res = await ManifestService.inspect_url(url, vault_manager=self.vault_manager, limit=limit)
@@ -705,6 +765,103 @@ class ElemmGateway:
             return [types.TextContent(type="text", text=f"SUCCESS: CONNECTED to {display_type} API at {url}\n\nNEXT: Call 'get_manifest'.")]
         
         return [types.TextContent(type="text", text=f"Connection Failed: {res.get('message')}")]
+
+    async def _inject_mcp_landmarks(self, site_data: Dict[str, Any]):
+        """Injects external MCP server tools as landmarks into the connected site data."""
+        if not site_data:
+            return
+            
+        self.mcp_config.reload_if_changed()
+        servers = self.mcp_config.get_servers()
+        if not servers:
+            return
+
+        url = site_data.get("url", "")
+        is_local_mcp = url.lower() in ["mcp://local", "local", "mcp"]
+        
+        mode = self.config_manager.get("mcp_injection_mode", "global")
+        allowed_servers = self.config_manager.get("injected_mcp_servers", [])
+        allowed_tools = self.config_manager.get("injected_mcp_tools", [])
+        
+        # If we are not in virtual local mode and mode is 'local', we skip injection completely
+        if not is_local_mcp and mode == "local":
+            return
+
+        landmarks = site_data.setdefault("landmarks", [])
+        
+        # Keep track of existing landmark IDs to prevent duplicates
+        existing_ids = {
+            lm.get("id", lm.get("name")) if isinstance(lm, dict) else getattr(lm, "id", getattr(lm, "name", None))
+            for lm in landmarks
+        }
+        
+        from elemm.core.models import Landmark
+        for server_id, server_conf in servers.items():
+            # Check if this server is allowed under 'selected' mode
+            if not is_local_mcp and mode == "selected":
+                server_is_allowed = server_id in allowed_servers
+                any_tool_allowed = any(
+                    t.startswith(f"{server_id}:") or t.startswith(f"mcp:{server_id}:")
+                    for t in allowed_tools
+                )
+                if not server_is_allowed and not any_tool_allowed:
+                    continue
+
+            # Discover external tools as action landmarks
+            external_landmarks = await self.mcp_bridge.discover_landmarks(server_id)
+            
+            # Filter tools according to selected mode & security policy
+            filtered_tools = []
+            for lm in external_landmarks:
+                # Security Check: Security policy always overrides first!
+                if self.security_policy:
+                    sec_check = self.security_policy.is_action_allowed(lm.id)
+                    if not sec_check["allowed"]:
+                        logger.warning(f"Security Policy: Injection of '{lm.id}' blocked.")
+                        continue
+                
+                # Selection check in selected mode
+                if not is_local_mcp and mode == "selected":
+                    tool_name = lm.meta.get("tool_name", "") if lm.meta else ""
+                    is_server_whitelisted = server_id in allowed_servers
+                    is_tool_whitelisted = (
+                        lm.id in allowed_tools or
+                        f"{server_id}:{tool_name}" in allowed_tools or
+                        tool_name in allowed_tools
+                    )
+                    if not is_server_whitelisted and not is_tool_whitelisted:
+                        continue
+
+                filtered_tools.append(lm)
+
+            # If no tools are allowed/available from this server, do not even inject the navigation landmark
+            if not filtered_tools:
+                continue
+
+            # 1. Add top-level navigation landmark if it doesn't exist and is allowed by Security
+            nav_id = f"mcp:{server_id}"
+            if self.security_policy:
+                nav_check = self.security_policy.is_action_allowed(nav_id)
+                if not nav_check["allowed"]:
+                    logger.warning(f"Security Policy: Injection of navigation landmark '{nav_id}' blocked.")
+                    continue
+
+            if nav_id not in existing_ids:
+                landmarks.append(Landmark(
+                    id=nav_id,
+                    type="navigation",
+                    description=server_conf.get("description", f"MCP Server {server_id}"),
+                    instructions=server_conf.get("instructions", ""),
+                    tools=[],
+                    meta={"server_id": server_id}
+                ))
+                existing_ids.add(nav_id)
+
+            # 2. Add filtered action landmarks
+            for lm in filtered_tools:
+                if lm.id not in existing_ids:
+                    landmarks.append(lm)
+                    existing_ids.add(lm.id)
 
     async def run(self):
         """Runs the MCP server with passive telemetry streams."""

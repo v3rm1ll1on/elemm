@@ -1,4 +1,5 @@
 # Copyright (C) 2026 Marc Stöcker
+# Website: https://elemm.dev
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -38,6 +39,9 @@ class ConfigManager:
             "retry_attempts": 3,
             "retry_delay_ms": 1000,
             "user_agent": "ElemmGateway/1.0 (Autonomous Agent)",
+            "mcp_injection_mode": "global",
+            "injected_mcp_servers": [],
+            "injected_mcp_tools": [],
             "security": {
                 "prevent_key_leakage": True,
                 "disallowed_patterns": ["delete", "remove", "purge", "destroy"],
