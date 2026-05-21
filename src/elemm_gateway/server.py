@@ -53,14 +53,14 @@ class ElemmGateway:
     and hygienic execution across Native, OpenAPI, and GraphQL interfaces.
     """
     
-    def __init__(self, session_id: str = "default", server_name: str = "elemm-gateway"):
+    def __init__(self, session_id: str = "default", server_name: str = "elemm-gateway", config_path: Optional[str] = None, vault_path: Optional[str] = None):
         self.session_id = session_id
         self.server = Server(server_name)
         self.monitor = get_monitor()
         
         # Paths
-        config_path = os.path.expanduser("~/.elemm/config.json")
-        vault_path = os.path.expanduser("~/.elemm/vault.json")
+        config_path = config_path or os.path.expanduser("~/.elemm/config.json")
+        vault_path = vault_path or os.path.expanduser("~/.elemm/vault.json")
 
         # Core Services
         self.config_manager = ConfigManager(config_path)
