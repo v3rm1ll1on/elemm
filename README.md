@@ -7,10 +7,13 @@
   <a href="https://github.com/v3rm1ll1on/elemm/blob/main/LICENSE"><img src="https://img.shields.io/github/license/v3rm1ll1on/elemm?style=flat-square&color=orange" alt="License" /></a>
   <a href="https://discord.gg/Na5aBca8bR"><img src="https://img.shields.io/badge/Discord-%235865F2.svg?style=flat-square&logo=discord&logoColor=white" alt="Discord" /></a>
   <a href="https://pypi.org/project/elemm/"><img src="https://img.shields.io/badge/python-3.10+-blue?style=flat-square" alt="Python versions" /></a>
+  <a href="https://elemm.dev"><img src="https://img.shields.io/badge/Website-elemm.dev-teal?style=flat-square" alt="Website" /></a>
 </p>
 
 <p align="center">
-  <img src="docs/images/elemm_logo.png" alt="Elemm Logo" width="600" />
+  <a href="https://elemm.dev">
+    <img src="docs/images/elemm_logo.png" alt="Elemm Logo" width="600" />
+  </a>
 </p>
 
 **The Infrastructure for the Agentic Web.**
@@ -201,6 +204,7 @@ Standard protocols like MCP often struggle with large-scale toolsets. Elemm prov
 
 ## Documentation
 
+*   **[Website & Live Docs](https://elemm.dev)**: Visit our official website for the latest documentation and updates.
 *   **[Getting Started](docs/GETTING_STARTED.md)**: Install and run your first Elemm setup.
 *   **[Gateway Reference](docs/GATEWAY.md)**: Complete reference for the Elemm Gateway (OpenAPI, GraphQL, Security, Vault).
 *   **[Developer Guide](docs/DEVELOPER_GUIDE.md)**: Build your own landmark servers with decorators and Pydantic.

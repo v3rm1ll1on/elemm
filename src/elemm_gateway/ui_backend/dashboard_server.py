@@ -1,4 +1,5 @@
 # Copyright (C) 2026 Marc Stöcker
+# Website: https://elemm.dev
 # Part of Elemm v1.2.0 - Dashboard Backend Module
 
 import os
