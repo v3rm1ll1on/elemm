@@ -22,6 +22,7 @@ import {
 import './TokenAnalyzer.css';
 import Tooltip from './Tooltip';
 import { API_BASE } from '../config';
+import { Input, Select, Button, Switch, Slider } from './ui';
 
 // Parser helper matching ManifestDebugger to extract landmarks
 const parseManifest = (manifestInput) => {
@@ -206,19 +207,19 @@ const ToolTreeExplorer = React.memo(({
 }) => {
   return (
     <div className="analyzer-card glass flex-1 overflow-hidden flex flex-col" style={{ height: '620px', display: 'flex', flexDirection: 'column' }}>
-      <div className="card-header-main justify-between border-b pb-3">
+      <div className="card-header-main border-b pb-3" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '12px' }}>
         <div className="flex items-center" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <Activity size={18} className="text-accent" />
-          <h5 className="text-white font-bold text-sm" style={{ margin: 0 }}>Extracted Tools ({toolCount})</h5>
+          <h5 className="text-white font-bold text-sm" style={{ margin: 0, whiteSpace: 'nowrap' }}>Extracted Tools ({toolCount})</h5>
         </div>
-        <div className="search-input-wrapper-micro">
-          <Search size={12} className="search-icon-micro" />
-          <input 
+        <div className="search-input-wrapper-micro" style={{ width: '100%', position: 'relative' }}>
+          <Search size={14} className="text-muted" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', zIndex: 1 }} />
+          <Input 
             type="text" 
             placeholder="Search tools..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="search-input-micro"
+            style={{ width: '100%', height: '38px', paddingLeft: '34px', fontSize: '0.8rem' }}
           />
         </div>
       </div>
@@ -252,9 +253,9 @@ const ToolTreeExplorer = React.memo(({
                       onClick={() => setSelectedToolName(t.name)}
                     >
                       <div className="tool-row-info">
-                        <span className="tool-row-name">{getShortName(t.name)}</span>
-                        <span className="tool-row-path">{t.name}</span>
-                        <span className="tool-row-desc">{t.description}</span>
+                        <span className="tool-row-name" title={getShortName(t.name)}>{getShortName(t.name)}</span>
+                        <span className="tool-row-id" title={t.name}>{t.name}</span>
+                        <span className="tool-row-desc" title={t.description}>{t.description}</span>
                       </div>
                       <div className="tool-row-savings text-success font-mono font-bold">
                         -{((t.legacyChars - t.elemmChars) / t.legacyChars * 100).toFixed(0)}%
@@ -786,9 +787,9 @@ const TokenAnalyzer = () => {
               <h4>Spec Profile: <span className="text-accent">{analysisResult.host}</span></h4>
             </div>
             <div className="flex gap-3" style={{ display: 'flex', gap: '12px' }}>
-              <button className="btn-secondary" onClick={handleReset}>
+              <Button className="btn-secondary" onClick={handleReset}>
                 ← Back to Simulator
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -805,13 +806,12 @@ const TokenAnalyzer = () => {
                   <span>Depth (Conversation turns)</span>
                   <span className="sim-slider-value">{convTurns} turns</span>
                 </div>
-                <input 
-                  type="range" 
+                <Slider 
                   min="1" 
                   max="15" 
                   value={convTurns} 
                   onChange={(e) => setConvTurns(parseInt(e.target.value))}
-                  className="custom-range micro-range"
+                  className="micro-range"
                 />
               </div>
 
@@ -820,13 +820,12 @@ const TokenAnalyzer = () => {
                   <span>Called (Executed tools)</span>
                   <span className="sim-slider-value">{toolsUsed} tools</span>
                 </div>
-                <input 
-                  type="range" 
+                <Slider 
                   min="0" 
                   max="10" 
                   value={toolsUsed} 
                   onChange={(e) => setToolsUsed(parseInt(e.target.value))}
-                  className="custom-range micro-range"
+                  className="micro-range"
                 />
               </div>
 
@@ -835,26 +834,21 @@ const TokenAnalyzer = () => {
                   <span>Piping (Roundtrip saving)</span>
                   <span className="sim-slider-value">{pipeRatio}%</span>
                 </div>
-                <input 
-                  type="range" 
+                <Slider 
                   min="0" 
                   max="100" 
                   value={pipeRatio} 
                   onChange={(e) => setPipeRatio(parseInt(e.target.value))}
-                  className="custom-range micro-range"
+                  className="micro-range"
                 />
               </div>
 
               <div className="sim-slider-container" style={{ paddingLeft: '12px' }}>
                 <span className="sim-slider-header" style={{ marginBottom: '6px' }}>Prompt Caching</span>
-                <label className="premium-switch">
-                  <input 
-                    type="checkbox" 
-                    checked={cachingEnabled} 
-                    onChange={(e) => setCachingEnabled(e.target.checked)} 
-                  />
-                  <span className="switch-slider"></span>
-                </label>
+                <Switch 
+                  checked={cachingEnabled} 
+                  onChange={(e) => setCachingEnabled(e.target.checked)} 
+                />
               </div>
             </div>
           </div>
@@ -909,32 +903,35 @@ const TokenAnalyzer = () => {
             <div className="live-report-mid-col">
               {selectedTool ? (
                 <div className="analyzer-card glass flex-1 overflow-hidden flex flex-col" style={{ height: '620px', display: 'flex', flexDirection: 'column' }}>
-                  <div className="card-header-main justify-between border-b pb-3">
-                    <div className="flex flex-col min-w-0 flex-1 mr-3 text-left">
+                  <div className="card-header-main border-b pb-3" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '12px' }}>
+                    <div className="flex flex-col min-w-0 w-full text-left">
                       <span className="selected-tool-title" title={selectedTool.name}>
                         {selectedTool.name}
                       </span>
                       <span className="text-xs text-muted">Payload Compare</span>
                     </div>
-                    <div className="tab-control-premium flex-shrink-0">
-                      <button 
+                    <div className="tab-control-premium flex-shrink-0" style={{ width: '100%', overflowX: 'auto', display: 'flex', gap: '4px' }}>
+                      <Button 
+                        variant="none"
                         className={`tab-btn ${codeViewTab === 'mcp' ? 'active' : ''}`}
                         onClick={() => setCodeViewTab('mcp')}
                       >
                         <FileText size={12} /> <span>Traditional MCP JSON</span>
-                      </button>
-                      <button 
+                      </Button>
+                      <Button 
+                        variant="none"
                         className={`tab-btn ${codeViewTab === 'ts' ? 'active' : ''}`}
                         onClick={() => setCodeViewTab('ts')}
                       >
                         <Code size={12} /> <span>TypeScript Spec</span>
-                      </button>
-                      <button 
+                      </Button>
+                      <Button 
+                        variant="none"
                         className={`tab-btn ${codeViewTab === 'elemm' ? 'active text-accent' : ''}`}
                         onClick={() => setCodeViewTab('elemm')}
                       >
                         <Sparkles size={12} /> <span>Elemm Compact</span>
-                      </button>
+                      </Button>
                     </div>
                   </div>
 
@@ -1020,9 +1017,9 @@ const TokenAnalyzer = () => {
                   </div>
                 </div>
 
-                <button className="btn-accent-premium w-full mt-4 justify-center" onClick={() => setShowAuditModal(true)} style={{ padding: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                <Button className="btn-accent-premium w-full mt-4 justify-center" onClick={() => setShowAuditModal(true)} style={{ padding: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                   <Shield size={14} /> <span>Verify Audit Proof</span>
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -1044,7 +1041,7 @@ const TokenAnalyzer = () => {
                 <div className="premium-input-group">
                   <div className="premium-input-wrapper">
                     <LinkIcon size={14} className="input-icon-left" />
-                    <input 
+                    <Input 
                       type="text" 
                       placeholder="Paste Swagger / OpenAPI URL..."
                       value={urlInput}
@@ -1052,10 +1049,10 @@ const TokenAnalyzer = () => {
                       className="premium-input-url"
                     />
                   </div>
-                  <button type="submit" className="btn-accent-premium" disabled={analyzing || !urlInput.trim()}>
+                  <Button type="submit" className="btn-accent-premium" disabled={analyzing || !urlInput.trim()}>
                     {analyzing ? <RefreshCw size={14} className="spin-icon" /> : <ArrowRight size={14} />}
                     <span>Analyze</span>
-                  </button>
+                  </Button>
                 </div>
               </form>
 
@@ -1063,7 +1060,7 @@ const TokenAnalyzer = () => {
 
               {/* Option B: Active Session Selector */}
               <div className="session-select-group">
-                <select
+                <Select
                   value={selectedSession}
                   onChange={(e) => handleAnalyzeSession(e.target.value)}
                   className="premium-select-dropdown"
@@ -1081,7 +1078,7 @@ const TokenAnalyzer = () => {
                       </option>
                     );
                   })}
-                </select>
+                </Select>
               </div>
             </div>
 
@@ -1107,13 +1104,11 @@ const TokenAnalyzer = () => {
                     <span>Simulated Tool Count</span>
                     <span className="slider-value text-accent">{toolCount.toLocaleString()} Tools</span>
                   </div>
-                  <input 
-                    type="range" 
+                  <Slider 
                     min="10" 
                     max="1000" 
                     value={toolCount} 
                     onChange={(e) => setToolCount(parseInt(e.target.value))}
-                    className="custom-range"
                   />
                 </div>
 
@@ -1175,14 +1170,13 @@ const TokenAnalyzer = () => {
                     <span>Daily Agent Steps / Turns</span>
                     <span className="slider-value text-success">{dailyCalls.toLocaleString()} Calls</span>
                   </div>
-                  <input 
-                    type="range" 
+                  <Slider 
                     min="100" 
                     max="25000" 
                     step="100"
                     value={dailyCalls} 
                     onChange={(e) => setDailyCalls(parseInt(e.target.value))}
-                    className="custom-range range-success"
+                    className="range-success"
                   />
                 </div>
 
@@ -1191,13 +1185,11 @@ const TokenAnalyzer = () => {
                     <span>Avg. Conversation Depth</span>
                     <span className="slider-value text-accent">{convTurns} Turns / Chat</span>
                   </div>
-                  <input 
-                    type="range" 
+                  <Slider 
                     min="1" 
                     max="15" 
                     value={convTurns} 
                     onChange={(e) => setConvTurns(parseInt(e.target.value))}
-                    className="custom-range"
                   />
                 </div>
 
@@ -1206,13 +1198,12 @@ const TokenAnalyzer = () => {
                     <span>Actual Tools Executed</span>
                     <span className="slider-value text-success">{toolsUsed} Tools Called</span>
                   </div>
-                  <input 
-                    type="range" 
+                  <Slider 
                     min="0" 
                     max="10" 
                     value={toolsUsed} 
                     onChange={(e) => setToolsUsed(parseInt(e.target.value))}
-                    className="custom-range range-success"
+                    className="range-success"
                   />
                 </div>
 
@@ -1220,14 +1211,10 @@ const TokenAnalyzer = () => {
                   <span className="text-xs text-muted flex items-center gap-1">
                     Enable Prompt Caching <Tooltip text="Claude-style caching saves 90% input cost on repeat turns, but charges a 25% write premium on miss." />
                   </span>
-                  <label className="premium-switch">
-                    <input 
-                      type="checkbox" 
-                      checked={cachingEnabled} 
-                      onChange={(e) => setCachingEnabled(e.target.checked)} 
-                    />
-                    <span className="switch-slider"></span>
-                  </label>
+                  <Switch 
+                    checked={cachingEnabled} 
+                    onChange={(e) => setCachingEnabled(e.target.checked)} 
+                  />
                 </div>
 
                 <div className="slider-group mt-3">
@@ -1300,9 +1287,9 @@ const TokenAnalyzer = () => {
                   <p className="text-xs text-muted" style={{ margin: '4px 0 0 0', fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)' }}>Comparative payload & context window simulation for {analysisResult ? analysisResult.host : 'connected Spec'}</p>
                 </div>
               </div>
-              <button className="modal-close-btn" style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: '#ffffff', padding: '6px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowAuditModal(false)}>
-                <X size={18} />
-              </button>
+              <Button className="modal-close-btn" style={{ background: 'rgba(255,255,255,0.05)', border: 'none', color: '#ffffff', padding: '6px', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowAuditModal(false)}>
+                <X size={16} />
+              </Button>
             </div>
 
             <div className="audit-modal-body custom-scrollbar" style={{ maxHeight: '75vh', overflowY: 'auto', paddingRight: '6px' }}>

@@ -4,6 +4,7 @@ import {
   Settings2, Key, HelpCircle, ShieldAlert, FileText, ChevronRight, ChevronDown, X, Zap, Wrench, Search, MoreVertical
 } from 'lucide-react';
 import { API_BASE } from '../config';
+import { Input, Select, Button, Switch, FormGroup, Textarea } from './ui';
 import Slide2Delete from './Slide2Delete';
 import './MCPSettings.css';
 
@@ -702,14 +703,14 @@ const MCPSettings = () => {
                 <span className="count-badge">{Object.keys(servers).length}</span>
               </div>
               <div className="mcp-sidebar-actions">
-                <button 
+                <Button 
                   className="mcp-action-btn secondary"
                   onClick={verifyAllServers}
                   title="Verify all servers in parallel"
                 >
                   <Zap size={14} />
-                </button>
-                <button 
+                </Button>
+                <Button 
                   className="mcp-action-btn secondary" 
                   onClick={() => {
                     setImportText('');
@@ -718,20 +719,20 @@ const MCPSettings = () => {
                   title="Import existing Claude/Elemm configuration"
                 >
                   <FileText size={14} />
-                </button>
-                <button 
+                </Button>
+                <Button 
                   className="mcp-action-btn primary" 
                   onClick={addNewServer} 
                   title="Add new server"
                 >
                   <Plus size={14} />
-                </button>
+                </Button>
               </div>
             </div>
 
             <div className="mcp-sidebar-search">
               <Search size={14} className="search-icon" />
-              <input 
+              <Input 
                 type="text" 
                 placeholder="Search servers..." 
                 value={searchQuery}
@@ -739,9 +740,9 @@ const MCPSettings = () => {
                 className="search-input"
               />
               {searchQuery && (
-                <button className="clear-search-btn" onClick={() => setSearchQuery('')}>
+                <Button className="clear-search-btn" onClick={() => setSearchQuery('')}>
                   ×
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -789,7 +790,7 @@ const MCPSettings = () => {
                   </div>
                   
                   <div className="mcp-item-menu-container">
-                    <button 
+                    <Button 
                       className={`mcp-more-btn ${activeMenuId === id ? 'active' : ''}`}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -798,7 +799,7 @@ const MCPSettings = () => {
                       title="Server actions"
                     >
                       <MoreVertical size={16} />
-                    </button>
+                    </Button>
                     
                     {activeMenuId === id && (
                       <>
@@ -807,7 +808,7 @@ const MCPSettings = () => {
                           setActiveMenuId(null);
                         }} />
                         <div className="mcp-item-dropdown glass animate-fade-in" onClick={(e) => e.stopPropagation()}>
-                          <button 
+                          <Button 
                             className="dropdown-item" 
                             onClick={(e) => {
                               e.stopPropagation();
@@ -817,8 +818,8 @@ const MCPSettings = () => {
                           >
                             <Zap size={14} className="text-accent" />
                             <span>Verify Status</span>
-                          </button>
-                          <button 
+                          </Button>
+                          <Button 
                             className="dropdown-item delete" 
                             onClick={(e) => {
                               e.stopPropagation();
@@ -828,7 +829,7 @@ const MCPSettings = () => {
                           >
                             <Trash2 size={14} />
                             <span>Delete Server</span>
-                          </button>
+                          </Button>
                         </div>
                       </>
                     )}
@@ -844,28 +845,28 @@ const MCPSettings = () => {
           {/* Detail Tabs */}
           <div className="mcp-detail-header">
             <div className="mcp-tabs">
-              <button 
+              <Button 
                 className={`mcp-tab ${editMode === 'form' ? 'active' : ''}`}
                 onClick={() => handleModeSwitch('form')}
                 disabled={!activeServerId}
               >
                 <Settings2 size={16} /> Form Editor
-              </button>
-              <button 
+              </Button>
+              <Button 
                 className={`mcp-tab ${editMode === 'tools' ? 'active' : ''}`}
                 onClick={() => handleModeSwitch('tools')}
                 disabled={!activeServerId}
               >
                 <Wrench size={16} /> Discovered Tools & Remedies
-              </button>
-              <button 
+              </Button>
+              <Button 
                 className={`mcp-tab ${editMode === 'yaml' ? 'active' : ''}`}
                 onClick={() => handleModeSwitch('yaml')}
               >
                 <Terminal size={16} /> Code Editor (YAML)
-              </button>
+              </Button>
             </div>
-            <span className="mcp-badge">N+X Architecture</span>
+
           </div>
 
           {/* Tab content area */}
@@ -886,12 +887,8 @@ const MCPSettings = () => {
                 <div className="mcp-form-section">
                   <h5>Core Details</h5>
                   <div className="mcp-form-row-2">
-                    <div className="mcp-input-group">
-                      <label>
-                        Server Identifier (Key)*
-                        <Tooltip text="A unique lowercase key. All tools will be namespaced under this identifier, e.g. mcp:github:search_repos." />
-                      </label>
-                      <input 
+                    <FormGroup label={<>Server Identifier (Key)* <Tooltip text="A unique lowercase key. All tools will be namespaced under this identifier, e.g. mcp:github:search_repos." /></>}>
+                      <Input 
                         type="text" 
                         value={activeServerId} 
                         onChange={(e) => {
@@ -910,46 +907,34 @@ const MCPSettings = () => {
                         placeholder="e.g. github"
                       />
                       <small>Unique system key in the landmark namespace.</small>
-                    </div>
+                    </FormGroup>
                     
-                    <div className="mcp-input-group">
-                      <label>
-                        Display Name
-                        <Tooltip text="A descriptive display name for the server used in logs, telemetry, and gateway dashboards." />
-                      </label>
-                      <input 
+                    <FormGroup label={<>Display Name <Tooltip text="A descriptive display name for the server used in logs, telemetry, and gateway dashboards." /></>}>
+                      <Input 
                         type="text" 
                         value={activeServer.name || ''} 
                         onChange={(e) => updateActiveServerField('name', e.target.value)}
                         placeholder="e.g. GitHub Server"
                       />
                       <small>Friendly name for logs and dashboard.</small>
-                    </div>
+                    </FormGroup>
                   </div>
 
                   <div className="mcp-form-row-2">
-                    <div className="mcp-input-group">
-                      <label>
-                        Transport Type
-                        <Tooltip text="Use 'stdio' to spawn local subprocesses or 'sse' to communicate with remote HTTP-based servers." />
-                      </label>
-                      <select 
+                    <FormGroup label={<>Transport Type <Tooltip text="Use 'stdio' to spawn local subprocesses or 'sse' to communicate with remote HTTP-based servers." /></>}>
+                      <Select 
                         value={activeServer.transport || 'stdio'} 
                         onChange={(e) => updateActiveServerField('transport', e.target.value)}
                       >
                         <option value="stdio">stdio (Standard Input/Output)</option>
                         <option value="sse">sse (HTTP Server Sent Events)</option>
-                      </select>
+                      </Select>
                       <small>Communication protocol for data exchange.</small>
-                    </div>
+                    </FormGroup>
                     
                     {activeServer.transport === 'sse' ? (
-                      <div className="mcp-input-group">
-                        <label>
-                          Remote Server URL (URL)*
-                          <Tooltip text="The full HTTP/HTTPS URL of the remote SSE MCP server, e.g. https://tandem.ac/mcp." />
-                        </label>
-                        <input 
+                      <FormGroup label={<>Remote Server URL (URL)* <Tooltip text="The full HTTP/HTTPS URL of the remote SSE MCP server, e.g. https://tandem.ac/mcp." /></>}>
+                        <Input 
                           type="text" 
                           value={activeServer.url || ''} 
                           onChange={(e) => {
@@ -998,21 +983,17 @@ const MCPSettings = () => {
                           placeholder="e.g. https://tandem.ac/mcp"
                         />
                         <small>Endpoint URL of the remote SSE landmark.</small>
-                      </div>
+                      </FormGroup>
                     ) : (
-                      <div className="mcp-input-group">
-                        <label>
-                          Executable Command (Command)*
-                          <Tooltip text="The main CLI command to boot your server process, e.g. npx, python3, node, or a direct binary path." />
-                        </label>
-                        <input 
+                      <FormGroup label={<>Executable Command (Command)* <Tooltip text="The main CLI command to boot your server process, e.g. npx, python3, node, or a direct binary path." /></>}>
+                        <Input 
                           type="text" 
                           value={activeServer.command || ''} 
                           onChange={(e) => updateActiveServerField('command', e.target.value)}
                           placeholder="e.g. npx, python3, node"
                         />
                         <small>CLI command used to boot the subprocess.</small>
-                      </div>
+                      </FormGroup>
                     )}
                   </div>
                 </div>
@@ -1026,7 +1007,7 @@ const MCPSettings = () => {
                         Verify that the Elemm Gateway can successfully spawn this MCP server process, 
                         establish the standard JSON-RPC handshake, and retrieve the list of tools.
                       </p>
-                      <button 
+                      <Button 
                         type="button"
                         className="btn-secondary-sm mcp-test-btn" 
                         onClick={handleTestConnection} 
@@ -1034,7 +1015,7 @@ const MCPSettings = () => {
                       >
                         <Zap size={14} className={testing ? 'mcp-pulse animate-spin' : ''} />
                         {testing ? 'Testing...' : 'Test Connection'}
-                      </button>
+                      </Button>
                     </div>
                     
                     {testResult && (
@@ -1089,20 +1070,20 @@ const MCPSettings = () => {
                           (activeServer.args || []).map((arg, i) => (
                             <div key={i} className="mcp-arg-badge">
                               <span>{arg}</span>
-                              <button onClick={() => removeArgument(i)}><X size={12} /></button>
+                              <Button onClick={() => removeArgument(i)}><X size={12} /></Button>
                             </div>
                           ))
                         )}
                       </div>
                       <div className="mcp-args-input-row">
-                        <input 
+                        <Input 
                           type="text" 
                           value={newArgText} 
                           onChange={(e) => setNewArgText(e.target.value)}
                           placeholder="New argument (e.g. -y)"
                           onKeyDown={(e) => { if (e.key === 'Enter') addArgument(); }}
                         />
-                        <button onClick={addArgument} className="btn-secondary-sm"><Plus size={14} /> Add</button>
+                        <Button onClick={addArgument} className="btn-secondary-sm"><Plus size={14} /> Add</Button>
                       </div>
                     </div>
                   </div>
@@ -1141,21 +1122,21 @@ const MCPSettings = () => {
                               <span>{val}</span>
                               {val.startsWith('env:') && <span className="val-badge">🔒 Resolved</span>}
                             </div>
-                            <button onClick={() => setDeletingEnvKey(key)} className="row-delete-btn" title="Delete environment variable">
+                            <Button onClick={() => setDeletingEnvKey(key)} className="row-delete-btn" title="Delete environment variable">
                               <Trash2 size={14} />
-                            </button>
+                            </Button>
                           </div>
                         ))
                       )}
                     </div>
                     <div className="mcp-table-input-row with-vault">
-                      <input 
+                      <Input 
                         type="text" 
                         placeholder="KEY (e.g. GITHUB_TOKEN)" 
                         value={newEnvKey}
                         onChange={(e) => setNewEnvKey(e.target.value)}
                       />
-                      <input 
+                      <Input 
                         type="text" 
                         placeholder="Value or env:VAR" 
                         value={newEnvVal}
@@ -1163,7 +1144,7 @@ const MCPSettings = () => {
                         onKeyDown={(e) => { if (e.key === 'Enter') addEnvVar(); }}
                       />
                       {vaultKeys.length > 0 && (
-                        <select 
+                        <Select 
                           className="mcp-vault-quickselect"
                           value=""
                           onChange={(e) => {
@@ -1179,9 +1160,9 @@ const MCPSettings = () => {
                           {vaultKeys.map(k => (
                             <option key={k} value={k}>{k}</option>
                           ))}
-                        </select>
+                        </Select>
                       )}
-                      <button onClick={addEnvVar} className="btn-secondary-sm"><Plus size={14} /> Add</button>
+                      <Button onClick={addEnvVar} className="btn-secondary-sm"><Plus size={14} /> Add</Button>
                     </div>
                   </div>
                 </div>
@@ -1216,28 +1197,28 @@ const MCPSettings = () => {
                             )}
                             <code className="key-code">{tool}</code>
                             <span className="remedy-text">{typeof rem === 'object' ? rem.on_error : rem}</span>
-                            <button onClick={() => setDeletingRemedyTool(tool)} className="row-delete-btn" title="Delete remedy">
+                            <Button onClick={() => setDeletingRemedyTool(tool)} className="row-delete-btn" title="Delete remedy">
                               <Trash2 size={14} />
-                            </button>
+                            </Button>
                           </div>
                         ))
                       )}
                     </div>
                     <div className="mcp-table-input-row">
-                      <input 
+                      <Input 
                         type="text" 
                         placeholder="Tool name (e.g. search_repos)" 
                         value={newRemedyTool}
                         onChange={(e) => setNewRemedyTool(e.target.value)}
                       />
-                      <input 
+                      <Input 
                         type="text" 
                         placeholder="Remedy hint on error..." 
                         value={newRemedyMsg}
                         onChange={(e) => setNewRemedyMsg(e.target.value)}
                         onKeyDown={(e) => { if (e.key === 'Enter') addRemedy(); }}
                       />
-                      <button onClick={addRemedy} className="btn-secondary-sm"><Plus size={14} /> Add</button>
+                      <Button onClick={addRemedy} className="btn-secondary-sm"><Plus size={14} /> Add</Button>
                     </div>
                   </div>
                 </div>
@@ -1252,7 +1233,7 @@ const MCPSettings = () => {
                 </div>
 
                 <div className="mcp-tools-action-bar">
-                  <button 
+                  <Button 
                     type="button" 
                     className="btn-secondary-sm mcp-tools-fetch-btn"
                     onClick={handleTestConnection}
@@ -1260,7 +1241,7 @@ const MCPSettings = () => {
                   >
                     <Zap size={14} className={testing ? 'mcp-pulse animate-spin' : ''} />
                     {testing ? 'Fetching tools...' : 'Reload Live Tools'}
-                  </button>
+                  </Button>
                   <span className="mcp-badge">Live Handshake</span>
                 </div>
 
@@ -1291,7 +1272,7 @@ const MCPSettings = () => {
                     {testResult.tools.length > 0 && (
                       <div className="mcp-tools-search-bar">
                         <Search size={16} className="search-icon" />
-                        <input
+                        <Input
                           type="text"
                           placeholder="Search tools by name or description..."
                           value={toolSearch}
@@ -1299,9 +1280,9 @@ const MCPSettings = () => {
                           className="tools-search-input"
                         />
                         {toolSearch && (
-                          <button className="clear-search-btn" onClick={() => setToolSearch('')}>
+                          <Button className="clear-search-btn" onClick={() => setToolSearch('')}>
                             ×
-                          </button>
+                          </Button>
                         )}
                       </div>
                     )}
@@ -1379,7 +1360,7 @@ const MCPSettings = () => {
                                                     <span className="param-field-type">{pProp.type || 'string'}</span>
                                                     {isRequired && <span className="param-required-star">*</span>}
                                                   </label>
-                                                  <input
+                                                  <Input
                                                     type="text"
                                                     className="mcp-tool-param-input"
                                                     placeholder={pProp.description || `Enter ${pName}...`}
@@ -1400,7 +1381,7 @@ const MCPSettings = () => {
 
                                       {/* Execute Button Row */}
                                       <div className="mcp-tool-execute-row">
-                                        <button
+                                        <Button
                                           type="button"
                                           className="btn-secondary-sm mcp-execute-btn"
                                           onClick={() => handleExecuteTool(tool.name, tool.inputSchema)}
@@ -1408,7 +1389,7 @@ const MCPSettings = () => {
                                         >
                                           <Zap size={13} className={executingTool === tool.name ? 'mcp-pulse animate-spin' : ''} />
                                           {executingTool === tool.name ? 'Executing...' : 'Execute now (Interactive Test)'}
-                                        </button>
+                                        </Button>
                                       </div>
 
                                       {/* Execution Results box */}
@@ -1416,7 +1397,7 @@ const MCPSettings = () => {
                                         <div className={`mcp-tool-exec-result ${execResults[tool.name].success ? 'success' : 'error'}`}>
                                           <div className="exec-result-header">
                                             <strong>Execution Result:</strong>
-                                            <button 
+                                            <Button 
                                               className="btn-clear-close"
                                               onClick={() => setExecResults(prev => {
                                                 const updated = { ...prev };
@@ -1425,7 +1406,7 @@ const MCPSettings = () => {
                                               })}
                                             >
                                               Close Output
-                                            </button>
+                                            </Button>
                                           </div>
                                           {execResults[tool.name].loading ? (
                                             <div className="exec-loading-spinner">
@@ -1507,7 +1488,7 @@ const MCPSettings = () => {
                 <span>{status.message}</span>
               </div>
             )}
-             <button 
+             <Button 
               className={`mcp-save-btn ${hasPendingChanges ? 'pending-changes' : ''}`} 
               onClick={triggerSave} 
               disabled={saving || testing}
@@ -1520,7 +1501,7 @@ const MCPSettings = () => {
                   : hasPendingChanges 
                     ? 'Verify & Save (Pending Changes)' 
                     : 'Verify & Save Configuration'}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -1536,19 +1517,18 @@ const MCPSettings = () => {
             <p className="modal-intro">
               Paste your existing MCP configuration (Claude Desktop <code>claude_desktop_config.json</code> JSON format or Elemm Gateway YAML format) below. All new servers will be merged seamlessly!
             </p>
-            <div className="form-group-modal">
-              <label>Configuration Code (JSON or YAML)</label>
-              <textarea
+            <FormGroup label="Configuration Code (JSON or YAML)" className="form-group-modal">
+              <Textarea
                 className="import-textarea"
                 value={importText}
                 onChange={(e) => setImportText(e.target.value)}
                 placeholder='{ "mcpServers": { "github": { "command": "npx", ... } } }'
                 spellCheck="false"
               />
-            </div>
+            </FormGroup>
             <div className="modal-toggle-row">
               <label className="toggle-label">
-                <input 
+                <Input 
                   type="checkbox" 
                   checked={autoMigrateVault} 
                   onChange={(e) => setAutoMigrateVault(e.target.checked)}
@@ -1557,22 +1537,22 @@ const MCPSettings = () => {
               </label>
             </div>
             <div className="modal-actions-row">
-              <button 
+              <Button 
                 type="button" 
                 className="btn-secondary-modal" 
                 onClick={() => setShowImportModal(false)}
                 disabled={saving}
               >
                 Cancel
-              </button>
-              <button 
+              </Button>
+              <Button 
                 type="button" 
                 className="btn-primary-modal" 
                 onClick={handleImportConfig}
                 disabled={saving || !importText.trim()}
               >
                 {saving ? 'Importing...' : 'Import & Migrate'}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

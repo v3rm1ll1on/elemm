@@ -112,6 +112,7 @@
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   background: rgba(255, 255, 255, 0.02);
   color: var(--text-secondary);
+  padding: 0 !important;
 }
 
 .mcp-action-btn:hover {
@@ -176,7 +177,7 @@
   color: var(--text-muted);
   font-size: 1.1rem;
   cursor: pointer;
-  padding: 0;
+  padding: 0 !important;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -345,7 +346,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 6px;
+  padding: 6px !important;
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -637,7 +638,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 2px;
+  padding: 2px !important;
   border-radius: 50%;
   transition: var(--transition-fast);
 }
@@ -761,7 +762,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 6px;
+  padding: 6px !important;
   border-radius: 6px;
   width: 32px;
   height: 32px;

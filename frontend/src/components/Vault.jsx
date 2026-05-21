@@ -4,6 +4,7 @@ import './Vault.css';
 import Slide2Delete from './Slide2Delete';
 import Tooltip from './Tooltip';
 import { API_BASE } from '../config';
+import { Input, Select, FormGroup, Button } from './ui';
 
 const decodeBasicAuth = (value) => {
   if (!value) return { username: '', password: '' };
@@ -190,9 +191,9 @@ const Vault = () => {
       )}
 
       <div className="vault-actions">
-        <button className="btn-secondary" onClick={addVaultEntry}>
+        <Button variant="secondary" onClick={addVaultEntry}>
           <Plus size={16} /> Add New Credential
-        </button>
+        </Button>
       </div>
 
       <div className="vault-grid">
@@ -210,21 +211,20 @@ const Vault = () => {
               ) : (
                 <Globe size={18} className="text-accent" />
               )}
-              <input 
+              <Input 
                 className="host-input"
                 value={item.host} 
                 onChange={(e) => updateVaultEntry(item.id, 'host', e.target.value)}
                 placeholder={item.type === 'envVar' ? "VARIABLE_NAME (e.g. GITHUB_TOKEN)" : "api.hostname.com or GITHUB_TOKEN"}
               />
-              <button className="btn-icon text-error" onClick={() => setDeletingId(item.id)}>
+              <Button variant="icon" className="text-error" onClick={() => setDeletingId(item.id)}>
                 <Trash2 size={16} />
-              </button>
+              </Button>
             </div>
             <div className="vault-card-body">
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Auth Type <Tooltip text="The authentication method used by the target host." /></label>
-                  <select 
+              <div className={item.type === 'apiKey' ? "form-row" : ""}>
+                <FormGroup label={<>Auth Type <Tooltip text="The authentication method used by the target host." /></>}>
+                  <Select 
                     value={item.type || 'apiKey'} 
                     onChange={(e) => updateVaultEntry(item.id, 'type', e.target.value)}
                   >
@@ -232,86 +232,85 @@ const Vault = () => {
                     <option value="bearer">Bearer Token</option>
                     <option value="basic">Basic Auth</option>
                     <option value="envVar">Environment Variable (MCP)</option>
-                  </select>
-                </div>
+                  </Select>
+                </FormGroup>
                 {item.type === 'apiKey' && (
-                  <div className="form-group">
-                    <label>Location <Tooltip text="Where to inject the key in the request." /></label>
-                    <select 
+                  <FormGroup label={<>Location <Tooltip text="Where to inject the key in the request." /></>}>
+                    <Select 
                       value={item.in || 'query'} 
                       onChange={(e) => updateVaultEntry(item.id, 'in', e.target.value)}
                     >
                       <option value="query">URL Query</option>
                       <option value="header">HTTP Header</option>
-                    </select>
-                  </div>
+                    </Select>
+                  </FormGroup>
                 )}
               </div>
               
               {item.type !== 'envVar' && (
-                <div className={`form-group ${item.type !== 'apiKey' ? 'readonly-group' : ''}`}>
-                  <label>
+                <FormGroup className={item.type !== 'apiKey' ? 'readonly-group' : ''} label={
+                  <>
                     <span>{item.type === 'apiKey' ? 'Parameter Name' : 'Identifier'}</span>
                     <Tooltip text={item.type === 'apiKey' 
                       ? "The key name (e.g. 'api_key' or 'X-API-Key')." 
                       : "For Bearer/Basic, this is fixed to 'Authorization'."} 
                     />
-                  </label>
-                  <input 
+                  </>
+                }>
+                  <Input 
                     value={item.type === 'apiKey' ? (item.name || 'key') : 'Authorization'} 
                     onChange={(e) => item.type === 'apiKey' && updateVaultEntry(item.id, 'name', e.target.value)}
                     placeholder="e.g. X-API-Key"
                     readOnly={item.type !== 'apiKey'}
                   />
-                </div>
+                </FormGroup>
               )}
 
               {item.type === 'basic' ? (
                 <div className="form-row">
-                  <div className="form-group">
-                    <label>Username <Tooltip text="The HTTP Basic Auth username." /></label>
-                    <input 
+                  <FormGroup label={<>Username <Tooltip text="The HTTP Basic Auth username." /></>}>
+                    <Input 
                       value={decodeBasicAuth(item.value).username} 
                       onChange={(e) => updateBasicAuth(item.id, 'username', e.target.value, item)}
                       placeholder="username"
                     />
-                  </div>
-                  <div className="form-group">
-                    <label>Password <Tooltip text="The HTTP Basic Auth password." /></label>
+                  </FormGroup>
+                  <FormGroup label={<>Password <Tooltip text="The HTTP Basic Auth password." /></>}>
                     <div className="password-input-wrapper">
-                      <input 
+                      <Input 
                         type={showKeys[item.id] ? 'text' : 'password'}
                         value={decodeBasicAuth(item.value).password} 
                         onChange={(e) => updateBasicAuth(item.id, 'password', e.target.value, item)}
                         placeholder="••••••••"
                       />
-                      <button 
-                        className="btn-icon visibility-toggle"
+                      <Button 
+                        variant="icon"
+                        className="visibility-toggle"
                         onClick={() => setShowKeys({...showKeys, [item.id]: !showKeys[item.id]})}
                       >
                         {showKeys[item.id] ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
+                      </Button>
                     </div>
-                  </div>
+                  </FormGroup>
                 </div>
               ) : (
-                <div className="form-group">
-                  <label>Credential Value <Tooltip text="Your secret token or password." /></label>
+                <FormGroup label={<>Credential Value <Tooltip text="Your secret token or password." /></>}>
                   <div className="password-input-wrapper">
-                    <input 
+                    <Input 
                       type={showKeys[item.id] ? 'text' : 'password'}
                       value={item.value || ''} 
                       onChange={(e) => updateVaultEntry(item.id, 'value', e.target.value)}
                       placeholder="••••••••••••••••"
                     />
-                    <button 
-                      className="btn-icon visibility-toggle"
+                    <Button 
+                      variant="icon"
+                      className="visibility-toggle"
                       onClick={() => setShowKeys({...showKeys, [item.id]: !showKeys[item.id]})}
                     >
                       {showKeys[item.id] ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
+                    </Button>
                   </div>
-                </div>
+                </FormGroup>
               )}
             </div>
           </div>
