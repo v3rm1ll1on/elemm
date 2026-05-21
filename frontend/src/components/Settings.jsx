@@ -4,6 +4,7 @@ import Tooltip from './Tooltip';
 import './Settings.css';
 import { API_BASE } from '../config';
 import { Input, Select, Slider, FormGroup } from './ui';
+import MCPConfigGenerator from './MCPConfigGenerator';
 
 const Settings = () => {
   const [config, setConfig] = useState(null);
@@ -204,6 +205,9 @@ const Settings = () => {
             )}
           </div>
         </div>
+
+        {/* Client Configuration Generator */}
+        <MCPConfigGenerator />
       </div>
     </div>
   );

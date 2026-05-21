@@ -28,7 +28,26 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install elemm
 ```
 
-### 2. Option A: Connect your AI Agent (Local Setup)
+### 2. Generate your MCP Client Configuration
+
+The easiest way to connect your MCP Client (e.g., Cursor, Claude Desktop) is to use the built-in configuration generator. It automatically detects your OS, paths, and WSL environment:
+
+```bash
+elemm-gateway cfg-gen
+```
+
+Follow the interactive prompts to generate your JSON config snippet, then copy and paste it into your MCP client's configuration file.
+
+### 3. Start the Dashboard (Optional but Recommended)
+
+Launch the interactive dashboard to monitor tokens, manage credentials (Vault), configure security policies, and generate configs visually:
+
+```bash
+elemm-dashboard
+```
+Open `http://localhost:5173` in your browser.
+
+### 4. Option A: Connect your AI Agent (Local Setup)
 The fastest way to use Elemm locally is via the built-in **Gateway**. It acts as a universal MCP server that turns any OpenAPI or GraphQL API into a tool server.
 
 **Do not run this manually in your terminal.** Instead, configure your AI agent (like Claude Desktop or Cursor) to run the `elemm-gateway` command.

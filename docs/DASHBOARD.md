@@ -292,6 +292,14 @@ Edits the `~/.elemm/config.json` configuration file via a form UI.
 - **Execution Policy**: HTTP timeout, retry count, retry delay
 - **UI & Metrics**: Traffic display mode (`tokens`, `chars`, or `both`), and the char-to-token conversion ratio (default: 4 chars = 1 token)
 
+#### Self-Hosted Client Config Generator
+
+![Self-Hosted Client Config](images/dashboard-settings-2.png)
+
+At the bottom of the Settings page, you will find the **Self-Hosted Client Config Generator**. This tool automatically detects your current deployment environment (OS, WSL Distribution, Username, and Paths) and generates a perfectly formatted JSON configuration snippet.
+
+You can select your desired **Transport Method** (STDIO or SSE) and optionally provide a **Client-Session-ID** (which will be passed as `--name` to identify the client). Simply copy the output and paste it into your MCP client's configuration file (e.g., Cursor, RooCode, or Claude Desktop).
+
 ---
 
 ## 6. Configuration via the Dashboard

@@ -452,6 +452,40 @@ async def reset_dashboard():
     
     return {"status": "success", "message": "History and statistics cleared. Active sessions preserved."}
 
+@app.get("/api/v1/system/env")
+async def get_system_env():
+    import getpass
+    import platform
+    import shutil
+    import sys
+
+    os_type = "linux"
+    wsl_distro = ""
+    if platform.system().lower() == "windows":
+        os_type = "windows"
+    elif "microsoft" in platform.release().lower() or "wsl" in platform.release().lower():
+        os_type = "wsl"
+        wsl_distro = os.environ.get("WSL_DISTRO_NAME", "Ubuntu")
+    elif platform.system().lower() == "darwin":
+        os_type = "mac"
+
+    user = getpass.getuser()
+    
+    # Try to find the wrapper script directly
+    executable_path = shutil.which("elemm-gateway")
+    if not executable_path:
+        # Fallback to absolute python path
+        executable_path = f"{sys.executable} -m elemm_gateway.cli"
+
+    return {
+        "os": os_type,
+        "wsl_distro": wsl_distro,
+        "user": user,
+        "executable_path": executable_path,
+        "host_ip": "localhost",
+        "port": 8000
+    }
+
 CONFIG_PATH = os.path.expanduser("~/.elemm/config.json")
 
 @app.get("/api/v1/config")
