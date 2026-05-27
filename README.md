@@ -175,7 +175,7 @@ Licensed under the **Business Source License 1.1 (BSL 1.1)**.
 
 ### What does this mean for you?
 
-* **Startups, Indie Developers & Solo Creators:** If your organization has **fewer than 25 employees** (full-time equivalents) AND **less than $1,000,000 USD** in annual gross revenue, you can use Elemm (both Core and Gateway) **completely free of charge** for any purpose, including commercial production.
+* **Startups, Indie Developers & Solo Creators:** If your organization has **fewer than 50 employees** (full-time equivalents) AND **less than $5,000,000 USD** in annual gross revenue, you can use Elemm (both Core and Gateway) **completely free of charge** for any purpose, including commercial production.
 * **Large Enterprises:** If you exceed either of these thresholds, you must obtain a commercial license. Please reach out to `v3rm1ll1on@proton.me` to discuss commercial licensing.
 * **Long-Term Open Source Guarantee:** 4 years after the release of each version, the license for that version automatically converts to the **Mozilla Public License 2.0 (MPL 2.0)**, ensuring Elemm remains free and open-source in the long run.
 

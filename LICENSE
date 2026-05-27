@@ -1,26 +1,50 @@
 Business Source License 1.1
 
-Parameters:
-- Licensor: Marc Stöcker
-- Licensed Work: Elemm (including all sub-packages, core libraries, and gateway components)
-- Change Date: 4 years after the first public release of the licensed version
-- Change License: Mozilla Public License 2.0
+Parameters
 
-Additional Use Grant:
-Licensor hereby grants you the right to use the Licensed Work for any purpose, including commercial use, provided that your use does not violate any of the following conditions:
-1. Your organization (including all affiliates) has fewer than 25 employees (full-time equivalents).
-2. Your organization's annual gross revenue (including all affiliates) is less than 1,000,000 USD (or equivalent in local currency).
+Licensor:                 Marc Stöcker
+Software:                 Elemm (including all sub-packages, core libraries, and gateway components)
+Change License:           Mozilla Public License 2.0 (MPL 2.0)
+Change Date:              2030-05-27
 
-If you exceed either of these thresholds, your use of the Licensed Work (including integration of its libraries, decorators, or running the gateway) is not permitted under this License and requires a commercial license from the Licensor.
+Additional Use Grant:     You are fully permitted to use the Software for any production purpose, 
+                          FREE OF CHARGE, provided that:
+                          1. Your organization (including all affiliates) employs fewer than 50 
+                             full-time equivalent (FTE) employees, AND
+                          2. Your organization's annual gross revenue (including all affiliates) 
+                             is less than $5,000,000 USD (or local currency equivalent).
+                          
+                          If you exceed either of these thresholds, production use of the Software 
+                          (including integration of its libraries, decorators, or running the gateway) 
+                          is strictly prohibited unless you obtain a commercial license agreement 
+                          from the Licensor.
+                          
+                          The Software may be used without restriction by ANY entity for non-production 
+                          purposes, including testing, evaluation, and local development.
 
-Text of the License:
+Terms of the Business Source License
 
-1. Licensor hereby grants you the right to copy, modify, create derivative works, redistribute, and make non-production use of the Licensed Work. The Licensor may make an Additional Use Grant, allowing specified production use.
+1. The Licensor hereby grants you the right to copy, modify, create derivative works, redistribute, 
+   and run the Software licensed hereunder for non-Production Purposes and any Production Purposes 
+   permitted by the Additional Use Grant.
 
-2. Effective on the Change Date, or the fourth anniversary of the first public release of a version of the Licensed Work under this License, whichever is earlier, the Licensor grants you a license under the Change License.
+2. All copies of original and modified Software, and derivative works of the Software, and the 
+   compiled code and execution objects thereof, in any form must signify that the Software is 
+   licensed under this Business Source License, and show all Notices of this Business Source License, 
+   including the accurate Parameters.
 
-3. All copies of the Licensed Work and any modifications must include this License.
+3. The Licensor grants you the right to use the Software under the Change License instead of this 
+   Business Source License from and after the Change Date, or an earlier date specified by the Licensor. 
 
-4. If you infringe the terms of this License, your rights under this License terminate automatically.
+4. To the extent permitted by law, the Software is provided "as is" without any warranties, and 
+   the Licensor shall not be liable for any damages arising out of the use of the Software.
 
-5. THE LICENSED WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE LICENSED WORK OR THE USE OR OTHER DEALINGS IN THE LICENSED WORK.
+5. Intellectual Property Rights Not Granted. Except for the rights expressly granted under this 
+   License, this License does not grant you any ownership of or other intellectual property rights 
+   in the Software.
+
+6. Definitions. 
+   - "Production Purpose" means any use of the Software in an environment that is processed by 
+     end-users for commercial, institutional, or operational functions other than development, 
+     testing, or evaluation.
+   - "Notice" means this document, including the Parameters.
