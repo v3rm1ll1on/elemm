@@ -10,3 +10,4 @@ src/*.egg-info/
 scratch/
 .vscode/
 _tmp/
+~/

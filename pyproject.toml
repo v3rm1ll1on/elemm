@@ -11,10 +11,10 @@ authors = [
 description = "AI Landmarks: The specialized protocol for autonomous agent discovery."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "GPL-3.0-only" }
+license = { text = "Business Source License 1.1" }
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "License :: Other/Proprietary License",
     "Operating System :: OS Independent",
     "Framework :: FastAPI",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",

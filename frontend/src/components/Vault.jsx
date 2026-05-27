@@ -1,3 +1,11 @@
+/*
+ * Copyright (C) 2026 Marc Stöcker
+ * Website: https://elemm.dev
+ *
+ * This program is licensed under the Business Source License 1.1 (BSL 1.1).
+ * See the LICENSE file in the root directory for details.
+ */
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Key, Plus, Trash2, Eye, EyeOff, Globe, Clock, Shield, Info } from 'lucide-react';
 import './Vault.css';

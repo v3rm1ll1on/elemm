@@ -1,9 +1,8 @@
 # Copyright (C) 2026 Marc Stöcker
+# Website: https://elemm.dev
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+# This program is licensed under the Business Source License 1.1 (BSL 1.1).
+# See the LICENSE file in the root directory for details.
 
 import pytest
 import json
@@ -337,6 +336,5 @@ async def test_search_landmarks_security(gateway):
         assert data3["status"] == "error"
         assert data3["_PROTOCOL_ERROR"] == "ACCESS_DENIED"
         assert "Argument value contains restricted pattern" in data3["message"]
-
 
 
