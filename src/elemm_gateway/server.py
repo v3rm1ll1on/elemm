@@ -162,6 +162,8 @@ class ElemmGateway:
                 self.limit_search_items = self.config_manager.get("limit_search_items", 10)
                 self.vault_manager.user_agent = self.config_manager.get("user_agent", "ElemmGateway/1.0 (Autonomous Agent)")
 
+            self.mcp_config.reload_if_changed()
+
             if arguments is None: arguments = {}
             sid = self._resolve_session_id(arguments=arguments)
             
@@ -846,12 +848,34 @@ class ElemmGateway:
                     meta={"server_id": server_id}
                 ))
                 existing_ids.add(nav_id)
+            else:
+                # Update existing navigation landmark instructions/description
+                idx = next((i for i, l in enumerate(landmarks) if (l.get("id") if isinstance(l, dict) else getattr(l, "id", None)) == nav_id), None)
+                if idx is not None:
+                    if isinstance(landmarks[idx], dict):
+                        landmarks[idx]["instructions"] = server_conf.get("instructions", "")
+                        landmarks[idx]["description"] = server_conf.get("description", f"MCP Server {server_id}")
+                    else:
+                        landmarks[idx].instructions = server_conf.get("instructions", "")
+                        landmarks[idx].description = server_conf.get("description", f"MCP Server {server_id}")
 
             # 2. Add filtered action landmarks
             for lm in filtered_tools:
                 if lm.id not in existing_ids:
                     landmarks.append(lm)
                     existing_ids.add(lm.id)
+                else:
+                    # Update existing action landmark remedy, description and parameters on the fly
+                    idx = next((i for i, existing_lm in enumerate(landmarks) if (existing_lm.get("id") if isinstance(existing_lm, dict) else getattr(existing_lm, "id", None)) == lm.id), None)
+                    if idx is not None:
+                        if isinstance(landmarks[idx], dict):
+                            landmarks[idx]["remedy"] = lm.remedy
+                            landmarks[idx]["description"] = lm.description
+                            landmarks[idx]["parameters"] = lm.parameters
+                        else:
+                            landmarks[idx].remedy = lm.remedy
+                            landmarks[idx].description = lm.description
+                            landmarks[idx].parameters = lm.parameters
 
     async def run(self):
         """Runs the MCP server with passive telemetry streams."""
