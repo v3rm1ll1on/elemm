@@ -48,14 +48,14 @@ elemm-dashboard
 ```
 Open `http://localhost:8090` in your browser.
 
-### 3. Start Discovering
+### 4. Start Discovering
 
 Once connected, tell your agent:
 > *"Use Elemm to connect to https://petstore.swagger.io/v2/swagger.json and list all available pets."*
 
 The Gateway provides **9 core tools** to the agent. All domain-specific actions are discovered on-the-fly via the Elemm protocol.
 
-### 4. Build Your Own Landmark Server (Optional)
+### 5. Build Your Own Landmark Server (Optional)
 
 You can turn any Python function into a high-performance landmark using decorators. Depending on your needs, you can expose these landmarks in two ways:
 
