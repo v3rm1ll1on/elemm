@@ -28,6 +28,7 @@ class ConfigManager:
             "timeout_seconds": 30,
             "retry_attempts": 3,
             "retry_delay_ms": 1000,
+            "auto_get_manifest": False,
             "user_agent": "ElemmGateway/1.0 (Autonomous Agent)",
             "mcp_injection_mode": "global",
             "injected_mcp_servers": [],

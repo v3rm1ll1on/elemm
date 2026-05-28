@@ -59,3 +59,43 @@ async def test_gateway_broker_error_handling():
         
         res = await gateway._handle_call_tool("connect_to_site", {"url": target_url})
         assert any(word in res[0].text for word in ["Failed", "Error", "Connection refused"])
+
+@pytest.mark.asyncio
+async def test_gateway_broker_connect_with_manifest():
+    gateway = ElemmGateway()
+    target_url = "http://mock-site:8000"
+    
+    with respx.mock:
+        # Mock Manifest (Discovery) - Lazy Loading Pattern
+        manifest_url = f"{target_url}/.well-known/elemm-manifest.md"
+        respx.get(manifest_url).respond(
+            status_code=200,
+            text="### PROTOCOL RULES\nTest directive\n### LANDMARK TOPOLOGY\n- **test**: Area test\n"
+        )
+        
+        # Test Connect mit get_manifest=True
+        res = await gateway._handle_call_tool("connect_to_site", {"url": target_url, "get_manifest": True})
+        # Das Ergebnis sollte direkt das Manifest sein, nicht die Standard-Erfolgsmeldung
+        assert "PROTOCOL WORKFLOW" in res[0].text
+        assert "SESSION GOVERNANCE" in res[0].text
+        assert "test" in res[0].text
+        assert "Area test" in res[0].text
+        assert gateway.manifest_loaded is True
+
+@pytest.mark.asyncio
+async def test_gateway_broker_connect_with_config_manifest():
+    gateway = ElemmGateway()
+    gateway.config_manager.config["auto_get_manifest"] = True
+    target_url = "http://mock-site:8000"
+    
+    with respx.mock:
+        manifest_url = f"{target_url}/.well-known/elemm-manifest.md"
+        respx.get(manifest_url).respond(
+            status_code=200,
+            text="### PROTOCOL RULES\nTest directive\n### LANDMARK TOPOLOGY\n- **test**: Area test\n"
+        )
+        
+        res = await gateway._handle_call_tool("connect_to_site", {"url": target_url})
+        assert "PROTOCOL WORKFLOW" in res[0].text
+        assert "test" in res[0].text
+        assert gateway.manifest_loaded is True

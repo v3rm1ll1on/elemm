@@ -37,6 +37,6 @@ def get_version() -> str:
         pass
         
     # 3. Fallback
-    return "1.2.0"
+    return "1.3.1"
 
 __version__ = get_version()

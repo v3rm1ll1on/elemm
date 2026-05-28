@@ -182,3 +182,17 @@ class SmartRepairEngine:
             suggested_fix=best_suggestion,
             valid_options=allowed_options
         )
+
+    @staticmethod
+    def handle_mcp_error(error_msg: str, tool_data: Optional[Dict[str, Any]] = None) -> RepairResult:
+        """Generates a recommendation for MCP tool execution failures using only the configured custom remedy."""
+        remedy = ""
+        if tool_data:
+            custom_remedy = tool_data.get("remedy")
+            if custom_remedy:
+                remedy = custom_remedy
+                
+        return RepairResult(
+            message=error_msg,
+            remedy=remedy
+        )

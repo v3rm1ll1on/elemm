@@ -21,11 +21,13 @@ class GatewayToolRegistry:
     def get_connect_tool() -> types.Tool:
         return types.Tool(
             name="connect_to_site",
-            description="Connect to an Elemm-compliant website, OpenAPI, or GraphQL API via its URL.",
+            description="Connect to an Elemm-compliant website, OpenAPI, or GraphQL API via its URL. Can optionally return the manifest immediately.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "url": {"type": "string", "description": "The URL to connect to (e.g., https://api.example.com/openapi.json)"}
+                    "url": {"type": "string", "description": "The URL to connect to (e.g., https://api.example.com/openapi.json)"},
+                    "get_manifest": {"type": "boolean", "description": "If true, fetches and returns the system manifest immediately upon connection.", "default": False},
+                    "full": {"type": "boolean", "description": "If get_manifest is true, returns the complete manifest with all signatures.", "default": False}
                 },
                 "required": ["url"]
             }

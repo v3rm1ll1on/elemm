@@ -53,7 +53,8 @@ def test_gateway_initialization_with_config():
             }, f)
             
         # Patch expanduser to point to our temp config file
-        with patch("os.path.expanduser", side_effect=lambda x: config_path if "config.json" in x else x):
+        original_expanduser = os.path.expanduser
+        with patch("os.path.expanduser", side_effect=lambda x: config_path if "config.json" in x else original_expanduser(x)):
             gateway = ElemmGateway()
             assert gateway.limit_standard == 1234
             assert gateway.limit_inspect == 4321

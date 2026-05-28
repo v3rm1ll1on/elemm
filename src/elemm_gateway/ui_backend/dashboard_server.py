@@ -501,6 +501,7 @@ async def get_config():
             "security": {"disallowed_patterns": [], "disallowed_landmarks": [], "allowed_methods": []},
             "limit_standard": 30000, "limit_inspect": 20000, "timeout_seconds": 30,
             "retry_attempts": 3, "retry_delay_ms": 1000,
+            "auto_get_manifest": False,
             "ui": {"display_mode": "tokens", "char_to_token_ratio": 4.0}
         }
     except Exception as e:
@@ -508,12 +509,14 @@ async def get_config():
 
 @app.post("/api/v1/config")
 async def update_config(config: dict):
+    logger.info(f"Updating configuration: {config}")
     try:
         os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
         with open(CONFIG_PATH, "w") as f:
             json.dump(config, f, indent=2)
         return {"status": "success", "message": "Configuration updated successfully"}
     except Exception as e:
+        logger.error(f"Failed to update config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/v1/vault")

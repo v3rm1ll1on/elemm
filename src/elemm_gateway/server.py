@@ -307,8 +307,11 @@ class ElemmGateway:
 
         if name == "connect_to_site":
             url = arguments.get("url")
+            auto_get_manifest = self.config_manager.get("auto_get_manifest", False)
+            get_manifest_opt = arguments.get("get_manifest", auto_get_manifest)
+            get_manifest_full = arguments.get("full", False)
             if not url: return [types.TextContent(type="text", text="Error: URL is required.")]
-            return await self._connect(url, session_id=sid)
+            return await self._connect(url, session_id=sid, get_manifest=get_manifest_opt, get_manifest_full=get_manifest_full)
 
         url = self._get_active_url(sid)
         if not url: return [types.TextContent(type="text", text="Error: Not connected to any site.")]
@@ -595,14 +598,49 @@ class ElemmGateway:
                 elif isinstance(remedy_info, str):
                     remedy_msg = remedy_info
 
-                tool_data = {
-                    "name": tool_name,
-                    "remedy": remedy_msg,
-                    "meta": {
-                        "server_id": server_id,
-                        "tool_name": t_name
+                # Try to find the real landmark object with parameter schemas
+                landmark_obj = None
+                if site_data and site_data.get("landmarks"):
+                    landmark_obj = next((t for t in site_data["landmarks"] if (
+                        getattr(t, 'id', None) == tool_name or 
+                        (isinstance(t, dict) and t.get('id') == tool_name)
+                    )), None)
+                
+                # Ad-hoc discovery fallback if not found in current site's landmarks
+                if not landmark_obj:
+                    try:
+                        discovered = await self.mcp_bridge.discover_landmarks(server_id, vault_manager=self.vault_manager)
+                        landmark_obj = next((t for t in discovered if getattr(t, 'id', None) == tool_name), None)
+                    except Exception as e:
+                        logger.warning(f"Ad-hoc landmark discovery failed for {tool_name}: {e}")
+                
+                tool_data = None
+                if landmark_obj:
+                    if hasattr(landmark_obj, "model_dump"):
+                        tool_data = landmark_obj.model_dump()
+                    elif hasattr(landmark_obj, "dict"):
+                        tool_data = landmark_obj.dict()
+                    elif isinstance(landmark_obj, dict):
+                        tool_data = landmark_obj
+                
+                if not tool_data:
+                    tool_data = {
+                        "name": tool_name,
+                        "remedy": remedy_msg,
+                        "meta": {
+                            "server_id": server_id,
+                            "tool_name": t_name
+                        }
                     }
-                }
+                else:
+                    # Enrich with remedy message and correct meta fields
+                    if not tool_data.get("remedy") and remedy_msg:
+                        tool_data["remedy"] = remedy_msg
+                    if "meta" not in tool_data or not tool_data["meta"]:
+                        tool_data["meta"] = {}
+                    tool_data["meta"]["server_id"] = server_id
+                    tool_data["meta"]["tool_name"] = t_name
+
                 return await self.mcp_executor.execute(tool_data, arguments)
 
         active_url = self._get_active_url(sid)
@@ -721,7 +759,7 @@ class ElemmGateway:
                 "remedy": "Ensure the target API is online and the URL is correct. If the endpoint requires authentication, verify your credentials in ~/.elemm/vault.json."
             }, indent=2)
 
-    async def _connect(self, url: str, session_id: Optional[str] = None) -> List[types.TextContent]:
+    async def _connect(self, url: str, session_id: Optional[str] = None, get_manifest: bool = False, get_manifest_full: bool = False) -> List[types.TextContent]:
         """Delegates connection probing to ManifestService."""
         url = url.strip().rstrip("/")
         self.manifest_loaded = False
@@ -739,6 +777,8 @@ class ElemmGateway:
                 "tools": []
             }
             self.active_site_urls[sid] = url
+            if get_manifest:
+                return await self._proxy_core_tool("get_manifest", {"full": get_manifest_full}, session_id=sid)
             return [types.TextContent(type="text", text="SUCCESS: CONNECTED to Pure Local MCP Environment.\n\nNEXT: Call 'get_manifest'.")]
 
         self.vault_manager.vault = self.vault_manager.load()
@@ -753,6 +793,11 @@ class ElemmGateway:
                 connected_sites[url]["tools"] = res.get("tools", [])
                 
             self.active_site_urls[sid] = url
+            if get_manifest:
+                self.manifest_loaded = True
+                res_text = res.get("manifest", "")
+                res_text = ManifestService.inject_globals(res_text, full=get_manifest_full)
+                return self._format_result(res_text)
             display_type = "GraphQL" if res["type"] == "graphql" else res["type"].upper()
             return [types.TextContent(type="text", text=f"SUCCESS: CONNECTED to {display_type} API at {url}\n\nNEXT: Call 'get_manifest'.")]
         

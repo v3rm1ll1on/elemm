@@ -266,4 +266,10 @@ class MCPBridge:
             elif isinstance(content, dict) and "text" in content:
                 texts.append(content["text"])
         
-        return "\n".join(texts)
+        result_str = "\n".join(texts)
+        
+        is_error = getattr(resp, "isError", False) or getattr(resp, "is_error", False)
+        if isinstance(is_error, bool) and is_error:
+            raise RuntimeError(result_str)
+            
+        return result_str

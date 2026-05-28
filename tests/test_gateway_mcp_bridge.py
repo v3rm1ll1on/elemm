@@ -124,6 +124,51 @@ async def test_mcp_bridge_tool_call():
 
 
 @pytest.mark.asyncio
+async def test_mcp_bridge_tool_call_error():
+    """Tests if MCPBridge raises RuntimeError when the tool execution returns isError=True."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        config_path = os.path.join(tmp_dir, "mcp_servers.yaml")
+        config_data = {
+            "version": "1.0",
+            "servers": {
+                "demo": {
+                    "name": "Demo Server",
+                    "transport": "stdio",
+                    "command": "python3",
+                    "args": []
+                }
+            }
+        }
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(config_data, f)
+
+        config_manager = MCPConfigManager(config_path)
+        
+        mock_text_content = MagicMock()
+        mock_text_content.text = "Etwas ging schief!"
+        
+        mock_call_result = MagicMock()
+        mock_call_result.content = [mock_text_content]
+        # explicitly set isError to True and bypass MagicMock auto-creation
+        mock_call_result.isError = True
+        mock_call_result.is_error = True
+        
+        mock_session = AsyncMock()
+        mock_session.call_tool.return_value = mock_call_result
+        
+        mock_process_manager = AsyncMock(spec=MCPProcessManager)
+        mock_process_manager.get_session.return_value = mock_session
+        
+        bridge = MCPBridge(config_manager, mock_process_manager)
+        
+        with pytest.raises(RuntimeError) as exc_info:
+            await bridge.call_tool("demo", "test_tool", {"param": "val"})
+            
+        assert "Etwas ging schief!" in str(exc_info.value)
+
+
+
+@pytest.mark.asyncio
 async def test_mcp_executor_success():
     """Tests if MCPExecutor executes successfully, formats output, and applies hygiene."""
     from elemm_gateway.services.executors import MCPExecutor
@@ -190,6 +235,50 @@ async def test_mcp_executor_error_with_remedy():
 
 
 @pytest.mark.asyncio
+async def test_mcp_executor_heuristic_remedy():
+    """Tests if MCPExecutor generates correct intelligent heuristic remedies based on the error content."""
+    from elemm_gateway.services.executors import MCPExecutor
+    import json
+    
+    # 1. No custom remedy configured (should return empty remedy)
+    mock_bridge = AsyncMock()
+    mock_bridge.call_tool.side_effect = Exception("path.block_id should be a valid uuid, instead was undefined")
+    executor = MCPExecutor(mock_bridge)
+    
+    tool_data = {
+        "id": "mcp:demo:test_tool",
+        "meta": {"server_id": "demo", "tool_name": "test_tool"}
+    }
+    
+    res = await executor.execute(tool_data, {})
+    res_data = json.loads(res)
+    assert res_data["status"] == "error"
+    assert "remedy" not in res_data
+
+    # 2. Configured custom remedy
+    tool_data_with_remedy = {
+        "id": "mcp:demo:test_tool",
+        "meta": {"server_id": "demo", "tool_name": "test_tool"},
+        "remedy": "Ensure block_id is a valid Notion UUID. Use notion:search first."
+    }
+    mock_bridge.call_tool.side_effect = Exception("path.block_id failed validation")
+    res = await executor.execute(tool_data_with_remedy, {})
+    res_data = json.loads(res)
+    assert res_data["status"] == "error"
+    assert res_data["remedy"] == "Ensure block_id is a valid Notion UUID. Use notion:search first."
+
+    # 3. Configured custom remedy inside structured JSON error
+    json_error_str = '{"status": 400, "object": "error", "code": "validation_error", "message": "path.block_id failed validation"}'
+    mock_bridge.call_tool.side_effect = Exception(json_error_str)
+    res = await executor.execute(tool_data_with_remedy, {})
+    res_data = json.loads(res)
+    assert res_data["status"] == 400 or res_data["status"] == "error"
+    assert res_data["code"] == "validation_error"
+    assert res_data["message"] == "path.block_id failed validation"
+    assert res_data["remedy"] == "Ensure block_id is a valid Notion UUID. Use notion:search first."
+
+
+@pytest.mark.asyncio
 async def test_elemm_gateway_mcp_integration():
     """Integration test to verify that ElemmGateway correctly delegates and processes MCP tool execution and discovery."""
     from elemm_gateway.server import ElemmGateway
@@ -211,7 +300,8 @@ async def test_elemm_gateway_mcp_integration():
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.safe_dump(config_data, f)
             
-        with patch("os.path.expanduser", side_effect=lambda x: config_path if "mcp_servers.yaml" in x else x):
+        original_expanduser = os.path.expanduser
+        with patch("os.path.expanduser", side_effect=lambda x: config_path if "mcp_servers.yaml" in x else original_expanduser(x)):
             gateway = ElemmGateway()
             
             # Mock the discover_landmarks and call_tool of self.mcp_bridge

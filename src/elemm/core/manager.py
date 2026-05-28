@@ -497,7 +497,7 @@ class AIProtocolManager:
         )
 
     def list_aliases(self) -> Dict[str, Any]:
-        return self.global_context
+        return self.global_context.copy()
 
     def get_manifest_dict(self) -> List[Dict[str, Any]]:
         """Gibt eine Liste aller Landmarken als Dictionary zurück."""

@@ -37,7 +37,7 @@ class Landmark(LandmarkMetadata):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     
     id: str
-    handler: Optional[Callable] = None
+    handler: Optional[Callable] = Field(default=None, exclude=True)
     tools: List["Landmark"] = Field(default_factory=list)
 
 class LandmarkRegistry:
