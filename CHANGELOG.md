@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-05-27
+
+### Added
+- **Config & Vault Hot-Reload Capability**: Added `reload_if_changed()` triggers to both `mcp_servers.yaml` (external servers) and `vault.json` (Vault credentials) during every tool execution inside the gateway (`_handle_call_tool`). This allows developers to change remedies or API keys in the dashboard without restarting the gateway or IDE.
+
+### Changed
+- **Relicensing to Business Source License 1.1 (BSL 1.1)**: Formally transitioned the entire codebase (core, gateway, and dashboard) from GPLv3 to the standard BSL 1.1 (BUSL-1.1), with a guaranteed conversion to the Mozilla Public License 2.0 (MPL 2.0) after 4 years (Change Date: 2030-05-27).
+- **Adoption-Friendly Thresholds**: Set the BSL Additional Use Grant to permit free commercial use in production for any organization employing fewer than 50 FTEs AND generating less than $5,000,000 USD in annual gross revenue.
+
+### Fixed
+- **MCP Remedy Cache Stale Bug**: Resolved an issue where modified remedies for existing external MCP servers in the dashboard were ignored because the gateway skipped injecting landmark properties if the server ID was already loaded.
+- **License Headers**: Sanitized all remaining GPLv3 file headers in the gateway core (`__init__.py`) and added the BSL 1.1 notice to the dashboard server and generator scripts.
+
 ## [1.3.0] - 2026-05-21
 
 ### Added

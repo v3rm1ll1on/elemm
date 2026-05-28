@@ -93,7 +93,7 @@ async def it_logs(
         if not logs:
             return JSONResponse(
                 status_code=422,
-                content={"status": "error", "message": f"Keine Logs für Host '{hostname}' gefunden. Hast du den richtigen Hostname aus dem NOC-Tool?"}
+                content={"status": "error", "message": f"No logs found for host '{hostname}'. Did you use the correct hostname from the NOC tool?"}
             )  
     
     # Map 'token' to 'evidence_token' if necessary
@@ -114,7 +114,7 @@ async def bank_link(token: str = Query(..., description="Routing Token (RT-XXXX)
     if not acc: 
         raise HTTPException(
             status_code=422, 
-            detail=f"Token '{token}' konnte in der Banking-Datenbank nicht gefunden werden."
+            detail=f"Token '{token}' was not found in the banking database."
         )
     return {"account_id": acc, "token": token}
 
@@ -125,7 +125,7 @@ async def fin_audit(account_id: str = Query(..., description="Account Identifier
     if not emp: 
         raise HTTPException(
             status_code=422, 
-            detail=f"Konto-ID '{account_id}' existiert nicht in den Finanzunterlagen."
+            detail=f"Account ID '{account_id}' does not exist in the financial records."
         )
     return {"employee_id": emp, "account_id": account_id}
 
@@ -136,7 +136,7 @@ async def hr_resolve(employee_id: str = Query(..., description="Employee ID (EMP
     if not user: 
         raise HTTPException(
             status_code=422, 
-            detail=f"Mitarbeiter-ID '{employee_id}' ist im HR-System unbekannt."
+            detail=f"Employee ID '{employee_id}' is unknown in the HR system."
         )
     return {"username": user, "employee_id": employee_id}
 

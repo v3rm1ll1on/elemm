@@ -1,18 +1,8 @@
 # Copyright (C) 2026 Marc Stöcker
 # Website: https://elemm.dev
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# This program is licensed under the Business Source License 1.1 (BSL 1.1).
+# See the LICENSE file in the root directory for details.
 
 import logging
 import asyncio
@@ -276,4 +266,10 @@ class MCPBridge:
             elif isinstance(content, dict) and "text" in content:
                 texts.append(content["text"])
         
-        return "\n".join(texts)
+        result_str = "\n".join(texts)
+        
+        is_error = getattr(resp, "isError", False) or getattr(resp, "is_error", False)
+        if isinstance(is_error, bool) and is_error:
+            raise RuntimeError(result_str)
+            
+        return result_str

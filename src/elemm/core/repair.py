@@ -1,18 +1,8 @@
 # Copyright (C) 2026 Marc Stöcker
 # Website: https://elemm.dev
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# This program is licensed under the Business Source License 1.1 (BSL 1.1).
+# See the LICENSE file in the root directory for details.
 
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
@@ -191,4 +181,18 @@ class SmartRepairEngine:
             remedy=remedy,
             suggested_fix=best_suggestion,
             valid_options=allowed_options
+        )
+
+    @staticmethod
+    def handle_mcp_error(error_msg: str, tool_data: Optional[Dict[str, Any]] = None) -> RepairResult:
+        """Generates a recommendation for MCP tool execution failures using only the configured custom remedy."""
+        remedy = ""
+        if tool_data:
+            custom_remedy = tool_data.get("remedy")
+            if custom_remedy:
+                remedy = custom_remedy
+                
+        return RepairResult(
+            message=error_msg,
+            remedy=remedy
         )

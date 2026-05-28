@@ -26,6 +26,23 @@ Elemm is built to be **lightweight, fast, and framework-agnostic**. We value:
 4. Update documentation in the `docs/` folder if you change or add features.
 5. Add a test case in the `tests/` directory if you add a new feature or fix a bug.
 
+## Contributor License Agreement (CLA)
+
+Since Elemm is licensed under the Business Source License 1.1 (BSL 1.1) and transitions to the Mozilla Public License 2.0 (MPL 2.0), the Licensor (Marc Stöcker) must retain the right to license all contributions commercially (above the BSL thresholds). 
+
+Therefore, by submitting a Pull Request to this project, you agree that your contributions are subject to the **Elemm Individual Contributor License Agreement (CLA)**.
+
+### How to Sign the CLA
+We use the automated **CLA Assistant** tool. When you open a Pull Request, our CLA Bot will automatically check if you have signed the agreement. If not, it will provide a link to sign it digitally with your GitHub account in one click.
+
+### Summary of the CLA terms:
+* **Retention of Ownership:** You retain the copyright and ownership of your code.
+* **Grant of Rights:** You grant Marc Stöcker a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable license to use, modify, sub-license, and distribute your contributions under any license, including commercial and proprietary licenses.
+* **Originality:** You represent that your contribution is your original creation and you are legally entitled to grant these rights.
+* **No Warranty:** Your contributions are provided "AS-IS", without warranties of any kind.
+
+You can read the full text of the CLA in our [CLA.md](CLA.md) file in the root directory.
+
 ## Development Setup
 ```bash
 # Clone the repository

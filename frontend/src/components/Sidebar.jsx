@@ -1,3 +1,11 @@
+/*
+ * Copyright (C) 2026 Marc Stöcker
+ * Website: https://elemm.dev
+ *
+ * This program is licensed under the Business Source License 1.1 (BSL 1.1).
+ * See the LICENSE file in the root directory for details.
+ */
+
 import React, { useState } from 'react';
 import { 
   LayoutDashboard, 
@@ -72,9 +80,17 @@ const Sidebar = ({ activeTab, setActiveTab, isOnline }) => {
         ))}
       </nav>
 
-      <div className="sidebar-footer">
-        <div className={`status-dot ${isOnline ? 'online' : 'offline'}`}></div>
-        {isExpanded && <span className="status-text">{isOnline ? 'Gateway Online' : 'Gateway Offline'}</span>}
+      <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className={`status-dot ${isOnline ? 'online' : 'offline'}`}></div>
+          {isExpanded && <span className="status-text">{isOnline ? 'Gateway Online' : 'Gateway Offline'}</span>}
+        </div>
+        {isExpanded && (
+          <div className="license-info" style={{ fontSize: '10px', opacity: 0.5, marginTop: '4px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '4px', width: '100%' }}>
+            © 2026 Marc Stöcker<br />
+            Licensed under BSL 1.1
+          </div>
+        )}
       </div>
     </div>
   );

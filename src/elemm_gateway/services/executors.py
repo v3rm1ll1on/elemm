@@ -1,18 +1,8 @@
 # Copyright (C) 2026 Marc Stöcker
 # Website: https://elemm.dev
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# This program is licensed under the Business Source License 1.1 (BSL 1.1).
+# See the LICENSE file in the root directory for details.
 
 import json
 import httpx
@@ -22,6 +12,7 @@ from urllib.parse import urlparse
 from elemm.core.repair import SmartRepairEngine
 from .vault import VaultManager
 from .hygiene import ResponseSquisher
+
 
 class GraphQLExecutor:
     """Handles generation and execution of GraphQL queries."""
@@ -332,6 +323,22 @@ class MCPExecutor:
             except:
                 data = raw_res
                 
+            # Check if parsed JSON represents an API error response (e.g. from Notion/OpenAI/etc.)
+            is_json_error = False
+            if isinstance(data, dict):
+                status_val = data.get("status")
+                if isinstance(status_val, int) and status_val >= 400:
+                    is_json_error = True
+                elif isinstance(status_val, str) and status_val.isdigit() and int(status_val) >= 400:
+                    is_json_error = True
+                elif data.get("object") == "error":
+                    is_json_error = True
+                elif "error" in data and isinstance(data["error"], (str, dict)):
+                    is_json_error = True
+                    
+            if is_json_error:
+                raise RuntimeError(raw_res)
+                
             if isinstance(data, (dict, list)):
                 data, was_truncated, total = ResponseSquisher.squish(data, select, filter_str, limit, offset)
                 if was_truncated:
@@ -348,8 +355,23 @@ class MCPExecutor:
             
         except Exception as e:
             error_msg = str(e)
-            remedy = tool_data.get("remedy") or "Überprüfe die Argumente und versuche es erneut."
             
+            # Determine remedy from the raw error message
+            repair = SmartRepairEngine.handle_mcp_error(error_msg, tool_data)
+            remedy = tool_data.get("remedy") or repair.remedy
+            
+            # If the raw error is already valid JSON, we just inject the remedy to avoid rewriting it
+            try:
+                err_data = json.loads(error_msg)
+                if isinstance(err_data, dict):
+                    if remedy:
+                        err_data["remedy"] = remedy
+                    if "status" not in err_data:
+                        err_data["status"] = "error"
+                    return json.dumps(err_data, indent=2)
+            except:
+                pass
+                
             # Determine protocol error type
             protocol_error = "EXECUTION_FAILED"
             if "rate limit" in error_msg.lower():
@@ -357,10 +379,12 @@ class MCPExecutor:
             elif "validation" in error_msg.lower() or "invalid parameter" in error_msg.lower():
                 protocol_error = "VALIDATION_FAILED"
                 
-            return json.dumps({
+            res_obj = {
                 "status": "error",
                 "_PROTOCOL_ERROR": protocol_error,
-                "message": f"MCP tool execution failed: {error_msg}",
-                "remedy": remedy
-            }, indent=2)
-
+                "message": error_msg
+            }
+            if remedy:
+                res_obj["remedy"] = remedy
+                
+            return json.dumps(res_obj, indent=2)

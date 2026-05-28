@@ -1,18 +1,8 @@
 # Copyright (C) 2026 Marc Stöcker
 # Website: https://elemm.dev
 #
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+# This program is licensed under the Business Source License 1.1 (BSL 1.1).
+# See the LICENSE file in the root directory for details.
 
 import os
 import json
@@ -28,7 +18,9 @@ class VaultManager:
 
     def __init__(self, vault_path: str, user_agent: Optional[str] = None):
         self.vault_path = vault_path
-        self.vault = self.load()
+        self.last_mtime = 0
+        self.vault = {}
+        self.load()
         self.user_agent = user_agent or self.DEFAULT_USER_AGENT
 
     def load(self) -> Dict[str, Any]:
@@ -39,18 +31,38 @@ class VaultManager:
                     os.makedirs(config_dir, exist_ok=True)
                 with open(self.vault_path, "w") as f:
                     json.dump({}, f, indent=2)
+                self.last_mtime = os.path.getmtime(self.vault_path)
                 logger.info(f"Vault: Created default empty vault at {self.vault_path}")
             except Exception as e:
                 logger.warning(f"Vault: Could not create default empty vault: {e}")
+            self.vault = {}
             return {}
         try:
+            self.last_mtime = os.path.getmtime(self.vault_path)
             with open(self.vault_path, "r") as f:
-                return json.load(f)
+                self.vault = json.load(f)
+                return self.vault
         except Exception as e:
             logger.error(f"Vault: Failed to load from {self.vault_path}: {e}")
+            self.vault = {}
             return {}
 
+    def reload_if_changed(self) -> bool:
+        """Reloads the vault if the file has been modified on disk."""
+        if not os.path.exists(self.vault_path):
+            return False
+        try:
+            current_mtime = os.path.getmtime(self.vault_path)
+            if current_mtime != self.last_mtime:
+                logger.info("Vault: File change detected, reloading...")
+                self.load()
+                return True
+        except Exception as e:
+            logger.debug(f"Vault: Periodic mtime check failed: {e}")
+        return False
+
     def get_entry(self, host: str) -> Optional[Dict[str, Any]]:
+        self.reload_if_changed()
         return self.vault.get(host)
 
     def apply_auth(self, host: str, params: Dict[str, Any], headers: Dict[str, Any]):

@@ -1,9 +1,17 @@
+/*
+ * Copyright (C) 2026 Marc Stöcker
+ * Website: https://elemm.dev
+ *
+ * This program is licensed under the Business Source License 1.1 (BSL 1.1).
+ * See the LICENSE file in the root directory for details.
+ */
+
 import React, { useState, useEffect } from 'react';
 import { Shield, Clock, Zap } from 'lucide-react';
 import Tooltip from './Tooltip';
 import './Settings.css';
 import { API_BASE } from '../config';
-import { Input, Select, Slider, FormGroup } from './ui';
+import { Input, Select, Slider, FormGroup, Switch } from './ui';
 import MCPConfigGenerator from './MCPConfigGenerator';
 
 const Settings = () => {
@@ -127,6 +135,18 @@ const Settings = () => {
                 <Input type="number" value={config.retry_delay_ms} onChange={(e) => updateNested('retry_delay_ms', parseInt(e.target.value))} />
               </FormGroup>
             </div>
+            <FormGroup label={<>Auto-fetch Manifest <Tooltip text="Automatically fetch and return the system manifest immediately upon connection. Saves one tool call." /></>}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '8px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+                <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Enable direct manifest loading on connect</span>
+                <Switch 
+                  checked={!!config.auto_get_manifest} 
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setConfig(prev => ({ ...prev, auto_get_manifest: checked }));
+                  }} 
+                />
+              </div>
+            </FormGroup>
           </div>
         </div>
 

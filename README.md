@@ -3,7 +3,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/elemm?style=flat-square&color=blue)](https://pypi.org/project/elemm/)
 [![Downloads](https://img.shields.io/pypi/dm/elemm?style=flat-square&color=darkgreen)](https://pypi.org/project/elemm/)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/v3rm1ll1on/elemm/workflow.yml?branch=main&style=flat-square)](https://github.com/v3rm1ll1on/elemm/actions/workflows/workflow.yml)
-[![License](https://img.shields.io/github/license/v3rm1ll1on/elemm?style=flat-square&color=orange)](https://github.com/v3rm1ll1on/elemm/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/License-BSL_1.1-orange?style=flat-square)](https://github.com/v3rm1ll1on/elemm/blob/main/LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=flat-square&logo=discord&logoColor=white)](https://discord.gg/Na5aBca8bR)
 [![Python versions](https://img.shields.io/badge/python-3.10+-blue?style=flat-square)](https://pypi.org/project/elemm/)
 [![Website](https://img.shields.io/badge/Website-elemm.dev-teal?style=flat-square)](https://elemm.dev)
@@ -48,14 +48,14 @@ elemm-dashboard
 ```
 Open `http://localhost:8090` in your browser.
 
-### 3. Start Discovering
+### 4. Start Discovering
 
 Once connected, tell your agent:
 > *"Use Elemm to connect to https://petstore.swagger.io/v2/swagger.json and list all available pets."*
 
 The Gateway provides **9 core tools** to the agent. All domain-specific actions are discovered on-the-fly via the Elemm protocol.
 
-### 4. Build Your Own Landmark Server (Optional)
+### 5. Build Your Own Landmark Server (Optional)
 
 You can turn any Python function into a high-performance landmark using decorators. Depending on your needs, you can expose these landmarks in two ways:
 
@@ -167,6 +167,16 @@ Standard protocols like MCP often struggle with large-scale toolsets. Elemm prov
 
 ---
 
-## License
+## License & Commercial Use
+
 Copyright (C) 2026 Marc Stöcker.
-GPLv3 License. See [LICENSE](LICENSE) for details.
+
+Licensed under the **Business Source License 1.1 (BSL 1.1)**.
+
+### What does this mean for you?
+
+* **Startups, Indie Developers & Solo Creators:** If your organization has **fewer than 50 employees** (full-time equivalents) AND **less than $5,000,000 USD** in annual gross revenue, you can use Elemm (both Core and Gateway) **completely free of charge** for any purpose, including commercial production.
+* **Large Enterprises:** If you exceed either of these thresholds, you must obtain a commercial license. Please reach out to `v3rm1ll1on@proton.me` to discuss commercial licensing.
+* **Long-Term Open Source Guarantee:** 4 years after the release of each version, the license for that version automatically converts to the **Mozilla Public License 2.0 (MPL 2.0)**, ensuring Elemm remains free and open-source in the long run.
+
+For the full license terms, please see the [LICENSE](LICENSE) file.
