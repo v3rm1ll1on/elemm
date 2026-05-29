@@ -160,12 +160,22 @@ async def async_main():
             import uvicorn
 
             sse = SseServerTransport("/messages")
-            # ... rest of the sse logic (I will keep it as is from previous edit)
+            active_sessions = set()
 
             async def handle_sse(request):
                 from elemm_gateway.services.connected_clients import current_client_id
                 from elemm_gateway.services.monitor import get_monitor
+                import uuid
+                
                 sid = request.query_params.get("session_id", "default")
+                
+                # Check for collision and assign a unique suffix if already active
+                if sid in active_sessions:
+                    original_sid = sid
+                    sid = f"{sid}-{str(uuid.uuid4())[:8]}"
+                    logger.warning(f"Session ID collision detected for '{original_sid}'. Assigned unique ID: '{sid}'")
+                
+                active_sessions.add(sid)
                 
                 # Register session in dashboard immediately upon connection
                 get_monitor().report_activity(
@@ -183,6 +193,7 @@ async def async_main():
                             gateway.server.create_initialization_options()
                         )
                 finally:
+                    active_sessions.discard(sid)
                     get_monitor().report_activity(
                         last_action=f"Client disconnected: {sid}",
                         status="success",

@@ -87,17 +87,22 @@ class ElemmGateway:
 
     def _resolve_session_id(self, session_id: Optional[str] = None, arguments: Optional[Dict] = None) -> str:
         """Resolves the current session ID by checking arguments, manual override, ContextVar, and finally self.session_id."""
+        sid = None
         if arguments and isinstance(arguments, dict) and "session_id" in arguments:
-            return arguments["session_id"]
-        if session_id:
-            return session_id
+            sid = arguments["session_id"]
+        elif session_id:
+            sid = session_id
             
-        from elemm_gateway.services.connected_clients import current_client_id
-        ctx_sid = current_client_id.get()
-        if ctx_sid and ctx_sid != "default":
-            return ctx_sid
+        if not sid or sid == "default":
+            from elemm_gateway.services.connected_clients import current_client_id
+            ctx_sid = current_client_id.get()
+            if ctx_sid and ctx_sid != "default":
+                sid = ctx_sid
+                
+        if not sid or sid == "default":
+            sid = self.session_id
             
-        return self.session_id
+        return sid or "default"
 
     @property
     def active_site_url(self) -> Optional[str]:
@@ -165,7 +170,18 @@ class ElemmGateway:
             self.mcp_config.reload_if_changed()
 
             if arguments is None: arguments = {}
-            sid = self._resolve_session_id(arguments=arguments)
+            
+            # Enforce session isolation for MCP client tool calls to prevent session hijacking
+            from elemm_gateway.services.connected_clients import current_client_id
+            ctx_sid = current_client_id.get()
+            if ctx_sid and ctx_sid != "default":
+                sid = ctx_sid
+            else:
+                sid = self.session_id
+            
+            # Rewrite any injected session_id in arguments to match the authorized session
+            if "session_id" in arguments:
+                arguments["session_id"] = sid
             
             # Security Check: Validate the entire tool call against the security policy
             if self.security_policy:

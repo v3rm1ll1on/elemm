@@ -27,7 +27,8 @@ class GatewayToolRegistry:
                 "properties": {
                     "url": {"type": "string", "description": "The URL to connect to (e.g., https://api.example.com/openapi.json)"},
                     "get_manifest": {"type": "boolean", "description": "If true, fetches and returns the system manifest immediately upon connection.", "default": False},
-                    "full": {"type": "boolean", "description": "If get_manifest is true, returns the complete manifest with all signatures.", "default": False}
+                    "full": {"type": "boolean", "description": "If get_manifest is true, returns the complete manifest with all signatures.", "default": False},
+                    "session_id": {"type": "string", "description": "Optional session ID for memory isolation.", "default": "default"}
                 },
                 "required": ["url"]
             }
